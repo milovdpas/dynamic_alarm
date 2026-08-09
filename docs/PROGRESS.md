@@ -1,0 +1,386 @@
+# Progress
+
+Living status for the Smart Dynamic Alarm build. Architecture lives in [PLAN.md](./PLAN.md);
+code style and structure in [CONVENTIONS.md](./CONVENTIONS.md).
+
+**Legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
+
+_Last updated: 2026-08-09_
+
+---
+
+## Resolved: the alarm is now fully native
+
+The finding below was real and has been fixed by rewriting the alarm in Kotlin.
+Nothing on the path from "the alarm is due" to "the phone makes noise" touches
+JavaScript any more. **Awaiting device re-verification.**
+
+```
+AlarmManager.setAlarmClock          exempt from Doze, shows in the status bar
+  -> AlarmReceiver (broadcast)      minimal work, system holds a wake lock
+    -> AlarmService (foreground)    plays USAGE_ALARM audio, looping
+                                    holds its own wake lock
+                                    posts the full-screen-intent notification
+                                    Dismiss / Snooze broadcast back to the receiver
+BootReceiver                        re-arms from AlarmStore after a restart
+AlarmStore (SharedPreferences)      durable, readable with no JS and no DB
+```
+
+`react-native-notify-kit` is removed entirely. `AlarmScheduler` kept its
+interface, so the ring screen, engine, routing and tests were unaffected; only
+the implementation behind it changed. The ring screen no longer starts or stops
+audio, it only asks the service to stop or snooze, which means the alarm rings
+correctly even if that screen never appears.
+
+Foreground service type is `specialUse` with subtype `alarm`. `mediaPlayback`
+would also work and is what several alarm apps declare, but it is meant for
+user-initiated media and would be a misdeclaration on a Play listing.
+
+---
+
+## Original finding: the alarm cannot ring while the app is killed
+
+Confirmed on device 2026-08-09, after a reboot and after a force-quit: the
+notification appears at the right moment, but **no sound plays until the app is
+opened by hand.**
+
+The cause is architectural, not a bug. Audio is started from JavaScript, in the
+notifee background event handler. When the process is dead there is no JS running,
+and Android does not boot a JS context just to deliver a scheduled notification.
+The `AlarmManager` part works fine, since that lives in the system. The sound does
+not, because it lives in our bundle.
+
+The cheap workaround does not hold either. Moving the sound onto the notification
+channel would make Android play it natively, but notify-kit hardcodes
+`USAGE_NOTIFICATION` when it sets a channel sound
+(`ChannelManager.java:78`), so the alarm would play at *notification* volume on the
+notification stream. For an alarm clock that is the wrong stream: a user with
+notifications turned down and alarm volume up would not be woken.
+
+**The alarm has to be fully native**, the way the system Clock app does it:
+`AlarmManager` to a `BroadcastReceiver`, which starts a foreground `Service` that
+plays the tone with `USAGE_ALARM` and posts the full-screen-intent notification.
+JavaScript then only schedules and reads state, and is never on the path between
+the alarm firing and the phone making noise. `docs/PLAN.md` already listed this as
+the fallback if notify-kit proved insufficient.
+
+Everything else built so far survives: `AlarmScheduler` keeps its interface, the
+ring screen, actions, routing and engine are unaffected.
+
+## M0 is complete
+
+Every failure mode that would make this untrustworthy as an alarm has been
+exercised on hardware (LineageOS, Android 36, preview build) and passes:
+
+| Verified | |
+|---|---|
+| Sound on the alarm stream, user's own system tone | pass |
+| Ring screen over the lock screen | pass |
+| Through Focus / Do Not Disturb | pass |
+| With battery saver on | pass |
+| After force-quit from recents | pass |
+| After a device reboot | pass |
+| Notification Dismiss with the app killed | pass |
+| Dismiss returns to the lock screen | pass |
+| Two alarms armed at once | pass |
+| Missed alarm recorded and notified, app never opened | pass |
+
+The alarm is entirely native. Nothing between "the alarm is due" and "the phone
+makes noise" touches JavaScript.
+
+**Next:** M1. `apps/api` still does not exist.
+
+---
+
+## Current state
+
+**Milestone M0: de-risk the alarm.** All code written; nothing verified on hardware.
+
+The next action is an **EAS development build**, then the device checklist below.
+No alarm has ever rung. Until one does, none of this counts.
+
+Locally verified: 51 engine tests pass, all workspaces type-check, `expo prebuild`
+generates a valid Android project with the correct permissions. **Not** verified:
+whether any of the native code compiles, there is no Android SDK on this machine,
+so `react-native-notify-kit` on RN 0.86.2 and the Kotlin module are still unproven.
+
+---
+
+## M0: prove the alarm works
+
+The whole product is worthless if this fails, so it comes first. No transport APIs
+and no UI polish until an alarm has actually woken someone up.
+
+### Scaffolding
+- [x] Root workspace (`package.json`, `tsconfig.base.json`, `tsconfig.json`, `.gitignore`)
+- [x] `apps/mobile`: Expo SDK 57 via `create-expo-app`
+- [x] `apps/mobile` cleaned of template demo content
+- [x] `packages/types`: domain types, DTOs, `API_ENDPOINTS`, tuning constants
+- [x] `packages/core`: engine, risk buffers, monitor cadence, fixture provider (51 tests)
+- [ ] `apps/api`: Express 5 + TypeORM + Knex *(deferred; M0 does not need it)*
+- [x] `docker-compose.yml`: postgres :5433 + redis :6380 (non-default ports, no clash)
+- [x] Metro config for monorepo (`watchFolders`, `disableHierarchicalLookup`, src aliases)
+- [x] Cross-workspace type-check passes
+
+### Native alarm
+- [x] `react-native-notify-kit` installed (10.5.0, peer range `react-native >=0.73`)
+- [x] **…and compiling on RN 0.86.2.** The EAS build succeeded and the APK installed and ran.
+      The biggest open risk in M0 is closed; no SDK 56 downgrade needed.
+- [x] `modules/alarm-sound` local Expo module. Kotlin compiled, present in the binary
+      (the Expo Go "Cannot find native module 'AlarmSound'" error is absent on the dev build)
+- [x] Ringtone picker via `ACTION_RINGTONE_PICKER` + `OnActivityResult`
+- [x] Playback on `USAGE_ALARM` stream, looping, with mute detection
+- [x] `expo prebuild` produces an Android project with all 8 alarm permissions
+- [x] `AlarmScheduler` abstraction + Android impl (`SET_ALARM_CLOCK`) + iOS fallback
+- [x] Full-screen intent config + ring route + cold-start/foreground routing
+- [x] `eas.json` with a `development` profile
+- [x] Runs in Expo Go with alarms cleanly disabled (no crash, honest banner)
+- [x] EAS dev build installs and launches on the physical Android device
+- [ ] **Rebuild needed:** the first APK predates the AsyncStorage dependency
+
+### House conventions adopted from the other apps
+- [x] Prettier: 4-space, single quotes, 100 cols
+- [x] `assets/Stylesheet.ts` tokens (`Spacing`, `FontSize`, `Radius`, `Colors`)
+- [x] `ThemeContext` + `useThemeColor`, light/dark persisted
+- [x] i18n with **nl** and **en**, Dutch first
+- [x] `Axios` static class + `config.ts`
+- [x] PascalCase components, `utils/{contexts,hooks,modules}` layout
+- [x] ESLint configured; `npx expo lint` passes clean, with the native-import guard rule
+
+### Known Android behaviour (not a bug)
+
+**A full-screen intent does not, by itself, let an activity show over the lock
+screen.** It only *launches* the activity; without `android:showWhenLocked` and
+`android:turnScreenOn` on `MainActivity`, Android starts it behind the keyguard,
+so the alarm rings but nothing is visible until the phone is unlocked by hand.
+This is exactly what separates our alarm from the system Clock app. Applied via
+`plugins/withAlarmLockScreen.js`, because `android/` is generated and a manual
+manifest edit would be wiped by the next prebuild.
+
+
+**A full-screen intent does not launch while the phone is unlocked and in use.**
+From Android 13 on, the system deliberately shows a heads-up notification instead.
+The ring screen only takes over the display when the device is locked, which is
+the case that actually matters for an alarm clock.
+
+**Test the 30-second alarm with the screen off and the phone locked.** Testing it
+unlocked exercises the heads-up path and proves nothing about waking anyone.
+
+**After a reboot, alarms are only restored once the phone has been unlocked at
+least once.** Android delivers `BOOT_COMPLETED` after first unlock for apps that
+are not direct-boot aware, and notify-kit's reboot receiver re-arms from there.
+So a phone that reboots overnight and sits at the lock screen has no alarm armed
+until someone touches it. Every mainstream alarm app has this limitation, but it
+is a real hole in the promise and M1 should decide whether to say so in the UI.
+
+Use the 10-minute button for reboot tests; 30 seconds is not enough time to
+restart.
+
+### Verify on a `preview` build, not a `development` one
+
+A development build is a real APK containing our own native code, so it does
+genuinely exercise the alarm chain. It is still the wrong thing to sign off on,
+for one concrete reason: it is `assembleDebug` and **loads its JavaScript from
+Metro over the network**.
+
+After a reboot, or with the laptop asleep or off the network, there is no Metro.
+The native alarm will ring, because that path is now pure Kotlin, but the ring
+screen is JavaScript and cannot load, and `expo-dev-launcher` may show its own
+screen instead of the app. That reads as a failure when it is not one.
+
+It also means **the earlier reboot test was confounded.** Under the old design the
+sound came from JavaScript, so "no Metro" and "no JS context" were
+indistinguishable. The conclusion held anyway, since JS-dependent audio is wrong
+either way, but the evidence was weaker than it looked.
+
+```bash
+npx eas build --profile preview --platform android    # release, JS bundled in
+```
+
+Same package id, so installing it replaces the development build; reinstall the
+development build afterwards to go back to hot reload.
+
+For the record, the debug-only manifest additions (`SYSTEM_ALERT_WINDOW`,
+`usesCleartextTraffic`) live in `android/app/src/debug/AndroidManifest.xml` and
+never reach a release build. That closes an earlier open question about stray
+permissions before a Play submission.
+
+### Device verification (each is a separate pass/fail, do not collapse)
+- [x] **Makes a sound** (verified on LineageOS, system alarm tone via the picker)
+- [x] **Ring screen appears over the lock screen** (needs `USE_FULL_SCREEN_INTENT`
+      granted by hand on a sideloaded build; the harness shows its state)
+- [x] **Rings with the app backgrounded** (heads-up notification, Dismiss works from it)
+- [ ] Dismiss returns to the lock screen rather than the app home screen
+- [x] Rings with the screen locked (app alive)
+- [x] **Rings after force-quit from recents** (preview build, LineageOS). The
+      ring screen appears over the lock screen and the alarm sounds. This is the
+      test the JS design failed and the native rewrite exists for.
+- [x] **Rings after a device reboot**, when the phone is unlocked before the
+      alarm is due. Sound plays, the notification opens the app.
+- [x] **Notification Dismiss works with the app killed**, both from the lock
+      screen and the home screen. It broadcasts straight to the native receiver,
+      so no JS is involved.
+- [x] **Dismiss leaves the ring screen** and hands back the lock screen
+- [x] **A missed alarm is recorded and surfaced**, both as a notification and in
+      the app
+- [x] **The missed notification arrives at boot with the app never opened.**
+      Confirmed 2026-08-09.
+
+### `BOOT_COMPLETED` arrives 100 to 175 seconds after boot
+
+Measured on device across two restarts: 100s and 174s. Not immediate, and not
+tied to app launch.
+
+That delay caused a wrong diagnosis earlier. Opening the app within the first
+couple of minutes lets the app-start re-arm run first, which looks exactly like
+"the boot receiver never fires". Two separate mistakes fed it: the readout
+initially lumped `MY_PACKAGE_REPLACED` in with `BOOT_COMPLETED` under one "boot"
+label, so installing a build was indistinguishable from restarting the phone; and
+it recorded when the receiver ran without recording when the device booted, which
+made the timestamp uninterpretable.
+
+Both fixed. The diagnostic now records the real intent action and stamps each
+boot re-arm with the boot it belonged to, so a stale timestamp cannot be read as
+a current one.
+
+**Product consequence:** an alarm due within roughly three minutes of a restart
+completing may be missed, because nothing re-arms it until the broadcast lands.
+Irrelevant for a phone that reboots overnight ahead of an 06:53 alarm, and the
+missed notice covers it honestly when it does happen. Worth remembering rather
+than fixing.
+
+- [x] **Two alarms armed at once.** Confirmed working, which is what the
+      `PendingIntent` identity keyed on alarm id was for.
+
+### Not yet exercised at all
+- An alarm surviving an app update rather than a reboot (`MY_PACKAGE_REPLACED`)
+- Snooze end to end (disabled behind `SNOOZE_ENABLED`)
+- Anything on iOS
+
+### Deliberate behaviour: an alarm that expires while the phone is off does not fire
+
+Observed and expected. `AlarmStore.pruneExpired` drops alarms whose time has
+already passed before the boot receiver re-arms the rest. Firing a 06:53 alarm at
+09:40 is not a recovery, it is a second problem.
+
+The consequence is that a phone which reboots overnight and is not unlocked has
+no alarm at all that morning. `BOOT_COMPLETED` only arrives after the first
+unlock, so nothing can run before then either way.
+
+**Now handled.** `pruneExpired` moves expired alarms onto a missed list instead of
+deleting them, and `MissedAlarmNotifier` posts a notification from the boot
+receiver. Natively, so it works with no JS running.
+
+The notification matters more than the in-app notice: someone who overslept
+because their phone rebooted will look at their phone, not open an alarm app they
+have no reason to open. The in-app banner is a backstop for a dismissed
+notification, with an acknowledge button that clears the list.
+
+Its wording rides on the stored alarm (`missedTitle`, `missedBody`), resolved
+through i18n at schedule time, for the same reason the Dismiss label does: the
+boot receiver has no React tree to translate anything. `{time}` is substituted
+natively so it honours the device's 12 or 24 hour setting.
+
+Deliberately a **separate, quieter channel** at `IMPORTANCE_DEFAULT`, not the
+alarm channel. It does not bypass Do Not Disturb and does not use the alarm
+stream. The moment for waking someone has passed; a second klaxon would be worse
+than useless.
+- [x] **Rings with battery saver enabled**
+- [x] **Audible through Focus / Do Not Disturb**
+
+### Keys
+- [x] NS `Ns-App` subscription obtained
+- [x] TomTom API key obtained
+- [ ] `apps/api/tools/smoke-transport.ts`: one live call each to NS `/api/v3/trips` and TomTom `arriveAt`
+
+---
+
+## M1: static smart alarm
+
+Real alarm driven by the engine, with hand-entered travel time. No transport APIs yet.
+
+- [ ] `packages/core` wake-time engine + vitest table tests
+- [ ] Anonymous device registration (`POST /api/v1/devices`, expo-secure-store)
+- [ ] Entities: Device, Place, Routine, RoutineStep, Schedule
+- [ ] Onboarding flow
+- [ ] Routine editor
+- [ ] Schedule screen: arrival time, days of week, fixed travel duration
+- [ ] Engine result drives a real scheduled alarm
+- [ ] Offline mirror (expo-sqlite + drizzle)
+
+## M2: NS live
+
+Where the product actually becomes itself.
+
+- [ ] `TransportProvider` interface + `FixtureProvider`
+- [ ] `NsProvider`: `/api/v3/trips` door-to-door, `searchForArrival`, `addChangeTime`
+- [ ] `ctxRecon` refresh path
+- [ ] Places autosuggest proxy for address entry
+- [ ] `ScheduleOccurrence` + `AlarmEvent` entities
+- [ ] Monitor loop: minute tick, `nextCheckAt`, `FOR UPDATE SKIP LOCKED`
+- [ ] Cadence ladder (30m / 10m / 3m bands)
+- [ ] Global disruption sweep promoting affected occurrences
+- [ ] Anchor vs live split + monotonic-later rule
+- [ ] High-priority push → device reschedules
+- [ ] NS call-count instrumentation + loud 429 logging
+- [ ] The "you can sleep 12 minutes longer" moment works end to end
+
+## M3: car
+
+- [ ] `TomTomProvider`: `arriveAt`
+- [ ] Predictive → live traffic switch inside the departure window
+- [ ] Continuous risk buffer
+
+## M4: iOS
+
+- [ ] AlarmKit module wired behind `AlarmScheduler`
+- [ ] EAS iOS build + TestFlight
+- [!] Device verification blocked: no iOS 26 device
+
+---
+
+## Decisions log
+
+Reversals and corrections worth remembering. Rationale lives in PLAN.md.
+
+| Date | Decision |
+|---|---|
+| 2026-08-09 | Alarm only ever moves **later** by default; earlier is best-effort emergency only. |
+| 2026-08-09 | NS product is **`Ns-App`** (self-serve), not `Public-Travel-Information`, the deprecation notice there covers only the price API. |
+| 2026-08-09 | No 9292 contract needed, NS `/api/v3/trips` already fronts 9292 data for bus/tram/metro. |
+| 2026-08-09 | Alarm sound plays from the ring screen, **not** the notification channel, channel sounds are immutable after creation and capped at ~30s. |
+| 2026-08-09 | Android uses the user's own system alarm tones via `ACTION_RINGTONE_PICKER`; iOS must bundle audio (no public API). |
+| 2026-08-09 | Landed on Expo SDK **57**, not 56, that is what `create-expo-app` ships. notify-kit compat on RN 0.86.2 unverified. |
+| 2026-08-09 | Dropped `expo-audio`. It cannot set Android audio usage (the reason `modules/alarm-sound` exists) and it pulled `RECORD_AUDIO` + `FOREGROUND_SERVICE_MEDIA_PLAYBACK` into the manifest. A microphone permission on an alarm clock is a Play Store review problem for zero benefit. |
+| 2026-08-09 | The alarm notification channel is created **silent**; the ring screen plays audio itself. Channel sound is frozen at creation and capped at ~30s. |
+| 2026-08-09 | `AlarmPermissionStatus` deliberately omits full-screen-intent state, Android exposes no way to query it, and a guessed `true` would be a lie. Only device testing can confirm it. |
+| 2026-08-09 | Engine feasibility is measured against the real deadline, not the buffered target. Eating into the arrival buffer is *tight*, not *late*, flagging it would be crying wolf. |
+| 2026-08-09 | The app must run in Expo Go with alarms disabled. Native modules are loaded optionally and degrade to no-ops behind an honest banner, so UI and engine work never needs a 15-minute native build. See CONVENTIONS.md. |
+| 2026-08-09 | **No native module is imported at module scope anywhere.** Three separate M0 crashes (`AlarmSound`, `expo-notifications`, `AsyncStorage`) had the same shape: a throwing import cascades into "Route is missing the required default export" for unrelated screens. All access now goes through `optionalModule.ts` / `Storage.ts`, with the degrade behaviour chosen per concern. Verified: autolinking resolves all 9 RN modules correctly in this monorepo, the failures were stale binaries, not broken linking. |
+| 2026-08-09 | Added `nativeDiagnostics.ts` + a "Rebuild required" banner listing missing modules and the exact rebuild command. Adding a native dependency desynchronises every installed dev client, and that needs to be diagnosable in one glance. |
+| 2026-08-09 | **Enforced the rule in ESLint** after it recurred a fourth time (`expo-localization`). `no-restricted-imports` now errors on module-scope imports of every import-time-unsafe native module, with a message pointing at CONVENTIONS.md. Documentation alone demonstrably did not hold. |
+| 2026-08-09 | **Alarm audio moved off the ring screen and onto the notification event.** Original design was wrong: Android does not launch a full-screen intent while the phone is unlocked, so an alarm firing during use opened no screen and therefore made no sound at all. Playback now hangs off `onBackgroundEvent`/`onForegroundEvent` and rings in every app state; the ring screen is a control surface, not the source. |
+| 2026-08-09 | Added a custom `index.js` entry so the notifee background handler registers before the app does, a handler installed in a React effect misses a cold start. Uses `require('expo-router/entry')`, since an ES `import` would be hoisted above the registration and silently defeat it. |
+| 2026-08-09 | Added `canUseFullScreenIntent()` / `openFullScreenIntentSettings()` to the native module. Android 14 made `USE_FULL_SCREEN_INTENT` user-revocable and it commonly starts **denied** for non-Play installs, which silently downgrades the alarm to a notification. Now shown in the harness with a button to fix it. |
+| 2026-08-09 | **Dismiss hands the phone back the way the alarm found it.** When the alarm took over the lock screen the user never asked to open the app, so landing them on our home screen makes it feel like the app hijacked the phone. The ring route now carries a `takeover` flag; on takeover, dismissing steps off the route and calls a new native `moveAppToBackground()` (`moveTaskToBack`, not `finish()`, so state survives), revealing the lock screen. In-app alarms still just navigate back. |
+| 2026-08-09 | Broke a require cycle (`alarmActions -> index -> AndroidAlarmScheduler -> alarmActions`) by moving the action ids into a leaf module, `alarmActionIds.ts`. Metro warns rather than errors on cycles, but whichever module it evaluates first sees the other half as `undefined`, which here meant notification actions could be built with an undefined press-action id. |
+| 2026-08-09 | **Ring routing also re-checks on app resume.** The mount effect runs once; if the app was merely backgrounded when the alarm fired, no remount happens and `onForegroundEvent` does not fire for a background delivery, so nothing routed and the user unlocked to the home screen. An `AppState` listener plus a routed-alarm ref (to avoid stacking ring screens) closes it. |
+| 2026-08-09 | Snooze put behind `APP_CONSTANTS.ALARM.SNOOZE_ENABLED`, defaulted **off**, gated inside `snoozeAlarm()` rather than only in the UI so a notification scheduled before the flip cannot resurrect it. |
+| 2026-08-09 | **Ring screen now opens from "is an alarm notification displayed?", not `getInitialNotification()`.** A full-screen intent starts MainActivity directly, so the initial-notification API returns nothing, the user landed on the home screen with the alarm blaring and no way to stop it. Gated on `useRootNavigationState()` so the cold-start navigation is not dropped before the navigator mounts. |
+| 2026-08-09 | Added **Dismiss** and **Snooze** actions to the notification, handled in both foreground and background handlers with no `launchActivity`, silencing an alarm should not require opening the app. Same buttons on the ring screen. Snooze reuses the alarm id so it replaces rather than stacks. |
+| 2026-08-09 | **All copy moved into i18n; hardcoded fallbacks removed.** i18n now initialises synchronously so `t()` works inside notifee background handlers, which is what made the fallbacks seem necessary. Non-React modules return keys (`reasonKey`, `impactKey`) instead of sentences. |
+| 2026-08-09 | **Alarm audio confirmed working on device** (LineageOS, user's own system alarm tone). The screen not appearing was traced to `MainActivity` lacking `showWhenLocked` / `turnScreenOn`, added via a config plugin. |
+| 2026-08-09 | Build failure: a valueless `return@AsyncFunction` in the new Kotlin, Expo types those lambdas as `() -> Any?`, so it fails with `expected 'Any?', actual 'Unit'`. Rewritten as `if/else`. Rule written up in CONVENTIONS.md, since nothing local compiles Kotlin and each mistake costs a ~5-minute cloud build. |
+| 2026-08-09 | Adopted the house conventions from `espressions_app` / `drinking_games_app`: 4-space Prettier, `Stylesheet.ts` tokens, `ThemeContext` + `useThemeColor`, i18n, `Axios` class. |
+| 2026-08-09 | **Reviewed and kept** routes-only in `src/app/` rather than nesting everything under `app/` like the other apps. expo-router's `require.context` turns every file under the app root into a route and eagerly `loadRoute()`s each one in dev, which spams the "missing default export" warning we relied on twice during M0, and re-exposes the eager-import failure mode. Folder names are otherwise identical; route grouping comes via `(group)` dirs in M1. Full reasoning in CONVENTIONS.md. |
+
+## Open questions
+
+- ~~Does the native code compile on RN 0.86.2?~~ **Resolved 2026-08-09**, the EAS
+  development build succeeded and ran on device. notify-kit and the Kotlin module are
+  both fine on SDK 57; no downgrade needed.
+- NS publishes no rate limits. Real ceiling unknown until M2 instrumentation runs.
+- `READ_EXTERNAL_STORAGE` / `WRITE_EXTERNAL_STORAGE` / `SYSTEM_ALERT_WINDOW` are still
+  in the manifest from a transitive dependency. Harmless for a dev build; trace and
+  strip them before any Play Store submission.
+- Bundled fallback alarm tone not yet chosen.

@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["AlarmSoundModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.alarmsound.AlarmSoundModule"]
+  }
+}

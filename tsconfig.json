@@ -1,0 +1,5 @@
+{
+    "$comment": "Solution file. Builds the shared packages via project references; apps type-check themselves.",
+    "files": [],
+    "references": [{ "path": "./packages/types" }, { "path": "./packages/core" }]
+}

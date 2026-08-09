@@ -1,0 +1,104 @@
+/** How the traveller gets from origin to destination. */
+export enum TransportMode {
+    /** Trains, bus, tram, metro, ferry, planned by NS `/api/v3/trips`. */
+    PUBLIC_TRANSPORT = 'PUBLIC_TRANSPORT',
+    /** Car, planned by TomTom Routing. */
+    CAR = 'CAR',
+    /** No provider; the user types a travel duration themselves. Used in M1. */
+    FIXED = 'FIXED',
+}
+
+/** Modality of a single leg. Mirrors the NS Reisinformatie leg modality enum. */
+export enum LegType {
+    TRAIN = 'TRAIN',
+    BUS = 'BUS',
+    TRAM = 'TRAM',
+    METRO = 'METRO',
+    FERRY = 'FERRY',
+    WALK = 'WALK',
+    BIKE = 'BIKE',
+    CAR = 'CAR',
+    TAXI = 'TAXI',
+    TRANSFER = 'TRANSFER',
+    UNKNOWN = 'UNKNOWN',
+}
+
+/**
+ * Health of a planned journey. Mirrors the NS trip `status` enum.
+ *
+ * The three values in {@link REPLAN_REQUIRED_STATUSES} mean the itinerary we
+ * stored is no longer walkable and a `ctxRecon` refresh cannot rescue it, the
+ * monitor must plan from scratch.
+ */
+export enum JourneyStatus {
+    NORMAL = 'NORMAL',
+    DISRUPTION = 'DISRUPTION',
+    MAINTENANCE = 'MAINTENANCE',
+    UNCERTAIN = 'UNCERTAIN',
+    REPLACEMENT = 'REPLACEMENT',
+    ADDITIONAL = 'ADDITIONAL',
+    SPECIAL = 'SPECIAL',
+    ALTERNATIVE_TRANSPORT = 'ALTERNATIVE_TRANSPORT',
+    CHANGE_NOT_POSSIBLE = 'CHANGE_NOT_POSSIBLE',
+    CANCELLED = 'CANCELLED',
+}
+
+/** Statuses that invalidate a stored itinerary and force a full re-plan. */
+export const REPLAN_REQUIRED_STATUSES: readonly JourneyStatus[] = [
+    JourneyStatus.CANCELLED,
+    JourneyStatus.CHANGE_NOT_POSSIBLE,
+    JourneyStatus.ALTERNATIVE_TRANSPORT,
+];
+
+/** Lifecycle of one day's instance of a recurring schedule. */
+export enum OccurrenceState {
+    /** Created but too far out to monitor. */
+    PENDING = 'PENDING',
+    /** Alarm is scheduled on the device; the monitor loop is watching it. */
+    ARMED = 'ARMED',
+    FIRED = 'FIRED',
+    DISMISSED = 'DISMISSED',
+    /** User skipped this day. */
+    SKIPPED = 'SKIPPED',
+    CANCELLED = 'CANCELLED',
+}
+
+/** Audit trail entries explaining every alarm time change. */
+export enum AlarmEventType {
+    SCHEDULED = 'SCHEDULED',
+    MOVED_LATER = 'MOVED_LATER',
+    /** Best-effort emergency path only, see the fail-safe rules. */
+    MOVED_EARLIER = 'MOVED_EARLIER',
+    /** No route can meet the required arrival time. */
+    INFEASIBLE = 'INFEASIBLE',
+    FIRED = 'FIRED',
+    DISMISSED = 'DISMISSED',
+}
+
+/** ISO-8601 weekday numbering, matching Luxon's `weekday`. */
+export enum Weekday {
+    MONDAY = 1,
+    TUESDAY = 2,
+    WEDNESDAY = 3,
+    THURSDAY = 4,
+    FRIDAY = 5,
+    SATURDAY = 6,
+    SUNDAY = 7,
+}
+
+export enum DevicePlatform {
+    ANDROID = 'android',
+    IOS = 'ios',
+}
+
+/** Why a wake time changed, surfaced to the user, so keep these human. */
+export enum WakeChangeReason {
+    INITIAL_PLAN = 'INITIAL_PLAN',
+    DELAY = 'DELAY',
+    DELAY_RESOLVED = 'DELAY_RESOLVED',
+    CANCELLATION = 'CANCELLATION',
+    ROUTE_CHANGED = 'ROUTE_CHANGED',
+    TRAFFIC_WORSE = 'TRAFFIC_WORSE',
+    TRAFFIC_BETTER = 'TRAFFIC_BETTER',
+    USER_EDITED = 'USER_EDITED',
+}

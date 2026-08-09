@@ -1,0 +1,25 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    // No `@/assets/*` alias on purpose: it would shadow `@/assets/Stylesheet`.
+    // Image assets stay in ./assets, referenced from app.json by relative path.
+    "paths": {
+      "@/*": ["./src/*"],
+      "@modules/*": ["./modules/*"],
+      // Point at source, not dist, so Metro hot-reloads shared engine edits.
+      // metro.config.js carries matching aliases.
+      "@alarm/types": ["../../packages/types/src"],
+      "@alarm/core": ["../../packages/core/src"]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts",
+    "../../packages/types/src/**/*.ts",
+    "../../packages/core/src/**/*.ts"
+  ],
+  "exclude": ["../../packages/**/*.test.ts"]
+}

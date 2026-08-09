@@ -1,0 +1,36 @@
+{
+  "name": "@alarm/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wake-time engine, monitor cadence and transport provider adapters. Shared by the app and the API so both compute the same answer.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/**/*",
+    "src/**/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch --preserveWatchOutput",
+    "type-check": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rimraf dist tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "@alarm/types": "*",
+    "luxon": "^3.7.2"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.7.1",
+    "rimraf": "^6.0.1",
+    "typescript": "~6.0.3",
+    "vitest": "^3.2.4"
+  }
+}
