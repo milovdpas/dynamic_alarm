@@ -1,0 +1,28 @@
+import { Router } from 'express';
+import { API_ENDPOINTS } from '@alarm/types';
+
+import type { IRoute } from '../../../interfaces/IRouter';
+import DeviceController from '../../controllers/DeviceController';
+import { deviceAuth } from '../../middleware/DeviceAuth';
+
+/**
+ * Device registration and upkeep.
+ *
+ * Paths come from `API_ENDPOINTS` in `@alarm/types`, the same constant the app
+ * calls, so a renamed route breaks the build rather than the request. They are
+ * declared absolute there, so this group is mounted at the root.
+ */
+export default class DeviceRoutes implements IRoute {
+    private readonly controller = new DeviceController();
+
+    getRoutes(): Router {
+        const router = Router();
+
+        // The one unauthenticated endpoint: it creates the credential that
+        // every other route requires.
+        router.post(API_ENDPOINTS.DEVICES.REGISTER, this.controller.register);
+        router.patch(API_ENDPOINTS.DEVICES.UPDATE(':id'), deviceAuth, this.controller.update);
+
+        return router;
+    }
+}

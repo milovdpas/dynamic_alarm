@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "node18",
+    "outDir": "dist",
+    "rootDir": ".",
+    // TypeORM entities are declared with decorators and need the runtime type
+    // metadata they emit.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "types": ["node"],
+    // Shared packages resolve through the npm-workspaces symlink to their
+    // built dist/, so `npm run build:packages` must run before type-checking.
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "tools/**/*.ts"],
+  "exclude": ["dist", "node_modules"]
+}

@@ -59,7 +59,19 @@ export interface RegisterDeviceResponse {
     token: string;
 }
 
-export type UpdateDeviceRequest = Partial<Omit<RegisterDeviceRequest, 'platform'>>;
+/**
+ * The mutable facts about a device. Platform is not one of them.
+ *
+ * `pushToken` is explicitly nullable rather than merely optional, because
+ * omitted and cleared mean different things: omitted is "unchanged", null is
+ * "notification permission was revoked". Collapsing them would leave the server
+ * pushing at a token the device no longer has.
+ */
+export interface UpdateDeviceRequest {
+    pushToken?: string | null;
+    timezone?: TimeZone;
+    appVersion?: string;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Places / routines / schedules                                               */

@@ -93,6 +93,22 @@ export const APP_CONSTANTS = {
      * changing these numbers changes the API bill, so there is a test asserting
      * the total.
      */
+    /**
+     * NS publishes its ceiling after all: **300 requests per 5 minutes** for
+     * external non-paying users, stated in the Reisinformatie API description.
+     * A 429 carries `RateLimit-Limit` and `Retry-After` headers.
+     *
+     * That is one request per second sustained, and it is shared across every
+     * user of this deployment. At roughly 35 calls per occurrence per night it
+     * is comfortable for a small number of users and becomes the binding
+     * constraint well before anything else does, so the monitor must count what
+     * it spends rather than assume.
+     */
+    NS_RATE_LIMIT: {
+        REQUESTS: 300,
+        WINDOW_MINUTES: 5,
+    },
+
     MONITOR: {
         /** Occurrences further out than this are not armed and cost nothing. */
         ARM_LEAD_MINUTES: 8 * 60,

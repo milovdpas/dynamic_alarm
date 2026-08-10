@@ -291,7 +291,15 @@ than useless.
 ### Keys
 - [x] NS `Ns-App` subscription obtained
 - [x] TomTom API key obtained
-- [ ] `apps/api/tools/smoke-transport.ts`: one live call each to NS `/api/v3/trips` and TomTom `arriveAt`
+- [x] `apps/api/tools/smokeTransport.ts`: one live call each to NS and TomTom, then a real wake time from the result
+
+```
+Arrive by Wednesday 12 Aug 08:30 (Europe/Amsterdam)
+  WALK   07:42 Origin -> Utrecht Centraal
+  TRAIN  07:56 Utrecht Centraal -> Amsterdam Zuid
+  WALK   08:19 Amsterdam Zuid -> Destination
+  wake at 06:58, leave at 07:33, 4m risk buffer, feasible: true
+```
 
 ---
 
@@ -313,8 +321,9 @@ Real alarm driven by the engine, with hand-entered travel time. No transport API
 Where the product actually becomes itself.
 
 - [ ] `TransportProvider` interface + `FixtureProvider`
-- [ ] `NsProvider`: `/api/v3/trips` door-to-door, `searchForArrival`, `addChangeTime`
-- [ ] `ctxRecon` refresh path
+- [x] `NsModule`: `/api/v3/trips` station to station, `searchForArrival`, `addChangeTime`
+- [x] `JourneyPlannerService`: door-to-door composed from NS rail + TomTom walking legs, since the `Ns-App` key refuses coordinate planning (`API_KEY_NOT_ALLOWED_TO_PLAN_DOOR_TO_DOOR`)
+- [x] `ctxRecon` refresh path (walks re-attached from the stored journey, so a refresh stays one NS call)
 - [ ] Places autosuggest proxy for address entry
 - [ ] `ScheduleOccurrence` + `AlarmEvent` entities
 - [ ] Monitor loop: minute tick, `nextCheckAt`, `FOR UPDATE SKIP LOCKED`
@@ -345,6 +354,11 @@ Reversals and corrections worth remembering. Rationale lives in PLAN.md.
 
 | Date | Decision |
 |---|---|
+| 2026-08-11 | **The nearest station is not the nearest *useful* station.** For a home address near the Spoorwegmuseum, NS `/stations/nearest` returned Utrecht Maliebaan (755m, `heeftVertrektijden: false`), a museum halt with no scheduled service. `searchForArrival` then answered with the last train that ever left it, the previous evening, so an 08:30 deadline produced a 16:59 departure that satisfied every check and reported `feasible: true`. Nearest-station lookup now over-fetches and filters on `heeftVertrektijden`. Two days were lost to formats and timezones because the output was internally consistent, which is what made it dangerous. |
+| 2026-08-11 | **The planner drops trips departing in the past.** "Arrive by" has no lower bound, so any sparsely served origin can produce a yesterday journey that passes the deadline arithmetic and yields a wake time already gone. The filter is a second line of defence: the station fix removes the known cause, this removes the failure mode. |
+| 2026-08-10 | **MySQL 8, not Postgres.** The production hosting only offers MySQL. Caught before M2 was built on it. Three Postgres habits do not survive: no `gen_random_uuid()` default (TypeORM generates UUIDs app-side, since MySQL's `UUID()` is version 1 and leaks a MAC address), no array columns (`days_of_week` is JSON), and no `timestamptz` (every instant is `datetime(3)` in UTC with the connection pinned to UTC, because MySQL `timestamp` silently converts to the session zone and stops in 2038). Decimal columns need a transformer, as the driver returns them as strings and a latitude of `"52.090700"` reaches NS as nonsense. **The M2 monitor design survives:** MySQL 8.0 supports `FOR UPDATE SKIP LOCKED`. |
+| 2026-08-10 | Migrations run through `tools/migrate.ts` under `tsx`, not the Knex CLI. The CLI needs a TypeScript loader registered before it can read the knexfile, and without one it fails with a syntax error pointing at the knexfile rather than at the missing loader. |
+| 2026-08-10 | Device tokens are hashed with SHA-256, not bcrypt. Slow hashing exists to survive guessing; this is 256 bits of machine randomness, so guessing is not the threat and slowness would tax every authenticated request. Hashing at all is what stops a database dump handing over every device's identity. |
 | 2026-08-09 | Alarm only ever moves **later** by default; earlier is best-effort emergency only. |
 | 2026-08-09 | NS product is **`Ns-App`** (self-serve), not `Public-Travel-Information`, the deprecation notice there covers only the price API. |
 | 2026-08-09 | No 9292 contract needed, NS `/api/v3/trips` already fronts 9292 data for bus/tram/metro. |

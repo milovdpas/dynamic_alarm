@@ -1,33 +1,36 @@
 services:
-  postgres:
-    image: postgres:17-alpine
-    container_name: dynamic-alarm-postgres
+  mysql:
+    # MySQL because the production hosting only offers MySQL. Chosen over
+    # Postgres for that reason alone, and 8.0 specifically because the M2
+    # monitor loop depends on SELECT ... FOR UPDATE SKIP LOCKED, which arrived
+    # in 8.0. On 5.7 that design would not work.
+    image: mysql:8.0
+    container_name: dynamic-alarm-mysql
     restart: unless-stopped
     environment:
-      POSTGRES_USER: alarm
-      POSTGRES_PASSWORD: alarm
-      POSTGRES_DB: dynamic_alarm
+      MYSQL_ROOT_PASSWORD: alarm
+      MYSQL_DATABASE: dynamic_alarm
+      MYSQL_USER: alarm
+      MYSQL_PASSWORD: alarm
+    command:
+      # utf8mb4 throughout: station names and Dutch street names contain
+      # characters that latin1 silently mangles.
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      # The server runs in UTC and every timestamp is stored in UTC. A local
+      # server timezone would silently shift stored times when the clocks
+      # change, which for an alarm clock is the worst possible bug.
+      - --default-time-zone=+00:00
     ports:
-      - "5433:5432"
+      # Non-default host port so this cannot collide with another local MySQL.
+      - '3307:3306'
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U alarm -d dynamic_alarm"]
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-ualarm', '-palarm']
       interval: 5s
       timeout: 5s
-      retries: 10
-
-  redis:
-    image: redis:7-alpine
-    container_name: dynamic-alarm-redis
-    restart: unless-stopped
-    ports:
-      - "6380:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      retries: 20
 
 volumes:
-  postgres-data:
+  mysql-data:
