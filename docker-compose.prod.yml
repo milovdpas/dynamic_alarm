@@ -1,0 +1,45 @@
+# Deployed to /opt/apps/dynamic-alarm-api/docker-compose.yml on the VPS.
+#
+# There is no database service here. Nothing on that VPS runs one: both existing
+# APIs use an external MySQL reached through DB_* secrets, and this follows the
+# same pattern. See vps/03-architecture.md.
+
+services:
+    api:
+        image: ${DOCKERHUB_USERNAME}/dynamic-alarm-api:latest
+        # The reverse proxy resolves this name on the shared network, so it is
+        # part of the nginx configuration rather than a label.
+        container_name: dynamic-alarm-api
+        restart: unless-stopped
+        # expose, never ports: the proxy owns ingress. Publishing 3000 on the
+        # host would put the API on the internet beside its own HTTPS front door.
+        expose:
+            - '3000'
+        networks:
+            - web
+        env_file:
+            - .env
+        healthcheck:
+            # 127.0.0.1 rather than localhost. BusyBox wget tries ::1 first, and
+            # a Node process bound to 0.0.0.0 is IPv4 only, so it refuses the
+            # connection and the container reports unhealthy while serving
+            # traffic perfectly.
+            test:
+                [
+                    'CMD',
+                    'wget',
+                    '--no-verbose',
+                    '--tries=1',
+                    '--spider',
+                    'http://127.0.0.1:3000/api/v1/health',
+                ]
+            interval: 30s
+            timeout: 5s
+            retries: 3
+            # The API connects to MySQL before it listens, and that connection
+            # crosses the internet to an external host.
+            start_period: 30s
+
+networks:
+    web:
+        external: true

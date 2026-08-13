@@ -1,0 +1,34 @@
+# The build context is the repository root, so this is what keeps it small.
+
+node_modules
+**/node_modules
+
+# Rebuilt inside the image. Copying a local build in would ship whatever was
+# last compiled on a developer machine.
+dist
+**/dist
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# The API never imports the app. Excluding it keeps several hundred megabytes
+# of React Native out of the context.
+apps/mobile
+
+.git
+.github
+docs
+coverage
+
+# Never. Secrets reach the container through the environment, and .env.dist is
+# rendered by CI rather than copied from anyone's machine.
+.env
+**/.env
+**/.env.*
+
+# .env.dist is rendered by CI on the checked-out repo, not inside the image, so
+# it has no reason to be in the context either.
+
+*.log
+.idea
+.vscode
+.DS_Store

@@ -14,6 +14,16 @@ import { databaseConfig } from '../config/database';
  * TypeScript loader registered before it can even read this file, and the error
  * it gives when one is missing points at the knexfile rather than at the loader.
  */
+/**
+ * True when this file is the compiled build rather than the source.
+ *
+ * The migrations are TypeScript in development and JavaScript in the image, and
+ * Knex has to be told which. Hardcoding `.ts` makes a production `migrate:latest`
+ * find nothing and report success, which is the worst possible way to fail: the
+ * deploy goes green and the schema is simply absent.
+ */
+const isCompiled = __filename.endsWith('.js');
+
 const config: Knex.Config = {
     client: 'mysql2',
     connection: {
@@ -27,8 +37,8 @@ const config: Knex.Config = {
         // Absolute, so migrations are found regardless of the working directory
         // the runner happens to be started from.
         directory: path.join(__dirname, 'migrations'),
-        extension: 'ts',
-        loadExtensions: ['.ts'],
+        extension: isCompiled ? 'js' : 'ts',
+        loadExtensions: [isCompiled ? '.js' : '.ts'],
         tableName: 'knex_migrations',
     },
 };
