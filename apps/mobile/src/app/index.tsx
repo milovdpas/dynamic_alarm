@@ -34,6 +34,7 @@ import DetailRow from '@/components/ui/DetailRow';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import WarningBanner from '@/components/ui/WarningBanner';
+import { useApiConnection } from '@/utils/hooks/useApiConnection';
 import { buildDebugReport } from '@/utils/modules/debugReport';
 import {
     getMissingNativeModules,
@@ -194,6 +195,8 @@ export default function HomeScreen() {
         t,
     ]);
 
+    const { connection, retry: retryApi } = useApiConnection();
+
     const cancelAll = useCallback(async () => {
         await getAlarmScheduler().cancelAll();
         setStatus(t('harness.all_cancelled'));
@@ -305,6 +308,41 @@ export default function HomeScreen() {
                             />
                         ))}
                         <ActionButton label={t('diagnostics.copy')} onPress={copyDebug} />
+                    </Section>
+
+                    <Section title={t('api.title')}>
+                        <DetailRow
+                            label={t('api.address')}
+                            value={
+                                connection?.apiUrl === null || connection?.apiUrl === undefined
+                                    ? t('api.not_configured')
+                                    : connection.inferred
+                                      ? t('api.address_inferred', { url: connection.apiUrl })
+                                      : connection.apiUrl
+                            }
+                            warn={connection?.apiUrl === null}
+                        />
+                        <DetailRow
+                            label={t('api.title')}
+                            value={
+                                connection === null
+                                    ? t('api.registering')
+                                    : t(`api.${connection.state}`)
+                            }
+                            warn={
+                                connection?.state === 'unreachable' ||
+                                connection?.state === 'not_configured'
+                            }
+                        />
+                        {connection?.errorCode != null && (
+                            <WarningBanner
+                                title={t(`api.${connection.state}`)}
+                                message={apiErrorMessage(t, connection.errorCode)}
+                            />
+                        )}
+                        {connection !== null && connection.state !== 'registering' && (
+                            <ActionButton label={t('api.retry')} onPress={retryApi} />
+                        )}
                     </Section>
 
                     <Section title={t('permissions.title')}>
@@ -471,6 +509,19 @@ function formatTime(iso: string): string {
     return DateTime.fromISO(iso, { setZone: true })
         .setZone(APP_CONSTANTS.TIMEZONE)
         .toFormat('HH:mm');
+}
+
+/**
+ * Copy for an API failure, chosen by code.
+ *
+ * The server's own `message` is English and written for a log, so it never
+ * reaches the screen. An unrecognised code falls back to a generic translated
+ * sentence rather than to the raw one.
+ */
+function apiErrorMessage(t: (key: string) => string, code: string): string {
+    const key = `api.error.${code}`;
+    const copy = t(key);
+    return copy === key ? t('api.error.unknown') : copy;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

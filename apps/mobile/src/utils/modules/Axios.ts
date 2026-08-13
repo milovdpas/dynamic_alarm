@@ -1,9 +1,73 @@
-import axios, { type AxiosRequestConfig } from 'axios';
+import axios, { isAxiosError, type AxiosRequestConfig } from 'axios';
+import type { ApiErrorResponse } from '@alarm/types';
 
 import appConfig from '@/config';
 import { loadOptionalModule } from './optionalModule';
 
 const DEVICE_TOKEN_KEY = 'deviceToken';
+
+/**
+ * Failures the client raises itself, which the server has no code for.
+ *
+ * They live alongside the server's `ERROR_CODES` and are read the same way, so
+ * a screen branches on one set of codes rather than on a mix of codes and
+ * exception types.
+ */
+export const CLIENT_ERROR_CODES = {
+    /** No API address configured, and none could be inferred. See config.ts. */
+    API_URL_MISSING: 'API_URL_MISSING',
+    /** The request never reached a server: wrong host, wifi off, API not running. */
+    NETWORK_UNREACHABLE: 'NETWORK_UNREACHABLE',
+} as const;
+
+/**
+ * Any failed request, server or network, as one thing to catch.
+ *
+ * `code` is what the UI branches on and what it translates. **`message` is not
+ * for the user.** It comes from the server in English and exists for a log or a
+ * bug report; user-facing copy lives in `i18n/translations/` and is chosen by
+ * `code`, like every other string in this app.
+ */
+export class ApiRequestError extends Error {
+    constructor(
+        readonly code: string,
+        /** Null when the request never reached a server. */
+        readonly status: number | null,
+        message: string,
+        readonly details?: unknown,
+    ) {
+        super(message);
+        this.name = 'ApiRequestError';
+    }
+
+    /** Narrows anything thrown by axios into the shape above. */
+    static from(error: unknown): ApiRequestError {
+        if (error instanceof ApiRequestError) {
+            return error;
+        }
+        if (isAxiosError(error)) {
+            const body = error.response?.data as ApiErrorResponse | undefined;
+            if (error.response === undefined || body === undefined) {
+                return new ApiRequestError(
+                    CLIENT_ERROR_CODES.NETWORK_UNREACHABLE,
+                    null,
+                    error.message,
+                );
+            }
+            return new ApiRequestError(
+                body.code,
+                error.response.status,
+                body.message,
+                body.details,
+            );
+        }
+        return new ApiRequestError(
+            CLIENT_ERROR_CODES.NETWORK_UNREACHABLE,
+            null,
+            error instanceof Error ? error.message : String(error),
+        );
+    }
+}
 
 type SecureStoreModule = typeof import('expo-secure-store');
 
@@ -54,6 +118,18 @@ export default class Axios {
     }
 
     private static async config(): Promise<AxiosRequestConfig> {
+        if (appConfig.apiUrl === null) {
+            // Refused rather than sent at a guessed address. A relative request
+            // would fail as a network error and send whoever debugs it looking
+            // at the wifi instead of at the missing configuration.
+            throw new ApiRequestError(
+                CLIENT_ERROR_CODES.API_URL_MISSING,
+                null,
+                'No API URL configured, and no Metro host to infer one from. ' +
+                    'Set EXPO_PUBLIC_API_URL. See apps/mobile/.env.example.',
+            );
+        }
+
         const token = await Axios.getToken();
         return {
             baseURL: appConfig.apiUrl,
@@ -62,23 +138,35 @@ export default class Axios {
         };
     }
 
+    /**
+     * Every verb funnels through here so a failure has one shape.
+     *
+     * Without it each caller sees a raw `AxiosError` and has to know where the
+     * server put its error code, which is how translated messages turn into
+     * `error.response.data.error.message` scattered across screens.
+     */
+    private static async request<T>(send: (config: AxiosRequestConfig) => Promise<{ data: T }>) {
+        try {
+            const response = await send(await Axios.config());
+            return response.data;
+        } catch (error) {
+            throw ApiRequestError.from(error);
+        }
+    }
+
     static async get<T>(endpoint: string, params?: Record<string, unknown>): Promise<T> {
-        const response = await axios.get<T>(endpoint, { ...(await Axios.config()), params });
-        return response.data;
+        return Axios.request<T>((config) => axios.get<T>(endpoint, { ...config, params }));
     }
 
     static async post<T>(endpoint: string, data?: unknown): Promise<T> {
-        const response = await axios.post<T>(endpoint, data, await Axios.config());
-        return response.data;
+        return Axios.request<T>((config) => axios.post<T>(endpoint, data, config));
     }
 
     static async patch<T>(endpoint: string, data?: unknown): Promise<T> {
-        const response = await axios.patch<T>(endpoint, data, await Axios.config());
-        return response.data;
+        return Axios.request<T>((config) => axios.patch<T>(endpoint, data, config));
     }
 
     static async delete<T>(endpoint: string): Promise<T> {
-        const response = await axios.delete<T>(endpoint, await Axios.config());
-        return response.data;
+        return Axios.request<T>((config) => axios.delete<T>(endpoint, config));
     }
 }

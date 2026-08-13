@@ -56,7 +56,8 @@
       ],
       "expo-secure-store",
       "expo-localization",
-      "./plugins/withAlarmLockScreen"
+      "./plugins/withAlarmLockScreen",
+      "./plugins/withCleartextDevApi"
     ],
     "experiments": {
       "typedRoutes": true,

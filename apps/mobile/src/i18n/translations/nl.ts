@@ -68,6 +68,25 @@ export default {
             secure_store: 'Het toestel kan zijn API-token niet bewaren.',
         },
     },
+    api: {
+        title: 'API-verbinding',
+        connected: 'Verbonden',
+        registering: 'Dit toestel registreren',
+        unreachable: 'Geen verbinding met de API',
+        not_configured: 'Geen API-adres',
+        address: 'Adres',
+        address_inferred: '{{url}} (geraden via Metro)',
+        retry: 'Opnieuw proberen',
+        error: {
+            API_URL_MISSING:
+                'Deze build heeft geen API-adres en geen Metro-server om er een te raden. Stel EXPO_PUBLIC_API_URL in voor je bouwt.',
+            NETWORK_UNREACHABLE:
+                'Er reageerde niets op dat adres. Controleer of de API draait, of de telefoon op hetzelfde wifi-netwerk zit, en of het adres het LAN-IP van de machine is en niet localhost.',
+            UNAUTHORIZED: 'Dit toestel wordt niet meer herkend. Het registreert zich opnieuw.',
+            TRANSPORT_RATE_LIMITED: 'Reisinformatie is nu druk. Het probeert het zo opnieuw.',
+            unknown: 'Er ging iets mis bij het bereiken van de API.',
+        },
+    },
     plan: {
         travel: 'Reistijd',
         risk_buffer: 'Speling',

@@ -326,11 +326,33 @@ against live NS and TomTom rather than a hand-entered duration.
 
 **App**
 
+- [ ] Reach the API from a physical device (base URL resolution, cleartext on preview builds)
+- [ ] Typed API client over the M1 endpoints, device registered on first launch
 - [ ] Onboarding flow
 - [ ] Routine editor
 - [ ] Schedule screen: arrival time, days of week, fixed travel duration
 - [ ] Engine result drives a real scheduled alarm
 - [ ] Offline mirror (expo-sqlite + drizzle)
+- [ ] Move the M0 harness off the home screen into a hidden debug panel
+
+### The debug panel
+
+The home screen is currently the M0 diagnostics harness: permissions, native
+module status, alarm scheduling, the missed-alarm list, the copyable report. All
+of it stays, none of it belongs in front of a user who just wants an alarm.
+
+It moves behind the pattern every phone already teaches: **tap the app version in
+settings ten times**. The panel then asks for a password before opening.
+
+The password stops someone stumbling in, which is what it is for. It is not a
+security boundary and must never be treated as one: it ships inside the bundle
+and anyone who wants it can read it out. That is acceptable here because the
+panel shows the user their own device's diagnostics, nothing that belongs to
+anyone else. Anything that would matter if it leaked does not go on this screen.
+
+The report is deliberately untranslated, because it exists to be pasted into a
+bug report rather than read in the app, and that fits a screen a normal user
+never sees.
 
 ## M2: NS live
 
@@ -370,6 +392,10 @@ Reversals and corrections worth remembering. Rationale lives in PLAN.md.
 
 | Date | Decision |
 |---|---|
+| 2026-08-13 | **The app infers the API address from the Metro host, and refuses to guess otherwise.** The old default, `10.0.2.2:3000`, is the Android *emulator's* alias for the host machine and means nothing on a real phone. `Constants.expoConfig.hostUri` is the machine serving Metro, which during development is the machine running the API, so a development build works on a real device with nothing configured. Outside a dev build there is no Metro host, and `config.apiUrl` is null rather than `localhost`, which on a phone means the phone: every request would fail as a network error pointing at the wifi instead of at the missing configuration. The inferred port can still be wrong, because the API moves off 3000 when it is taken. |
+| 2026-08-13 | **Cleartext HTTP is permitted only while `EXPO_PUBLIC_API_URL` is `http://`.** Development builds already allowed it through the debug manifest Expo generates, which never reaches a release build, so the gap was preview builds, which is where this project verifies anything that matters. `withCleartextDevApi` keys the manifest flag to the configured URL, so the permission exists exactly while it is needed and disappears when the API becomes HTTPS, with nobody having to remember to remove it. |
+| 2026-08-13 | **Every API failure is one `ApiRequestError` with a `code`.** The UI branches on the code and translates it; the server's `message` is English, written for a log, and never reaches a screen. Two client-side codes join the server's: `API_URL_MISSING` and `NETWORK_UNREACHABLE`, so a screen reads one set of codes rather than a mix of codes and exception types. |
+| 2026-08-13 | **Registration is allowed to fail without blocking the app.** The alarm that matters most is the one already armed on the device, which needs no network, so an unreachable API must never stop the app opening. `useApiConnection` reports the state and offers a retry, because the usual causes (API not running, wrong network, wrong address) are fixable while looking at the screen. |
 | 2026-08-13 | **No response envelope.** A success is the resource itself, a failure is a flat `{ code, message, details }`. The status code already said whether it worked, so `{ success, data }` restated it and made every caller unwrap a level. Changed while nothing consumed it yet. The trade, taken deliberately: a bare array has nowhere to put pagination later, which is fine because every list is one device's own places, routines or schedules. A collection that could grow unbounded should get an object with its own `items` field rather than quietly becoming an envelope again. |
 | 2026-08-13 | **A shared lint base, not a shared config.** `eslint.config.base.mjs` holds the rules that are as true on the server as in the app (`no-floating-promises`, `no-misused-promises`, `await-thenable`, no `any`). Platform rules stay in `apps/mobile`, where `eslint-config-expo` and the native-module `no-restricted-imports` rule belong. Type-aware rules are on: they are slower, and they are the only ones that catch a promise nobody awaited. Turning it on found 11 real problems in the API and 2 in `packages/core`, including a `default:` branch the compiler had narrowed to `never` while it stayed reachable from the command line. |
 | 2026-08-13 | **`alarm/no-dashes` enforces the no-em-dash rule.** It scans raw source rather than the AST, because the dashes kept appearing in comments, which a node visitor would not see. Not auto-fixable on purpose: a dash separating a label from its description wants a colon and one joining two clauses wants a comma, so the substitution depends on the sentence. It found three violations in files nobody had thought to grep. |
