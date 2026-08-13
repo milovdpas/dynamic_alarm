@@ -188,6 +188,25 @@ export type PlanPreviewResponse = WakePlan;
  */
 export type PlanOptionsResponse = WakePlan[];
 
+/**
+ * The wake plan for a saved schedule's next occurrence.
+ *
+ * The date is carried separately because a wake time on its own cannot say
+ * whether it means tomorrow or Monday, and that is the first thing anyone
+ * looking at an alarm wants to know.
+ *
+ * Everything needed to arm the alarm is here, so the device does not have to
+ * reassemble the request from places, routines and schedules and duplicate the
+ * server's own arithmetic to do it.
+ */
+export interface SchedulePlanResponse {
+    scheduleId: string;
+    scheduleName: string;
+    /** The day the traveller must arrive, in the schedule's timezone. */
+    date: IsoDateString;
+    plan: WakePlan;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Responses                                                                   */
 /* -------------------------------------------------------------------------- */

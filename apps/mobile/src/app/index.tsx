@@ -1,556 +1,216 @@
-import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { DateTime } from 'luxon';
-import * as Clipboard from 'expo-clipboard';
+import { APP_CONSTANTS, LegType } from '@alarm/types';
+import type { JourneyLeg, WakePlan } from '@alarm/types';
 
-import { APP_CONSTANTS, DEFAULT_BUFFERS, TransportMode } from '@alarm/types';
-import type { WakePlan } from '@alarm/types';
-import { FixtureTransportProvider, planWake } from '@alarm/core';
-
-import {
-    canPickSystemAlarmSound,
-    canUseFullScreenIntent,
-    getAlarmVolume,
-    getDefaultAlarmSound,
-    clearMissedAlarms,
-    getAlarmDiagnostics,
-    getMissedAlarms,
-    isIgnoringBatteryOptimizations,
-    requestIgnoreBatteryOptimizations,
-    openFullScreenIntentSettings,
-    pickAlarmSound,
-    type AlarmSoundChoice,
-    type AlarmVolumeInfo,
-    type AlarmDiagnostics,
-    type MissedAlarm,
-} from '@modules/alarm-sound';
-import { canGuaranteeAlarm, getAlarmScheduler, getAlarmSupport, isFullyPermitted } from '@/alarm';
-import type { AlarmPermissionStatus } from '@/alarm';
-import { Spacing } from '@/assets/Stylesheet';
+import { Radius, Spacing } from '@/assets/Stylesheet';
 import ActionButton from '@/components/buttons/ActionButton';
 import DetailRow from '@/components/ui/DetailRow';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import WarningBanner from '@/components/ui/WarningBanner';
+import { useNextAlarm } from '@/alarm/useNextAlarm';
 import { useApiConnection } from '@/utils/hooks/useApiConnection';
-import { buildDebugReport } from '@/utils/modules/debugReport';
-import {
-    getMissingNativeModules,
-    getNativeModuleStatuses,
-} from '@/utils/modules/nativeDiagnostics';
-
-const TEST_ALARM_ID = 'm0-test-alarm';
-const SECOND_ALARM_ID = 'm0-test-alarm-2';
-
-/** One line summarising the most recent re-arm, for the harness row. */
-function formatLastRearm(diagnostics: AlarmDiagnostics): string {
-    const at = new Date(diagnostics.lastRearmAt).toLocaleTimeString();
-    const source = diagnostics.lastRearmSource ?? '?';
-    return source + ' @ ' + at + ' (missed ' + diagnostics.lastRearmMissedCount + ')';
-}
+import { useThemeColor } from '@/utils/hooks/useThemeColor';
 
 /**
- * M0 harness.
+ * What time you are getting up, and why.
  *
- * Not the product, a rig for proving the one thing the whole product rests on:
- * that a real alarm fires on a real device through lock, force-quit, reboot,
- * battery saver and Do Not Disturb. Replaced by the real UI in M1.
+ * The wake time is the largest thing on the screen because it is the only thing
+ * most people will ever read here. Everything below it exists to answer the one
+ * question that follows: why that time and not another. An alarm that moves
+ * without explaining itself is an alarm nobody trusts.
+ *
+ * The armed state is read back from the OS rather than inferred from a
+ * successful call. "We asked for an alarm" and "there is an alarm" are different
+ * claims, and only the second is worth showing to someone about to go to sleep.
  */
 export default function HomeScreen() {
     const { t } = useTranslation();
-    const [permissions, setPermissions] = useState<AlarmPermissionStatus | null>(null);
-    const [volume, setVolume] = useState<AlarmVolumeInfo | null>(null);
-    const [fullScreen, setFullScreen] = useState<boolean | null>(null);
-    const [missed, setMissed] = useState<MissedAlarm[]>([]);
-    const [diagnostics, setDiagnostics] = useState<AlarmDiagnostics | null>(null);
-    const [unrestricted, setUnrestricted] = useState<boolean | null>(null);
-    const [sound, setSound] = useState<AlarmSoundChoice | null>(null);
-    const [scheduled, setScheduled] = useState<string[]>([]);
-    const [status, setStatus] = useState('');
-    const [plan, setPlan] = useState<WakePlan | null>(null);
-    const support = getAlarmSupport();
-    const missingModules = getMissingNativeModules();
-    const nativeModules = getNativeModuleStatuses();
-
-    const refresh = useCallback(async () => {
-        const scheduler = getAlarmScheduler();
-        setPermissions(await scheduler.getPermissions());
-        setScheduled(await scheduler.listScheduled());
-        setVolume(await getAlarmVolume());
-        setFullScreen(await canUseFullScreenIntent());
-        setMissed(await getMissedAlarms());
-        setDiagnostics(await getAlarmDiagnostics());
-        setUnrestricted(await isIgnoringBatteryOptimizations());
-    }, []);
-
-    useEffect(() => {
-        // Every setState below happens after an await, i.e. in a later tick, the
-        // rule cannot see through the async boundary and flags it anyway.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        void refresh();
-        void getDefaultAlarmSound().then(setSound);
-
-        // Exercises the shared engine on-device, which doubles as proof that
-        // Metro really is resolving @alarm/core across the workspace.
-        const arriveAt = DateTime.now()
-            .setZone(APP_CONSTANTS.TIMEZONE)
-            .plus({ days: 1 })
-            .set({ hour: 8, minute: 30, second: 0, millisecond: 0 });
-
-        void planWake(
-            {
-                requiredArrivalAt: arriveAt.toISO() ?? '',
-                mode: TransportMode.PUBLIC_TRANSPORT,
-                origin: { lat: 52.0907, lng: 5.1214 },
-                destination: { lat: 52.3791, lng: 4.9003 },
-                routineMinutes: 35,
-                buffers: DEFAULT_BUFFERS,
-                timezone: APP_CONSTANTS.TIMEZONE,
-            },
-            new FixtureTransportProvider(),
-        ).then(setPlan);
-    }, [refresh]);
-
-    const grant = useCallback(async () => {
-        setPermissions(await getAlarmScheduler().requestPermissions());
-        await refresh();
-    }, [refresh]);
-
-    const grantUnrestricted = useCallback(async () => {
-        await requestIgnoreBatteryOptimizations();
-        setTimeout(() => void refresh(), 1000);
-    }, [refresh]);
-
-    const acknowledgeMissed = useCallback(async () => {
-        await clearMissedAlarms();
-        setMissed([]);
-    }, []);
-
-    const grantFullScreen = useCallback(async () => {
-        await openFullScreenIntentSettings();
-        // The user leaves the app to flip the switch; re-read it when they return.
-        setTimeout(() => void refresh(), 1000);
-    }, [refresh]);
-
-    const choose = useCallback(async () => {
-        const picked = await pickAlarmSound(sound?.uri ?? null);
-        if (picked !== null) {
-            setSound(picked);
-        }
-    }, [sound]);
-
-    const scheduleIn = useCallback(
-        async (seconds: number, id: string = TEST_ALARM_ID) => {
-            try {
-                const at = new Date(Date.now() + seconds * 1000);
-                await getAlarmScheduler().schedule({
-                    id,
-                    at: at.toISOString(),
-                    title: t('alarm.ringing_title'),
-                    body: t('harness.title'),
-                    soundUri: sound?.uri ?? null,
-                });
-                setStatus(t('harness.armed_for', { time: at.toLocaleTimeString() }));
-                await refresh();
-            } catch (error) {
-                setStatus(error instanceof Error ? error.message : String(error));
-            }
-        },
-        [refresh, sound, t],
-    );
-
-    /**
-     * Copies the whole device state as text.
-     *
-     * Screenshots are how we lost time on the boot-receiver question: they show
-     * a rendered value but not the raw one, and cannot be searched or diffed
-     * between runs. Text can be pasted straight into a report.
-     */
-    const copyDebug = useCallback(async () => {
-        const report = buildDebugReport({
-            diagnostics,
-            permissions,
-            fullScreen,
-            unrestricted,
-            volume,
-            sound,
-            scheduled,
-            missedCount: missed.length,
-            nativeModules,
-        });
-        await Clipboard.setStringAsync(report);
-        setStatus(t('diagnostics.copied'));
-    }, [
-        diagnostics,
-        permissions,
-        fullScreen,
-        unrestricted,
-        volume,
-        sound,
-        scheduled,
-        missed.length,
-        nativeModules,
-        t,
-    ]);
-
-    const { connection, retry: retryApi } = useApiConnection();
     const router = useRouter();
+    const border = useThemeColor({}, 'border');
 
-    const cancelAll = useCallback(async () => {
-        await getAlarmScheduler().cancelAll();
-        setStatus(t('harness.all_cancelled'));
-        await refresh();
-    }, [refresh, t]);
+    const { connection } = useApiConnection();
+    const { next, busy, refresh } = useNextAlarm();
+
+    const connected = connection?.state === 'connected';
 
     return (
         <ThemedView style={styles.flex}>
             <SafeAreaView style={styles.flex} edges={['bottom']}>
                 <ScrollView contentContainerStyle={styles.content}>
-                    <ThemedText type="title">{t('harness.title')}</ThemedText>
-
-                    {missingModules.length > 0 && (
-                        <WarningBanner
-                            title={t('diagnostics.rebuild_title')}
-                            message={t('diagnostics.rebuild_message', {
-                                names: missingModules.map((module) => module.name).join(', '),
-                            })}
-                        />
+                    {/*
+                     * Only when there is nothing to show yet. A refresh keeps
+                     * the previous answer on screen and says it is working
+                     * below, rather than blanking what the user was reading.
+                     */}
+                    {next.planned === null && next.state === 'loading' && (
+                        <ThemedText type="subtitle">{t('home.working')}</ThemedText>
                     )}
 
-                    {missed.length > 0 && (
-                        <View style={styles.section}>
-                            <WarningBanner
-                                title={t('alarm.missed_title')}
-                                message={t('alarm.missed_notice', { count: missed.length })}
-                            />
+                    {next.state === 'none' && (
+                        <View style={styles.setup}>
+                            <ThemedText type="title">{t('home.no_schedule_title')}</ThemedText>
+                            <ThemedText themeColor="textSecondary">
+                                {t('home.no_schedule_body')}
+                            </ThemedText>
                             <ActionButton
-                                label={t('alarm.missed_ack')}
-                                onPress={acknowledgeMissed}
+                                label={t('onboarding.entry_action')}
+                                variant="primary"
+                                // Onboarding ends by saving three records, so
+                                // starting it without a reachable API would lose
+                                // four screens of answers.
+                                disabled={!connected}
+                                onPress={() => {
+                                    router.push('/(onboarding)/places');
+                                }}
                             />
                         </View>
                     )}
 
-                    {support.reasonKey !== null && (
+                    {next.state === 'failed' && (
                         <WarningBanner
-                            title={t('alarm.unavailable_title')}
-                            message={t(support.reasonKey)}
+                            title={t('home.failed_title')}
+                            message={translateError(t, next.errorCode)}
                         />
                     )}
 
-                    {volume?.isMuted === true && (
-                        <WarningBanner
-                            title={t('harness.alarm_volume')}
-                            message={t('alarm.volume_muted')}
-                        />
-                    )}
+                    {next.state === 'ready' && next.planned !== null && (
+                        <View style={styles.plan}>
+                            <ThemedText type="small" themeColor="textSecondary">
+                                {relativeDay(t, next.planned.date)}
+                            </ThemedText>
+                            <ThemedText type="display">
+                                {clock(next.planned.plan.wakeUpAt)}
+                            </ThemedText>
 
-                    <Section title={t('onboarding.entry_title')}>
-                        <ThemedText type="small" themeColor="textSecondary">
-                            {t('onboarding.entry_body')}
-                        </ThemedText>
-                        <ActionButton
-                            label={t('onboarding.entry_action')}
-                            variant="primary"
-                            // Disabled without a reachable API on purpose. The
-                            // flow ends by saving three records, and letting
-                            // someone answer four screens only to lose the lot
-                            // is worse than not starting.
-                            disabled={connection?.state !== 'connected'}
-                            onPress={() => {
-                                router.push('/(onboarding)/places');
-                            }}
-                        />
-                    </Section>
-
-                    <Section title={t('harness.platform')}>
-                        <DetailRow
-                            label={t('harness.real_alarm')}
-                            value={
-                                canGuaranteeAlarm() ? t('common.yes') : t('harness.no_ios_fallback')
-                            }
-                            warn={!canGuaranteeAlarm()}
-                        />
-                        <DetailRow
-                            label={t('diagnostics.device_booted')}
-                            value={
-                                diagnostics == null
-                                    ? t('common.unknown')
-                                    : new Date(diagnostics.deviceBootedAt).toLocaleTimeString()
-                            }
-                        />
-                        <DetailRow
-                            label={t('diagnostics.boot_receiver')}
-                            value={
-                                diagnostics == null
-                                    ? t('common.unknown')
-                                    : diagnostics.bootRearmRanThisBoot
-                                      ? t('diagnostics.boot_ran_after', {
-                                            seconds: Math.round(
-                                                diagnostics.bootRearmDelayMs / 1000,
-                                            ),
-                                        })
-                                      : t('diagnostics.boot_not_this_boot', {
-                                            count: diagnostics.bootRearmCount,
-                                        })
-                            }
-                            warn={diagnostics != null && !diagnostics.bootRearmRanThisBoot}
-                        />
-                        <DetailRow
-                            label={t('diagnostics.last_rearm')}
-                            value={
-                                diagnostics == null || diagnostics.lastRearmAt === 0
-                                    ? t('harness.none')
-                                    : formatLastRearm(diagnostics)
-                            }
-                        />
-                        {diagnostics?.lastError != null && (
-                            <DetailRow
-                                label={t('diagnostics.last_error')}
-                                value={diagnostics.lastError}
-                                warn
-                            />
-                        )}
-                        {nativeModules.map((module) => (
-                            <DetailRow
-                                key={module.name}
-                                // Deliberately untranslated: this is the native
-                                // module's own identifier, not user-facing copy.
-                                label={module.name}
-                                value={
-                                    module.available
-                                        ? t('diagnostics.linked')
-                                        : t('diagnostics.missing')
-                                }
-                                warn={!module.available}
-                            />
-                        ))}
-                        <ActionButton label={t('diagnostics.copy')} onPress={copyDebug} />
-                    </Section>
-
-                    <Section title={t('api.title')}>
-                        <DetailRow
-                            label={t('api.address')}
-                            value={
-                                connection?.apiUrl === null || connection?.apiUrl === undefined
-                                    ? t('api.not_configured')
-                                    : connection.inferred
-                                      ? t('api.address_inferred', { url: connection.apiUrl })
-                                      : connection.apiUrl
-                            }
-                            warn={connection?.apiUrl === null}
-                        />
-                        <DetailRow
-                            label={t('api.title')}
-                            value={
-                                connection === null
-                                    ? t('api.registering')
-                                    : t(`api.${connection.state}`)
-                            }
-                            warn={
-                                connection?.state === 'unreachable' ||
-                                connection?.state === 'not_configured'
-                            }
-                        />
-                        {connection?.errorCode != null && (
-                            <WarningBanner
-                                title={t(`api.${connection.state}`)}
-                                message={apiErrorMessage(t, connection.errorCode)}
-                            />
-                        )}
-                        {connection !== null && connection.state !== 'registering' && (
-                            <ActionButton label={t('api.retry')} onPress={retryApi} />
-                        )}
-                    </Section>
-
-                    <Section title={t('permissions.title')}>
-                        <DetailRow
-                            label={t('permissions.notifications')}
-                            value={
-                                permissions?.notifications
-                                    ? t('permissions.granted')
-                                    : t('permissions.missing')
-                            }
-                            warn={permissions?.notifications === false}
-                        />
-                        <DetailRow
-                            label={t('permissions.exact_alarms')}
-                            value={
-                                permissions?.exactAlarm
-                                    ? t('permissions.granted')
-                                    : t('permissions.missing')
-                            }
-                            warn={permissions?.exactAlarm === false}
-                        />
-                        <DetailRow
-                            label={t('permissions.full_screen')}
-                            value={
-                                fullScreen === null
-                                    ? t('common.unknown')
-                                    : fullScreen
-                                      ? t('permissions.granted')
-                                      : t('permissions.missing')
-                            }
-                            warn={fullScreen === false}
-                        />
-                        {permissions !== null && !isFullyPermitted(permissions) && (
-                            <ActionButton label={t('permissions.grant')} onPress={grant} />
-                        )}
-                        <DetailRow
-                            label={t('permissions.battery')}
-                            value={
-                                unrestricted === null
-                                    ? t('common.unknown')
-                                    : unrestricted
-                                      ? t('permissions.granted')
-                                      : t('permissions.missing')
-                            }
-                            warn={unrestricted === false}
-                        />
-                        {unrestricted === false && (
-                            <ActionButton
-                                label={t('permissions.grant_battery')}
-                                onPress={grantUnrestricted}
-                                variant="primary"
-                            />
-                        )}
-                        {fullScreen === false && (
-                            <ActionButton
-                                label={t('permissions.grant_full_screen')}
-                                onPress={grantFullScreen}
-                                variant="primary"
-                            />
-                        )}
-                    </Section>
-
-                    <Section title={t('harness.sound')}>
-                        <DetailRow
-                            label={t('harness.selected')}
-                            value={sound?.label ?? t('harness.device_default')}
-                        />
-                        <DetailRow
-                            label={t('harness.alarm_volume')}
-                            value={
-                                volume === null
-                                    ? t('common.unknown')
-                                    : `${volume.current}/${volume.max}`
-                            }
-                            warn={volume?.isMuted === true}
-                        />
-                        {canPickSystemAlarmSound && (
-                            <ActionButton label={t('harness.pick_sound')} onPress={choose} />
-                        )}
-                    </Section>
-
-                    <Section title={t('harness.fire_test')}>
-                        <ActionButton
-                            label={t('harness.in_seconds', { count: 30 })}
-                            onPress={() => scheduleIn(30)}
-                            disabled={!support.canScheduleAlarms}
-                            variant="primary"
-                        />
-                        <ActionButton
-                            label={t('harness.in_minutes', { count: 2 })}
-                            onPress={() => scheduleIn(120)}
-                            disabled={!support.canScheduleAlarms}
-                        />
-                        <ActionButton
-                            label={t('harness.in_minutes', { count: 10 })}
-                            onPress={() => scheduleIn(600)}
-                            disabled={!support.canScheduleAlarms}
-                        />
-                        <ActionButton
-                            label={t('harness.second_alarm')}
-                            onPress={() => scheduleIn(90, SECOND_ALARM_ID)}
-                            disabled={!support.canScheduleAlarms}
-                        />
-                        <ActionButton label={t('harness.cancel_all')} onPress={cancelAll} />
-                        <DetailRow
-                            label={t('harness.scheduled_with_os')}
-                            value={scheduled.length > 0 ? scheduled.join(', ') : t('harness.none')}
-                        />
-                        {status !== '' && <ThemedText type="small">{status}</ThemedText>}
-                    </Section>
-
-                    <Section title={t('harness.engine')}>
-                        {plan === null ? (
-                            <ThemedText type="small">{t('harness.calculating')}</ThemedText>
-                        ) : (
-                            <>
-                                <DetailRow
-                                    label={t('common.wake_up')}
-                                    value={formatTime(plan.wakeUpAt)}
+                            {!next.armed && (
+                                <WarningBanner
+                                    title={t('home.not_armed_title')}
+                                    message={t('home.not_armed_body')}
                                 />
+                            )}
+
+                            <View style={[styles.card, { borderColor: border }]}>
                                 <DetailRow
                                     label={t('common.leave_home')}
-                                    value={formatTime(plan.departHomeAt)}
+                                    value={clock(next.planned.plan.departHomeAt)}
                                 />
                                 <DetailRow
-                                    label={t('plan.travel')}
-                                    value={t('common.minutes_short', {
-                                        count: plan.breakdown.travelMinutes,
+                                    label={t('common.arrive_by')}
+                                    value={clock(
+                                        next.planned.plan.breakdown.requiredArrivalAt,
+                                    )}
+                                />
+                                {next.planned.plan.journey?.legs.map((leg, index) => (
+                                    <DetailRow
+                                        key={`${leg.type}-${String(index)}`}
+                                        label={legLabel(t, leg)}
+                                        value={`${clock(leg.actualDeparture)} ${t(
+                                            'home.until',
+                                        )} ${clock(leg.actualArrival)}`}
+                                        warn={leg.cancelled}
+                                    />
+                                ))}
+                            </View>
+
+                            <Breakdown plan={next.planned.plan} />
+
+                            {!next.planned.plan.feasible && (
+                                <WarningBanner
+                                    title={t('plan.infeasible', {
+                                        minutes: next.planned.plan.shortfallMinutes ?? 0,
                                     })}
+                                    message={t('schedule.infeasible_help')}
                                 />
-                                <DetailRow
-                                    label={t('plan.risk_buffer')}
-                                    value={t('common.minutes_short', {
-                                        count: plan.breakdown.riskBufferMinutes,
-                                    })}
-                                />
-                                <DetailRow
-                                    label={t('plan.routine')}
-                                    value={t('common.minutes_short', {
-                                        count: plan.breakdown.routineMinutes,
-                                    })}
-                                />
-                                <DetailRow
-                                    label={t('plan.feasible')}
-                                    value={
-                                        plan.feasible
-                                            ? t('common.yes')
-                                            : t('plan.infeasible', {
-                                                  minutes: plan.shortfallMinutes,
-                                              })
-                                    }
-                                    warn={!plan.feasible}
-                                />
-                            </>
-                        )}
-                    </Section>
+                            )}
+
+                            {/*
+                             * Manual until M2. The monitor loop and its pushes
+                             * are what will keep this current; saying so is
+                             * better than implying the number looks after
+                             * itself overnight.
+                             */}
+                            <ThemedText type="small" themeColor="textSecondary">
+                                {busy ? t('home.working') : t('home.manual_refresh')}
+                            </ThemedText>
+                            <ActionButton
+                                label={t('home.refresh')}
+                                onPress={refresh}
+                                disabled={busy}
+                            />
+                        </View>
+                    )}
+
+                    <ActionButton
+                        label={t('home.debug')}
+                        onPress={() => {
+                            router.push('/debug');
+                        }}
+                    />
                 </ScrollView>
             </SafeAreaView>
         </ThemedView>
     );
 }
 
-function formatTime(iso: string): string {
+/** Every term of the calculation, so the wake time can be argued with. */
+function Breakdown({ plan }: { plan: WakePlan }) {
+    const { t } = useTranslation();
+    const { breakdown } = plan;
+
+    return (
+        <View style={styles.breakdown}>
+            <DetailRow
+                label={t('plan.travel')}
+                value={t('common.minutes_short', { count: breakdown.travelMinutes })}
+            />
+            <DetailRow
+                label={t('plan.risk_buffer')}
+                value={t('common.minutes_short', { count: breakdown.riskBufferMinutes })}
+            />
+            <DetailRow
+                label={t('plan.routine')}
+                value={t('common.minutes_short', { count: breakdown.routineMinutes })}
+            />
+        </View>
+    );
+}
+
+function clock(iso: string): string {
     return DateTime.fromISO(iso, { setZone: true })
         .setZone(APP_CONSTANTS.TIMEZONE)
         .toFormat('HH:mm');
 }
 
 /**
- * Copy for an API failure, chosen by code.
- *
- * The server's own `message` is English and written for a log, so it never
- * reaches the screen. An unrecognised code falls back to a generic translated
- * sentence rather than to the raw one.
+ * "Tomorrow" beats a date. A wake time on its own cannot say whether it means
+ * tonight or Monday, and that is the first thing anyone checks.
  */
-function apiErrorMessage(t: (key: string) => string, code: string): string {
+function relativeDay(t: (key: string, options?: Record<string, unknown>) => string, date: string) {
+    const day = DateTime.fromISO(date, { zone: APP_CONSTANTS.TIMEZONE }).startOf('day');
+    const days = Math.round(day.diff(DateTime.now().setZone(APP_CONSTANTS.TIMEZONE).startOf('day'), 'days').days);
+
+    if (days === 0) return t('home.today');
+    if (days === 1) return t('home.tomorrow');
+    return day.setLocale('nl').toFormat('cccc d LLLL');
+}
+
+/** Walking and cycling are the traveller's own legs, so they read differently. */
+function legLabel(t: (key: string) => string, leg: JourneyLeg): string {
+    if (leg.type === LegType.WALK) return t('home.leg_walk');
+    if (leg.type === LegType.BIKE) return t('home.leg_bike');
+    return leg.name ?? leg.fromName;
+}
+
+function translateError(t: (key: string) => string, code: string | null): string {
+    if (code === null) return t('api.error.unknown');
     const key = `api.error.${code}`;
     const copy = t(key);
     return copy === key ? t('api.error.unknown') : copy;
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-    return (
-        <View style={styles.section}>
-            <ThemedText type="subtitle">{title}</ThemedText>
-            {children}
-        </View>
-    );
 }
 
 const styles = StyleSheet.create({
@@ -558,10 +218,22 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     content: {
-        padding: Spacing.large,
-        gap: Spacing.large,
+        padding: Spacing.medium,
+        gap: Spacing.medium,
     },
-    section: {
+    setup: {
         gap: Spacing.small,
+    },
+    plan: {
+        gap: Spacing.small,
+    },
+    card: {
+        borderWidth: 1,
+        borderRadius: Radius.medium,
+        padding: Spacing.medium,
+        gap: Spacing.extraSmall,
+    },
+    breakdown: {
+        gap: Spacing.extraSmall,
     },
 });

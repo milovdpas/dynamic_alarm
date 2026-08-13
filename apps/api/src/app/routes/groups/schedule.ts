@@ -29,6 +29,14 @@ export default class ScheduleRoutes implements IRoute {
             validate({ params: idParamSchema }),
             this.controller.detail,
         );
+        // Before the generic detail routes only for readability; the paths do
+        // not overlap, since this one carries a suffix.
+        router.get<IdParams>(
+            API_ENDPOINTS.SCHEDULES.PLAN(':id'),
+            deviceAuth,
+            validate({ params: idParamSchema }),
+            this.controller.plan,
+        );
         router.patch<IdParams>(
             API_ENDPOINTS.SCHEDULES.DETAIL(':id'),
             deviceAuth,

@@ -21,6 +21,11 @@ function RootNavigator() {
                  * flow entirely.
                  */}
                 <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+                {/*
+                 * Reachable directly for now. It moves behind ten taps on the
+                 * app version in settings once that screen exists; see PLAN.md.
+                 */}
+                <Stack.Screen name="debug" options={{ title: 'Diagnostics' }} />
                 <Stack.Screen
                     name="ring"
                     options={{

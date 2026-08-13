@@ -2,6 +2,7 @@ import { API_ENDPOINTS } from '@alarm/types';
 import type {
     CreateScheduleRequest,
     ListSchedulesResponse,
+    SchedulePlanResponse,
     ScheduleResponse,
     UpdateScheduleRequest,
 } from '@alarm/types';
@@ -25,4 +26,19 @@ export async function updateSchedule(
 
 export async function deleteSchedule(id: string): Promise<void> {
     await Axios.delete<void>(API_ENDPOINTS.SCHEDULES.DETAIL(id));
+}
+
+/**
+ * The wake plan for this schedule's next occurrence.
+ *
+ * One request for everything needed to arm an alarm: the date, the wake time,
+ * the journey and the breakdown behind it. The device does not reassemble that
+ * from places, routines and schedules, because a second copy of the arithmetic
+ * would eventually disagree with the server's and nothing would say which was
+ * right.
+ *
+ * Costs a provider call, so it is something to do on purpose rather than poll.
+ */
+export async function planSchedule(id: string): Promise<SchedulePlanResponse> {
+    return Axios.get<SchedulePlanResponse>(API_ENDPOINTS.SCHEDULES.PLAN(id));
 }
