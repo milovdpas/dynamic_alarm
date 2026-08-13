@@ -1,8 +1,11 @@
 import { APP_CONSTANTS } from '@alarm/types';
 
-import { registerDevice } from './devices';
+import { getDevice, registerDevice, updateDevice } from './devices';
 import appConfig from '@/config';
 import Axios, { ApiRequestError, CLIENT_ERROR_CODES } from '@/utils/modules/Axios';
+import Storage from '@/utils/modules/Storage';
+import { getPushToken } from '@/utils/modules/pushToken';
+import type { PushTokenProblem } from '@/utils/modules/pushToken';
 
 /** What the app knows about its own connection to the API. */
 export interface ApiConnection {
@@ -17,6 +20,14 @@ export interface ApiConnection {
     errorCode: string | null;
     /** English, for the debug report and the log. Not for the user. */
     errorDetail: string | null;
+    /**
+     * Whether the server holds a push token for this device.
+     *
+     * Reported rather than assumed, because push is how the monitor moves an
+     * alarm that is already armed, and a device without one silently stops
+     * receiving updates while still looking connected.
+     */
+    pushToken: 'registered' | PushTokenProblem | 'not_attempted';
 }
 
 /**
@@ -31,8 +42,47 @@ export interface ApiConnection {
  * Safe to call again. A device with a stored token does no work and makes no
  * request, so this is not a per-launch round trip.
  */
+/** The token last sent to the server, so an unchanged one costs no request. */
+const LAST_PUSH_TOKEN_KEY = 'lastPushToken';
+
+/**
+ * Makes sure the server holds a current push token for this device.
+ *
+ * Only writes when the token has changed. Expo mints a stable token per install,
+ * so re-sending it on every launch would be a request that never changes
+ * anything. It does re-send when the server says it holds none, which is how a
+ * device recovers after its row was cleared.
+ *
+ * Never throws. A device with no push token still gets its alarms, because the
+ * wake time is armed locally; push only moves an alarm that is already set.
+ */
+async function syncPushToken(): Promise<'registered' | PushTokenProblem> {
+    const result = await getPushToken();
+    if ('problem' in result) {
+        return result.problem;
+    }
+
+    try {
+        const device = await getDevice();
+        const lastSent = await Storage.getItem(LAST_PUSH_TOKEN_KEY);
+
+        if (lastSent === result.token && device.hasPushToken) {
+            return 'registered';
+        }
+
+        await updateDevice(device.deviceId, { pushToken: result.token });
+        await Storage.setItem(LAST_PUSH_TOKEN_KEY, result.token);
+        return 'registered';
+    } catch {
+        return 'REQUEST_FAILED';
+    }
+}
+
 export async function ensureDeviceRegistered(): Promise<ApiConnection> {
-    const base: Omit<ApiConnection, 'state' | 'deviceId' | 'errorCode' | 'errorDetail'> = {
+    const base: Omit<
+        ApiConnection,
+        'state' | 'deviceId' | 'errorCode' | 'errorDetail' | 'pushToken'
+    > = {
         apiUrl: appConfig.apiUrl,
         inferred: appConfig.apiUrlInferred,
     };
@@ -44,6 +94,7 @@ export async function ensureDeviceRegistered(): Promise<ApiConnection> {
             deviceId: null,
             errorCode: CLIENT_ERROR_CODES.API_URL_MISSING,
             errorDetail: 'No EXPO_PUBLIC_API_URL, and no Metro host to infer one from.',
+            pushToken: 'not_attempted',
         };
     }
 
@@ -52,7 +103,14 @@ export async function ensureDeviceRegistered(): Promise<ApiConnection> {
         // Registered on a previous launch. The device id is not stored beside
         // the token, and nothing needs it yet, so this does not spend a request
         // to look it up.
-        return { ...base, state: 'connected', deviceId: null, errorCode: null, errorDetail: null };
+        return {
+            ...base,
+            state: 'connected',
+            deviceId: null,
+            errorCode: null,
+            errorDetail: null,
+            pushToken: await syncPushToken(),
+        };
     }
 
     try {
@@ -66,6 +124,7 @@ export async function ensureDeviceRegistered(): Promise<ApiConnection> {
             deviceId: result.deviceId,
             errorCode: null,
             errorDetail: null,
+            pushToken: await syncPushToken(),
         };
     } catch (error) {
         const failure = ApiRequestError.from(error);
@@ -75,6 +134,7 @@ export async function ensureDeviceRegistered(): Promise<ApiConnection> {
             deviceId: null,
             errorCode: failure.code,
             errorDetail: failure.message,
+            pushToken: 'not_attempted',
         };
     }
 }

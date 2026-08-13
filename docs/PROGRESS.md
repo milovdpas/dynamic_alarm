@@ -326,14 +326,24 @@ against live NS and TomTom rather than a hand-entered duration.
 
 **App**
 
-- [x] Settings screen with `allowLaterWake`, and the diagnostics gate behind the version
-- [ ] Reach the API from a physical device (base URL resolution, cleartext on preview builds)
-- [ ] Typed API client over the M1 endpoints, device registered on first launch
-- [ ] Onboarding flow
-- [ ] Routine editor
-- [ ] Schedule screen: arrival time, days of week, fixed travel duration
+- [x] Settings screen: three opt-in disruption settings, filtered by travel mode, diagnostics behind the version
+- [x] Reach the API from a physical device (base URL resolution, cleartext on preview builds)
+- [x] Typed API client over the M1 endpoints, device registered on first launch
+- [x] Onboarding flow (places, routine, schedule, train choice, adjustments)
+- [x] Routine editor
+- [x] Schedule screen: arrival time, days of week, fixed travel duration
 - [x] Engine result drives a real scheduled alarm
 - [ ] Offline mirror (expo-sqlite + drizzle)
+
+The offline mirror is the only M1 item left, and it is deliberately last. Its
+point is recomputing the anchor with no connectivity, which only matters once the
+monitor is moving times around; today the device arms from a single API call and
+says plainly that it does not update while you sleep.
+
+Push token registration landed with the first M2 chunk: the app requests
+notification permission, fetches an Expo token and sends it, only when it has
+changed. Every failure is a named reason shown in the debug panel rather than an
+exception, because a device without a token still wakes on its anchor.
 - [x] Move the M0 harness off the home screen into a hidden debug panel
 
 
@@ -345,8 +355,8 @@ Where the product actually becomes itself.
 - [x] `NsModule`: `/api/v3/trips` station to station, `searchForArrival`, `addChangeTime`
 - [x] `JourneyPlannerService`: door-to-door composed from NS rail + TomTom walking legs, since the `Ns-App` key refuses coordinate planning (`API_KEY_NOT_ALLOWED_TO_PLAN_DOOR_TO_DOOR`)
 - [x] `ctxRecon` refresh path (walks re-attached from the stored journey, so a refresh stays one NS call)
-- [ ] Places autosuggest proxy for address entry
-- [ ] `ScheduleOccurrence` + `AlarmEvent` entities
+- [x] Places autosuggest proxy for address entry
+- [x] `ScheduleOccurrence` + `AlarmEvent` entities, with the unique (schedule, date) key and the (state, next_check_at) index the loop claims on
 - [ ] Monitor loop: minute tick, `nextCheckAt`, `FOR UPDATE SKIP LOCKED`
 - [ ] Cadence ladder (30m / 10m / 3m bands)
 - [ ] Global disruption sweep promoting affected occurrences

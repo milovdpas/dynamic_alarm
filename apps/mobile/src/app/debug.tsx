@@ -334,6 +334,19 @@ export default function DebugScreen() {
                                 connection?.state === 'not_configured'
                             }
                         />
+                        <DetailRow
+                            label={t('api.push_token')}
+                            value={
+                                connection === null
+                                    ? t('common.unknown')
+                                    : t(`api.push.${connection.pushToken}`)
+                            }
+                            warn={
+                                connection !== null &&
+                                connection.pushToken !== 'registered' &&
+                                connection.pushToken !== 'not_attempted'
+                            }
+                        />
                         {connection?.errorCode != null && (
                             <WarningBanner
                                 title={t(`api.${connection.state}`)}

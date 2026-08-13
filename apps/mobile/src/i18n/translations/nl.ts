@@ -78,6 +78,15 @@ export default {
         not_configured: 'Geen API-adres',
         address: 'Adres',
         address_inferred: '{{url}} (geraden via Metro)',
+        push_token: 'Pushtoken',
+        push: {
+            registered: 'Geregistreerd',
+            not_attempted: 'Niet geprobeerd',
+            UNSUPPORTED_RUNTIME: 'Vereist een development build',
+            PERMISSION_DENIED: 'Meldingen geweigerd',
+            NO_PROJECT_ID: 'Geen EAS-project-id',
+            REQUEST_FAILED: 'Kon niet worden opgehaald',
+        },
         retry: 'Opnieuw proberen',
         error: {
             API_URL_MISSING:

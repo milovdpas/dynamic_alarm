@@ -66,6 +66,7 @@ module.exports = defineConfig([
         // The wrappers exist precisely to contain these lazy requires.
         files: [
             'src/components/ui/TimeField.tsx',
+            'src/utils/modules/pushToken.ts',
             'src/utils/modules/Storage.ts',
             'src/utils/modules/Axios.ts',
             'src/utils/modules/optionalModule.ts',

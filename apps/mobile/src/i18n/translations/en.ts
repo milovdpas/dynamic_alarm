@@ -78,6 +78,15 @@ export default {
         not_configured: 'No API address',
         address: 'Address',
         address_inferred: '{{url}} (guessed from Metro)',
+        push_token: 'Push token',
+        push: {
+            registered: 'Registered',
+            not_attempted: 'Not attempted',
+            UNSUPPORTED_RUNTIME: 'Needs a development build',
+            PERMISSION_DENIED: 'Notifications refused',
+            NO_PROJECT_ID: 'No EAS project id',
+            REQUEST_FAILED: 'Could not be fetched',
+        },
         retry: 'Try again',
         error: {
             API_URL_MISSING:

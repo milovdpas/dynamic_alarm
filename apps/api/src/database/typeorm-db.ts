@@ -2,11 +2,13 @@ import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 
 import { databaseConfig } from '../config/database';
+import AlarmEvent from '../app/models/AlarmEvent.entity';
 import Device from '../app/models/Device.entity';
 import Place from '../app/models/Place.entity';
 import Routine from '../app/models/Routine.entity';
 import RoutineStep from '../app/models/RoutineStep.entity';
 import Schedule from '../app/models/Schedule.entity';
+import ScheduleOccurrence from '../app/models/ScheduleOccurrence.entity';
 
 /**
  * TypeORM owns runtime queries. Knex owns schema.
@@ -31,7 +33,7 @@ export const AppDataSource = new DataSource({
     // Every timestamp is stored and read as UTC. Leaving this to the server's
     // local zone silently shifts stored times when the clocks change.
     timezone: 'Z',
-    entities: [Device, Place, Routine, RoutineStep, Schedule],
+    entities: [Device, Place, Routine, RoutineStep, Schedule, ScheduleOccurrence, AlarmEvent],
 });
 
 export async function connectDatabase(): Promise<void> {
