@@ -40,6 +40,16 @@ RUN npm run build --workspace=@alarm/types \
 # Leaves the workspace symlinks intact, since those are runtime dependencies.
 RUN npm prune --omit=dev
 
+# Not every dependency hoists. npm nests a package under the workspace that
+# needs it whenever the root already holds a different version, and pruning then
+# deletes the hoisted copy and keeps the nested one. `zod` does exactly that:
+# after this prune it exists only at apps/api/node_modules/zod.
+#
+# These are created so the COPY below cannot fail on a workspace that happens to
+# have nothing nested today and would otherwise break the build the first time
+# that changed.
+RUN mkdir -p apps/api/node_modules packages/core/node_modules packages/types/node_modules
+
 # ---------------------------------------------------------------------------
 # Runtime: the compiled output, production dependencies, nothing else.
 # ---------------------------------------------------------------------------
@@ -59,10 +69,13 @@ COPY --from=builder /app/package.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/types/package.json ./packages/types/
 COPY --from=builder /app/packages/types/dist ./packages/types/dist
+COPY --from=builder /app/packages/types/node_modules ./packages/types/node_modules
 COPY --from=builder /app/packages/core/package.json ./packages/core/
 COPY --from=builder /app/packages/core/dist ./packages/core/dist
+COPY --from=builder /app/packages/core/node_modules ./packages/core/node_modules
 COPY --from=builder /app/apps/api/package.json ./apps/api/
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
 
 RUN chown -R api:nodejs /app
 USER api

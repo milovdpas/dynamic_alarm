@@ -149,6 +149,19 @@ An HTTPS value also switches off the cleartext permission by itself:
 `withCleartextDevApi` only touches the manifest while the URL starts with
 `http://`.
 
+## Not every dependency hoists
+
+The runtime image copies `node_modules` from the root **and from each
+workspace**. npm nests a package under the workspace that needs it whenever the
+root already holds a different version, and `npm prune --omit=dev` then deletes
+the hoisted copy and keeps the nested one. `zod` does exactly that: after the
+prune it exists only at `apps/api/node_modules/zod`.
+
+Copying only the root left the first deploy crash-looping on
+`Cannot find module 'zod'`. Worth knowing because the failure is invisible until
+runtime: the image builds, the container starts, and it dies inside the require
+chain that wires the routes.
+
 ## Migrations
 
 Run by the workflow after the container is healthy, from inside the image, which
