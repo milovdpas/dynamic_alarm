@@ -21,4 +21,7 @@ export const updateDeviceSchema = z.object({
     pushToken: z.string().max(255).nullable().optional(),
     timezone: z.string().min(1).max(64).optional(),
     appVersion: z.string().max(32).optional(),
+    allowLaterWakeOnDelay: z.boolean().optional(),
+    allowLaterWakeOnCancellation: z.boolean().optional(),
+    allowEarlierWakeOnTraffic: z.boolean().optional(),
 });

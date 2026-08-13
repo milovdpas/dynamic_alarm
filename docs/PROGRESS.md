@@ -326,15 +326,15 @@ against live NS and TomTom rather than a hand-entered duration.
 
 **App**
 
-- [ ] Settings screen, starting with `allowLaterWake` (see PLAN.md, the fail-safe section)
+- [x] Settings screen with `allowLaterWake`, and the diagnostics gate behind the version
 - [ ] Reach the API from a physical device (base URL resolution, cleartext on preview builds)
 - [ ] Typed API client over the M1 endpoints, device registered on first launch
 - [ ] Onboarding flow
 - [ ] Routine editor
 - [ ] Schedule screen: arrival time, days of week, fixed travel duration
-- [ ] Engine result drives a real scheduled alarm
+- [x] Engine result drives a real scheduled alarm
 - [ ] Offline mirror (expo-sqlite + drizzle)
-- [ ] Move the M0 harness off the home screen into a hidden debug panel (design in PLAN.md)
+- [x] Move the M0 harness off the home screen into a hidden debug panel
 
 
 ## M2: NS live

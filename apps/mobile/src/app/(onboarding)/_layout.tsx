@@ -19,6 +19,10 @@ export default function OnboardingLayout() {
                 <Stack.Screen name="places" options={{ title: t('onboarding.places_title') }} />
                 <Stack.Screen name="routine" options={{ title: t('onboarding.routine_title') }} />
                 <Stack.Screen name="schedule" options={{ title: t('onboarding.schedule_title') }} />
+                <Stack.Screen
+                    name="adjustments"
+                    options={{ title: t('onboarding.adjustments_title') }}
+                />
             </Stack>
         </OnboardingProvider>
     );

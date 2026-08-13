@@ -82,6 +82,26 @@ export interface DeviceResponse {
     platform: DevicePlatform;
     timezone: TimeZone;
     hasPushToken: boolean;
+    /**
+     * Which disruptions may move the alarm, and in which direction. All on by
+     * default, because together they are the product.
+     *
+     * Delays and cancellations are separate because they carry different
+     * amounts of certainty: a delay shifts a journey by a known number of
+     * minutes, a cancellation replaces it with a different train and possibly a
+     * transfer. Accepting extra sleep from one and not the other is coherent.
+     *
+     * Traffic moves the alarm the other way, because a car journey grows rather
+     * than slips. Turning that one off means accepting lateness when the roads
+     * are bad, which the copy has to say.
+     *
+     * None of them govern the emergency path: when a cancellation leaves no way
+     * to arrive on time, the alarm moves earlier regardless, because not moving
+     * is a guaranteed failure rather than a risk.
+     */
+    allowLaterWakeOnDelay: boolean;
+    allowLaterWakeOnCancellation: boolean;
+    allowEarlierWakeOnTraffic: boolean;
 }
 
 /**
@@ -96,6 +116,9 @@ export interface UpdateDeviceRequest {
     pushToken?: string | null;
     timezone?: TimeZone;
     appVersion?: string;
+    allowLaterWakeOnDelay?: boolean;
+    allowLaterWakeOnCancellation?: boolean;
+    allowEarlierWakeOnTraffic?: boolean;
 }
 
 /* -------------------------------------------------------------------------- */

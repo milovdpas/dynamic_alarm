@@ -189,6 +189,25 @@
           ]
         },
         {
+          "name": "This device",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/devices/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "devices",
+                "me"
+              ]
+            },
+            "description": "This device, as the server sees it.\n\nNo id in the path: the token already identifies exactly one device, and accepting an id would invite the question of what happens when it names a different one.\n\nThe settings screen reads `allowLaterWake` from here rather than keeping a local copy, because the monitor is what acts on it. A local mirror could disagree with the value actually in force overnight, and nothing on screen would say which was real.\n\nResponse: `DeviceResponse`."
+          }
+        },
+        {
           "name": "Update device",
           "request": {
             "method": "PATCH",
@@ -200,7 +219,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"pushToken\": \"ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]\",\n    \"timezone\": \"Europe/Amsterdam\",\n    \"appVersion\": \"1.0.1\"\n}"
+              "raw": "{\n    \"pushToken\": \"ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]\",\n    \"timezone\": \"Europe/Amsterdam\",\n    \"appVersion\": \"1.0.1\",\n    \"allowLaterWakeOnDelay\": true,\n    \"allowLaterWakeOnCancellation\": true,\n    \"allowEarlierWakeOnTraffic\": true\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/devices/{{deviceId}}",
@@ -214,7 +233,7 @@
                 "{{deviceId}}"
               ]
             },
-            "description": "The mutable facts about a device. Platform is not one of them.\n\n`pushToken` is nullable, not merely optional, and the difference matters: omitting it means unchanged, sending `null` means notification permission was revoked. Collapsing the two would leave the server pushing at a token the device no longer has.\n\nResponse: `DeviceResponse` ({ deviceId, platform, timezone, hasPushToken }). The push token comes back as a boolean, because the device already holds the value; what it cannot otherwise learn is whether the server still has one."
+            "description": "The mutable facts about a device. Platform is not one of them.\n\n`pushToken` is nullable, not merely optional, and the difference matters: omitting it means unchanged, sending `null` means notification permission was revoked. Collapsing the two would leave the server pushing at a token the device no longer has.\n\nResponse: `DeviceResponse` ({ deviceId, platform, timezone, hasPushToken }). The push token comes back as a boolean, because the device already holds the value; what it cannot otherwise learn is whether the server still has one.\n\nThe three disruption settings say which events may move the alarm and in which direction. All default to true.\n\nDelays and cancellations are separate because they carry different amounts of certainty: a delay shifts a journey by a known number of minutes, a cancellation replaces it with a different train and possibly a transfer. Accepting extra sleep from one and not the other is a coherent position.\n\n`allowEarlierWakeOnTraffic` moves the alarm the other way, because a car journey grows rather than slips: TomTom plans a future departure from predictive traffic only, so a jam found inside the departure window means the drive takes longer than the anchor assumed. Turning it off means accepting lateness when the roads are bad.\n\nNone of them govern the emergency path. When a cancellation leaves no way to arrive on time, the alarm moves earlier regardless, because not moving is a guaranteed failure rather than a risk."
           },
           "response": []
         }

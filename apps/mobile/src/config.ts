@@ -58,4 +58,14 @@ export default {
     /** True when the address was inferred rather than configured. */
     apiUrlInferred: apiUrl !== null && (process.env.EXPO_PUBLIC_API_URL ?? '') === '',
     debug: process.env.EXPO_PUBLIC_DEBUG === 'true',
+    /**
+     * Opens the diagnostics panel, after ten taps on the version.
+     *
+     * **Not a secret and never treated as one.** It is inlined into the bundle
+     * at build time and anyone who wants it can read it out of the APK. Its job
+     * is to stop someone stumbling in, which is the whole requirement: the panel
+     * shows the user their own device's diagnostics and nothing belonging to
+     * anyone else. Nothing that would matter if it leaked may be put there.
+     */
+    debugPassword: process.env.EXPO_PUBLIC_DEBUG_PASSWORD ?? 'wakeup',
 };

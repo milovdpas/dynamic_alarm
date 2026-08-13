@@ -1,4 +1,5 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider as NavigationTheme } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 
 import '@/i18n/i18n';
 import { useAlarmRouting } from '@/alarm/useAlarmRouting';
@@ -6,6 +7,7 @@ import { ThemeProvider, useTheme } from '@/utils/contexts/ThemeContext';
 
 function RootNavigator() {
     const { theme } = useTheme();
+    const { t } = useTranslation();
 
     // Sends the app to the ring screen when a full-screen intent wakes it.
     useAlarmRouting();
@@ -21,11 +23,13 @@ function RootNavigator() {
                  * flow entirely.
                  */}
                 <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+                <Stack.Screen name="settings" options={{ title: t('settings.title') }} />
                 {/*
-                 * Reachable directly for now. It moves behind ten taps on the
-                 * app version in settings once that screen exists; see PLAN.md.
+                 * Reachable only from settings, after ten taps on the version
+                 * and a password. Still a real route: the gate is about not
+                 * being stumbled into, not about being unreachable.
                  */}
-                <Stack.Screen name="debug" options={{ title: 'Diagnostics' }} />
+                <Stack.Screen name="debug" options={{ title: t('settings.debug_title') }} />
                 <Stack.Screen
                     name="ring"
                     options={{

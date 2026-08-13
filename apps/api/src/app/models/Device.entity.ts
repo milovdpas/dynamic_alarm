@@ -1,6 +1,7 @@
 import { BaseEntity,
     Column, CreateDateColumn, Entity, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import { DevicePlatform } from '@alarm/types';
+import type { DeviceResponse } from '@alarm/types';
 
 import Place from './Place.entity';
 import Routine from './Routine.entity';
@@ -49,6 +50,32 @@ export default class Device extends BaseEntity {
     @Column({ name: 'app_version', type: 'varchar', length: 32, nullable: true })
     appVersion!: string | null;
 
+    /**
+     * Which disruptions may move the alarm, read by the monitor before it
+     * pushes anything.
+     *
+     * Delays and cancellations are separate because they carry different
+     * amounts of certainty. Traffic is the one that moves the alarm earlier,
+     * because a car journey grows rather than slips.
+     *
+     * All three are opt in. Moving somebody's alarm is the most consequential
+     * thing this app does, so it happens because they asked for it rather than
+     * because nobody said otherwise. Onboarding puts the question in front of
+     * them; this default governs devices that never got that far.
+     *
+     * Here rather than on the schedule to begin with. Per-schedule overrides are
+     * the obvious extension, and reading them through the schedule means adding
+     * them later is a default rather than a change of meaning.
+     */
+    @Column({ name: 'allow_later_wake_on_delay', type: 'boolean', default: false })
+    allowLaterWakeOnDelay!: boolean;
+
+    @Column({ name: 'allow_later_wake_on_cancellation', type: 'boolean', default: false })
+    allowLaterWakeOnCancellation!: boolean;
+
+    @Column({ name: 'allow_earlier_wake_on_traffic', type: 'boolean', default: false })
+    allowEarlierWakeOnTraffic!: boolean;
+
     /** Lets a dead device's monitoring be stopped without deleting its data. */
     @Column({ name: 'last_seen_at', type: 'datetime', precision: 3, nullable: true })
     lastSeenAt!: Date | null;
@@ -67,4 +94,28 @@ export default class Device extends BaseEntity {
 
     @UpdateDateColumn({ name: 'updated_at', type: 'datetime', precision: 3 })
     updatedAt!: Date;
+
+    /**
+     * The wire shape of this device, which is deliberately not the whole row.
+     *
+     * `tokenHash` must never leave the server, and the push token is reported as
+     * a boolean: the device already holds the value, so what it cannot otherwise
+     * learn is whether the server still has one.
+     *
+     * Unlike the other entities this maps to a response type rather than a
+     * domain type, because a device is not a thing the engine reasons about. It
+     * is still declared in `@alarm/types`, so the app parses the same
+     * declaration the API compiles against.
+     */
+    toDto(): DeviceResponse {
+        return {
+            deviceId: this.id,
+            platform: this.platform,
+            timezone: this.timezone,
+            hasPushToken: this.pushToken !== null,
+            allowLaterWakeOnDelay: this.allowLaterWakeOnDelay,
+            allowLaterWakeOnCancellation: this.allowLaterWakeOnCancellation,
+            allowEarlierWakeOnTraffic: this.allowEarlierWakeOnTraffic,
+        };
+    }
 }

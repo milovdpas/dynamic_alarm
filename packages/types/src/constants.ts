@@ -4,6 +4,8 @@ import type { BufferConfig } from './domain';
 export const API_ENDPOINTS = {
     DEVICES: {
         REGISTER: '/api/v1/devices',
+        /** This device, identified by its token rather than by an id in the path. */
+        ME: '/api/v1/devices/me',
         UPDATE: (id: string) => `/api/v1/devices/${id}`,
     },
     PLACES: {

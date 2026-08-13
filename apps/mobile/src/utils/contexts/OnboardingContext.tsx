@@ -10,7 +10,7 @@ import {
 } from '@alarm/types';
 import type { CreateRoutineStepRequest, PlaceSuggestion, Schedule } from '@alarm/types';
 
-import { createPlace, createRoutine, createSchedule } from '@/api';
+import { createPlace, createRoutine, createSchedule, getDevice, updateDevice } from '@/api';
 
 /** A place the user has chosen but which has not been saved yet. */
 export interface PlaceDraft {
@@ -53,6 +53,14 @@ export interface OnboardingDraft {
      * Zero is the most sleep, and what the engine picks unasked.
      */
     journeyOffset: number;
+    /**
+     * Which disruptions may move the alarm. All off until asked, because moving
+     * somebody's alarm is the most consequential thing this app does and it
+     * should happen because they said so.
+     */
+    allowLaterWakeOnDelay: boolean;
+    allowLaterWakeOnCancellation: boolean;
+    allowEarlierWakeOnTraffic: boolean;
 }
 
 interface OnboardingContextValue {
@@ -115,6 +123,9 @@ function createInitialDraft(): OnboardingDraft {
         originAccess: AccessMode.WALK,
         destinationAccess: AccessMode.WALK,
         journeyOffset: 0,
+        allowLaterWakeOnDelay: false,
+        allowLaterWakeOnCancellation: false,
+        allowEarlierWakeOnTraffic: false,
     };
 }
 
@@ -199,7 +210,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             })),
         });
 
-        return createSchedule({
+        const schedule = await createSchedule({
             name: 'Work mornings',
             originPlaceId: home.id,
             destinationPlaceId: work.id,
@@ -213,6 +224,22 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             buffers: DEFAULT_BUFFERS,
             timezone: APP_CONSTANTS.TIMEZONE,
         });
+
+        // Last, and deliberately not fatal. The schedule is saved by this point,
+        // so failing here costs the answers to three switches rather than the
+        // whole setup, and the settings screen can still set them.
+        try {
+            const device = await getDevice();
+            await updateDevice(device.deviceId, {
+                allowLaterWakeOnDelay: draft.allowLaterWakeOnDelay,
+                allowLaterWakeOnCancellation: draft.allowLaterWakeOnCancellation,
+                allowEarlierWakeOnTraffic: draft.allowEarlierWakeOnTraffic,
+            });
+        } catch {
+            // Swallowed on purpose. See above.
+        }
+
+        return schedule;
     }, [draft]);
 
     const value = useMemo(

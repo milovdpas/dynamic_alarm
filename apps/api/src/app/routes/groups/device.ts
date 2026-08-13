@@ -27,6 +27,7 @@ export default class DeviceRoutes implements IRoute {
             validate({ body: registerDeviceSchema }),
             this.controller.register,
         );
+        router.get(API_ENDPOINTS.DEVICES.ME, deviceAuth, this.controller.me);
         router.patch(
             API_ENDPOINTS.DEVICES.UPDATE(':id'),
             deviceAuth,

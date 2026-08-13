@@ -50,6 +50,15 @@ export class DeviceService {
         if (input.appVersion !== undefined) {
             device.appVersion = input.appVersion;
         }
+        if (input.allowLaterWakeOnDelay !== undefined) {
+            device.allowLaterWakeOnDelay = input.allowLaterWakeOnDelay;
+        }
+        if (input.allowLaterWakeOnCancellation !== undefined) {
+            device.allowLaterWakeOnCancellation = input.allowLaterWakeOnCancellation;
+        }
+        if (input.allowEarlierWakeOnTraffic !== undefined) {
+            device.allowEarlierWakeOnTraffic = input.allowEarlierWakeOnTraffic;
+        }
         device.lastSeenAt = new Date();
 
         return device.save();

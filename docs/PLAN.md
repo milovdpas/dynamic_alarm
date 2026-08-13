@@ -133,37 +133,60 @@ Rule: **applied only when `liveWakeTime > currentScheduledAlarm`.** The alarm is
 
 **Emergency-earlier path (explicitly best-effort).** If a cancellation blows through the pessimism budget and `requiredWake < scheduledAlarm`, we send a high-priority push *the moment it is detected*, not on the ladder, and reschedule earlier. This is not guaranteed, and the UI must never imply it is. Failing here leaves the user exactly where they'd be with no app at all.
 
-### Letting the alarm move at all is a user setting
+### Which disruptions may move the alarm is a user setting
 
-**`allowLaterWake`, on by default, in settings.** With it on the alarm behaves as
-described above: a delayed train means extra sleep. With it off the device keeps
-the anchor time and the monitor never pushes a later one, so the user always
-wakes at the pessimistic time.
+Three switches, all on the device, **all off until the user turns them on**. Each
+names a class of event and the direction it is allowed to move the alarm.
 
-The reason to offer this is a real failure the design cannot remove. A delay can
-resolve. If the alarm has already moved forty minutes later because the 07:24 was
-running late, and the delay then clears, the correct wake time is earlier again,
-and getting it there depends on the emergency-earlier push arriving. That path is
-best-effort by construction. Someone who would rather lose the extra sleep than
-carry that risk is making a reasonable trade, and the app should let them.
+Opt in rather than opt out, because moving somebody's alarm is the most
+consequential thing this app does and doing it because nobody objected is the
+wrong way round. Onboarding asks directly, as its last step, so the default only
+governs devices that never got that far.
 
-**The setting governs the comfort direction only.** Moving *earlier* is a safety
-action and always happens, best-effort, whatever the setting says. Disabling it
-would make the app strictly worse than no app at all on the morning it matters,
-which is not a choice worth offering.
+| Setting | Event | Direction |
+|---|---|---|
+| `allowLaterWakeOnDelay` | A train is running late | Later |
+| `allowLaterWakeOnCancellation` | A train is cancelled, and the re-plan is later | Later |
+| `allowEarlierWakeOnTraffic` | Live traffic makes a car journey longer | Earlier |
 
-Cancellations are not a separate switch. A cancellation forces a re-plan, and the
-result is either a later journey, which `allowLaterWake` already governs, or an
-earlier one, which is the safety direction. Splitting delays from cancellations
-would give the user two controls for one decision, and the second would only ever
-be able to make them late.
+**Why delays and cancellations are separate.** A delay shifts a journey the user
+already agreed to by a known number of minutes. A cancellation replaces it: a
+different train, possibly a transfer, possibly a replacement bus, and a plan
+built from a `ctxRecon` that no longer reconstructs. Those are different amounts
+of certainty, and someone can reasonably accept extra sleep from the first while
+refusing it from the second.
+
+**Why the traffic one moves the alarm earlier.** Public transport is the
+pessimistic case: the anchor already assumes the journey works, so a disruption
+usually means more sleep. A car journey grows instead. TomTom plans a future
+departure from predictive traffic only, so a jam, an accident or roadworks
+discovered inside the departure window means the drive now takes longer than the
+anchor assumed, and the alarm has to move earlier or the user is late by exactly
+that much.
+
+**The cost of turning that one off is being late, and the copy must say so.** It
+exists because traffic predictions fluctuate and being woken twenty-five minutes
+early for a jam that clears is a real cost. That is a trade someone may take with
+their eyes open; it is not a trade to make for them by default.
+
+**The emergency path is not one of these.** If a cancellation leaves no way to
+arrive on time unless the user leaves much earlier, the alarm moves earlier
+regardless of every switch here, best-effort, because not moving is a guaranteed
+failure rather than a risk. These settings govern the routine cases.
+
+**Only the switches the chosen mode can act on are shown.** A car journey has no
+train to be delayed or cancelled, and a train journey has no traffic. Offering
+all three regardless puts controls in front of someone that can never do
+anything, which reads as the app not knowing how they travel. Onboarding filters
+by the mode being set up; settings filters by the modes across the device's
+schedules.
 
 Global rather than per schedule to begin with. Per-schedule overrides are the
-obvious extension (trusted for the commute, not for a flight), and the field
-should be read through the schedule so that adding them later is a default rather
-than a migration of meaning.
+obvious extension (trusted for the commute, not for a flight), and the values
+should be read through the schedule so adding them later is a default rather than
+a change of meaning.
 
-The UI must say which mode it is in wherever a wake time is shown. An alarm the
+The UI must say which mode each is in wherever a wake time is shown. An alarm the
 user believes is adaptive but is not is the same class of dishonesty as one they
 believe is set and which cannot ring.
 

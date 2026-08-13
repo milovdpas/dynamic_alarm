@@ -146,9 +146,9 @@ export default function HomeScreen() {
                     )}
 
                     <ActionButton
-                        label={t('home.debug')}
+                        label={t('settings.title')}
                         onPress={() => {
-                            router.push('/debug');
+                            router.push('/settings');
                         }}
                     />
                 </ScrollView>

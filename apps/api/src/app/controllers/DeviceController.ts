@@ -20,16 +20,20 @@ export default class DeviceController {
         sendSuccess<RegisterDeviceResponse>(res, result, 201);
     };
 
+    /**
+     * This device, as it sees itself.
+     *
+     * No id in the path: the token already identifies exactly one device, and
+     * accepting an id would invite the question of what happens when it names a
+     * different one.
+     */
+    me: Handler = (req, res) => {
+        sendSuccess<DeviceResponse>(res, req.device.toDto());
+        return Promise.resolve();
+    };
+
     update: Handler<BodyOf<typeof updateDeviceSchema>> = async (req, res) => {
         const updated = await this.devices.update(req.device, req.body);
-
-        sendSuccess<DeviceResponse>(res, {
-            deviceId: updated.id,
-            platform: updated.platform,
-            timezone: updated.timezone,
-            // A boolean, not the token. The device already has the value; what
-            // it cannot otherwise learn is whether the server still holds one.
-            hasPushToken: updated.pushToken !== null,
-        });
+        sendSuccess<DeviceResponse>(res, updated.toDto());
     };
 }

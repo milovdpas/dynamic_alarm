@@ -33,7 +33,26 @@ export async function registerDevice(
  */
 export async function updateDevice(
     deviceId: string,
-    input: { pushToken?: string | null; timezone?: string; appVersion?: string },
+    input: {
+        pushToken?: string | null;
+        timezone?: string;
+        appVersion?: string;
+        allowLaterWakeOnDelay?: boolean;
+        allowLaterWakeOnCancellation?: boolean;
+        allowEarlierWakeOnTraffic?: boolean;
+    },
 ): Promise<DeviceResponse> {
     return Axios.patch<DeviceResponse>(API_ENDPOINTS.DEVICES.UPDATE(deviceId), input);
+}
+
+/**
+ * This device, as the server sees it.
+ *
+ * The settings screen reads its state from here rather than keeping a local
+ * copy. The disruption settings are acted on by the monitor, so the server's
+ * values are the ones that decide what happens overnight; a local mirror could
+ * disagree and there would be no way to tell which was in force.
+ */
+export async function getDevice(): Promise<DeviceResponse> {
+    return Axios.get<DeviceResponse>(API_ENDPOINTS.DEVICES.ME);
 }

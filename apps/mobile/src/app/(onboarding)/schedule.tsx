@@ -41,7 +41,7 @@ const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 export default function ScheduleStep() {
     const { t } = useTranslation();
     const router = useRouter();
-    const { draft, update, routineMinutes, commit } = useOnboarding();
+    const { draft, update, routineMinutes } = useOnboarding();
 
     const border = useThemeColor({}, 'border');
     const selectedBackground = useThemeColor({}, 'backgroundSelected');
@@ -97,23 +97,10 @@ export default function ScheduleStep() {
             });
     };
 
-    const finish = () => {
-        setBusy(true);
-        setErrorCode(null);
-
-        void commit()
-            .then(() => {
-                // replace, not push: onboarding is done and going back into a
-                // flow whose answers have already been saved would let someone
-                // create the whole thing twice.
-                router.replace('/');
-            })
-            .catch((error: unknown) => {
-                setErrorCode(ApiRequestError.from(error).code);
-            })
-            .finally(() => {
-                setBusy(false);
-            });
+    // Nothing is saved yet. The last step asks whether the alarm may move once
+    // things go wrong, and commits everything together.
+    const next = () => {
+        router.push('/(onboarding)/adjustments');
     };
 
     return (
@@ -254,9 +241,9 @@ export default function ScheduleStep() {
                             })}
 
                             <ActionButton
-                                label={t('schedule.finish')}
+                                label={t('common.next')}
                                 variant="primary"
-                                onPress={finish}
+                                onPress={next}
                                 disabled={busy}
                             />
                         </View>
