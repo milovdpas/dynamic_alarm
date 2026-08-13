@@ -28,6 +28,8 @@ export default class MonitorController {
 
         if (MonitorController.running) {
             sendSuccess<MonitorTickResponse>(res, {
+                disruptions: 0,
+                promoted: 0,
                 claimed: 0,
                 moved: 0,
                 unchanged: 0,

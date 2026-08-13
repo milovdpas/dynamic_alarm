@@ -1,12 +1,21 @@
 import type { DeepPartial } from 'typeorm';
 
-import { DEFAULT_BUFFERS, DevicePlatform, TransportMode, Weekday } from '@alarm/types';
+import {
+    DEFAULT_BUFFERS,
+    DevicePlatform,
+    JourneyStatus,
+    OccurrenceState,
+    TransportMode,
+    Weekday,
+} from '@alarm/types';
+import type { WakePlan } from '@alarm/types';
 
 import Device from '../../src/app/models/Device.entity';
 import Place from '../../src/app/models/Place.entity';
 import Routine from '../../src/app/models/Routine.entity';
 import RoutineStep from '../../src/app/models/RoutineStep.entity';
 import Schedule from '../../src/app/models/Schedule.entity';
+import ScheduleOccurrence from '../../src/app/models/ScheduleOccurrence.entity';
 import { generateDeviceToken, hashDeviceToken } from '../../src/app/utils/Token';
 
 /**
@@ -121,4 +130,72 @@ export async function seedCommute(): Promise<{
     const work = await seedPlace(device, { label: 'Work', ...AMSTERDAM_ZUID });
     const routine = await seedRoutine(device);
     return { device, token, home, work, routine };
+}
+
+/**
+ * An armed morning, with the fields the monitor actually reads.
+ *
+ * Written through the entity rather than raw SQL like every other factory here,
+ * so a column rename breaks this at compile time instead of at the first
+ * assertion.
+ *
+ * Defaults describe the ordinary case: armed, due in half an hour, watching two
+ * stations, never pushed and never acknowledged. A test overrides only the field
+ * it is about.
+ */
+export async function seedOccurrence(
+    schedule: Schedule,
+    overrides: DeepPartial<ScheduleOccurrence> = {},
+): Promise<ScheduleOccurrence> {
+    const wakeAt = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    const occurrence = ScheduleOccurrence.create({
+        scheduleId: schedule.id,
+        deviceId: schedule.deviceId,
+        date: '2026-08-20',
+        state: OccurrenceState.ARMED,
+        anchorWakeAt: wakeAt,
+        currentWakeAt: wakeAt,
+        deviceAckedWakeAt: null,
+        departHomeAt: wakeAt,
+        pushedWakeAt: null,
+        lastPushedAt: null,
+        planSnapshot: wakePlan(wakeAt),
+        ctxRecon: 'test-ctx',
+        watchedStationCodes: ['UT', 'ASD'],
+        lastCheckedAt: new Date(Date.now() - 30 * 60 * 1000),
+        nextCheckAt: new Date(Date.now() + 30 * 60 * 1000),
+    });
+    Object.assign(occurrence, overrides);
+    return occurrence.save();
+}
+
+/** Enough of a plan for the monitor to read, not a realistic journey. */
+function wakePlan(wakeAt: Date): WakePlan {
+    const iso = wakeAt.toISOString();
+    return {
+        wakeUpAt: iso,
+        departHomeAt: iso,
+        feasible: true,
+        journey: {
+            id: 'test-journey',
+            ctxRecon: 'test-ctx',
+            status: JourneyStatus.NORMAL,
+            legs: [],
+            departureAt: iso,
+            arrivalAt: iso,
+            transferCount: 0,
+            source: 'NS',
+            watchedStationCodes: ['UT', 'ASD'],
+        },
+        breakdown: {
+            requiredArrivalAt: iso,
+            arrivalBufferMinutes: 3,
+            latestArrivalAt: iso,
+            travelMinutes: 45,
+            riskBufferMinutes: 4,
+            preDepartureBufferMinutes: 5,
+            routineMinutes: 25,
+            wakeSlackMinutes: 0,
+        },
+    };
 }

@@ -1,5 +1,6 @@
-import { PUSH_MESSAGE_TYPE } from '@alarm/types';
+import { APP_CONSTANTS, PUSH_MESSAGE_TYPE } from '@alarm/types';
 import type { WakeChangedPush } from '@alarm/types';
+import { resolvePushedWake } from '@alarm/core';
 
 import { canGuaranteeAlarm, getAlarmScheduler } from '@/alarm';
 import { ackOccurrence } from '@/api';
@@ -12,6 +13,7 @@ export type PushApplyOutcome =
     | 'APPLIED'
     | 'IGNORED_NOT_LATER'
     | 'IGNORED_UNKNOWN_HELD'
+    | 'IGNORED_TOO_SMALL'
     | 'NO_ALARM_SUPPORT'
     | 'UNREADABLE'
     | 'FAILED';
@@ -44,6 +46,11 @@ export function extractWakeChange(payload: unknown): WakeChangedPush | null {
  * trade a guaranteed wake-up for a hopeful one. Later is different: the worst
  * case is the alarm this phone already holds.
  *
+ * The judgement is `resolvePushedWake` in `@alarm/core`, and it is made here
+ * rather than trusted from the server on purpose: a retried push can arrive long
+ * after the device has moved on, so the phone decides using what it actually
+ * holds.
+ *
  * Nothing here throws. It runs in a background task where an exception is a
  * silent no-op, and every branch ends in a recorded outcome so the debug panel
  * can say what happened rather than leaving the morning unexplained.
@@ -67,17 +74,27 @@ async function apply(push: WakeChangedPush): Promise<PushApplyOutcome> {
     }
 
     const held = await readHeldAlarm();
-    if (held === null) {
-        // Not "nothing is armed": the device simply does not know what it holds,
-        // which happens on a binary without persistent storage. There is nothing
-        // to compare against, so the safe answer is to leave the armed alarm
-        // alone and let the next app launch sort it out.
-        return 'IGNORED_UNKNOWN_HELD';
-    }
 
-    const isLater = push.wakeAt > held.wakeAt;
-    if (!isLater && !push.emergency) {
-        return 'IGNORED_NOT_LATER';
+    // The rule itself lives in `@alarm/core`, beside the server-side half that
+    // decides whether to send at all. Two implementations of "may this alarm
+    // move" would eventually disagree, and the disagreement would show up as
+    // somebody waking at the wrong time rather than as a failing build.
+    const decision = resolvePushedWake({
+        heldWakeAt: held?.wakeAt ?? null,
+        pushedWakeAt: push.wakeAt,
+        emergency: push.emergency,
+        timezone: APP_CONSTANTS.TIMEZONE,
+    });
+
+    if (!decision.apply) {
+        switch (decision.reason) {
+            case 'UNKNOWN_HELD':
+                return 'IGNORED_UNKNOWN_HELD';
+            case 'TOO_SMALL':
+                return 'IGNORED_TOO_SMALL';
+            default:
+                return 'IGNORED_NOT_LATER';
+        }
     }
 
     try {

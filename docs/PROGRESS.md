@@ -362,11 +362,36 @@ Where the product actually becomes itself.
 - [x] Monitor loop: minute tick, `nextCheckAt`, `FOR UPDATE SKIP LOCKED` with a five minute lease
 - [x] Cadence ladder (30m / 10m / 3m bands), verified against the live database: five armed occurrences claimed, refreshed and pushed out 30 minutes in 1.1s
 - [x] The tick is a route driven by the VPS scheduler, not a timer inside the process (see below)
-- [ ] Global disruption sweep promoting affected occurrences
+- [x] Global disruption sweep promoting affected occurrences, one NS call per tick for everyone
 - [x] Anchor vs live split, with the monotonic-later rule now where it belongs: on the device, applied to what the OS actually holds
 - [~] High-priority push → device reschedules. Written and wired both ends; unverified on a phone, see below
 - [ ] NS call-count instrumentation + loud 429 logging
 - [ ] The "you can sleep 12 minutes longer" moment works end to end
+
+### The disruption sweep closes the gap the cadence leaves
+
+The ladder is slow far from the alarm on purpose: an occurrence six hours out is
+checked every thirty minutes. That leaves a real gap, a cancellation announced at
+04:10 for an alarm checked at 04:00 and 04:30, and it is exactly the case the
+product exists for.
+
+One NS call per tick closes it for everybody at once: a flat 1440 a day whether
+there is one occurrence or ten thousand. Anything touching a station an armed
+occurrence travels through is pulled forward to be checked immediately, so a
+cancellation is noticed within about a minute even in the widest band.
+
+The part worth remembering is when it stops. A six hour disruption would
+otherwise promote the same occurrence every minute, turning 35 calls a night into
+360 for one alarm. Promotion is therefore tied to the disruption's own
+`releaseTime`: an occurrence is promoted only if it has not been checked since
+that disruption was last published. An announcement costs one extra check, an
+update to it costs one more, and a disruption that merely continues costs
+nothing.
+
+Verified against the live feed, which had 14 active disruptions at the time: an
+occurrence travelling Oss to Tilburg was left alone, the same occurrence pointed
+at a disrupted Utrecht station was promoted and its `nextCheckAt` pulled to now,
+and the third pass left it alone once it had been checked since publication.
 
 ### The push path, and what is not yet proven about it
 

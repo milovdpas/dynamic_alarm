@@ -140,7 +140,7 @@
                 "tick"
               ]
             },
-            "description": "One pass of the monitor loop. On the VPS the Ofelia scheduler calls this once a minute by running `node dist/tools/monitorTick.js` inside the container; this request is the same call by hand.\n\nIt claims only the occurrences whose `nextCheckAt` has arrived, so most calls do nothing at all and answer `claimed: 0`. That is the normal night, not a fault. Each claimed occurrence costs one NS or TomTom request, so running this in a Postman Runner spends the shared quota as fast as it can.\n\nAuthenticated with `X-Monitor-Token`, not a device token: the tick belongs to no device, and handing the scheduler a phone's credential would let a stolen token drive the loop for everyone. An unset `MONITOR_TOKEN` on the server answers 503 rather than running unguarded.\n\nSafe to call twice: claiming uses `FOR UPDATE SKIP LOCKED` with a five minute lease, and a tick that overlaps a running one answers `skipped: true` and does nothing.\n\nResponse: `MonitorTickResponse`."
+            "description": "One pass of the monitor loop. On the VPS the Ofelia scheduler calls this once a minute by running `node dist/tools/monitorTick.js` inside the container; this request is the same call by hand.\n\nEach call also sweeps the NS disruptions feed **once for every user**, a flat 1440 requests a day whatever the number of alarms, and pulls any occurrence travelling through an affected station forward to be checked immediately. Beyond that it claims only the occurrences whose `nextCheckAt` has arrived, so most calls do nothing at all and answer `claimed: 0`. That is the normal night, not a fault. Each claimed occurrence costs one NS or TomTom request, so running this in a Postman Runner spends the shared quota as fast as it can.\n\nAuthenticated with `X-Monitor-Token`, not a device token: the tick belongs to no device, and handing the scheduler a phone's credential would let a stolen token drive the loop for everyone. An unset `MONITOR_TOKEN` on the server answers 503 rather than running unguarded.\n\nSafe to call twice: claiming uses `FOR UPDATE SKIP LOCKED` with a five minute lease, and a tick that overlaps a running one answers `skipped: true` and does nothing.\n\nResponse: `MonitorTickResponse`."
           },
           "response": [
             {
@@ -176,7 +176,7 @@
                 }
               ],
               "cookie": [],
-              "body": "{\n    \"claimed\": 5,\n    \"moved\": 0,\n    \"unchanged\": 5,\n    \"failed\": 0,\n    \"skipped\": false,\n    \"durationMs\": 1127\n}"
+              "body": "{\n    \"disruptions\": 14,\n    \"promoted\": 0,\n    \"claimed\": 5,\n    \"moved\": 0,\n    \"unchanged\": 5,\n    \"failed\": 0,\n    \"skipped\": false,\n    \"durationMs\": 1127\n}"
             }
           ]
         }

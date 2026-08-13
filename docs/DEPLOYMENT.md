@@ -230,7 +230,7 @@ Ofelia runs, so it lands in the **scheduler** log:
 
 ```
 NOTICE [Job "monitor-tick" (…)] Started - node dist/tools/monitorTick.js
-NOTICE [Job "monitor-tick" (…)] StdOut: Tick: claimed 0, moved 0, unchanged 0, failed 0 in 3ms.
+NOTICE [Job "monitor-tick" (…)] StdOut: Tick: 14 disruptions, 0 promoted, claimed 0, moved 0, unchanged 0, failed 0 in 412ms.
 NOTICE [Job "monitor-tick" (…)] Finished in "812ms", failed: false, skipped: false, error: none
 ```
 
@@ -245,7 +245,9 @@ Push for occurrence <id>: NO_TOKEN
 That is the pair to remember: if alarms are not moving, the scheduler log says
 whether the tick ran at all, and the api log says what it found when it did.
 
-A quiet night is `claimed 0` every minute. That is correct rather than broken:
+A quiet night is `claimed 0` every minute, with a non-zero disruption count: NS
+almost always has something active somewhere, and `promoted 0` means none of it
+touches a station anybody's alarm travels through. That is correct rather than broken:
 only occurrences whose `nextCheckAt` has arrived are claimed.
 
 To force one tick by hand, exactly as the scheduler would:

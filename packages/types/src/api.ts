@@ -292,6 +292,10 @@ export interface HealthResponse {
  * fits inside a minute.
  */
 export interface MonitorTickResponse {
+    /** Active disruptions seen by the one sweep that covers every user. */
+    disruptions: number;
+    /** Occurrences the sweep pulled forward, ahead of their cadence band. */
+    promoted: number;
     claimed: number;
     moved: number;
     unchanged: number;

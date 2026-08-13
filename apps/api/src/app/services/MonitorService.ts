@@ -2,7 +2,6 @@ import { DateTime } from 'luxon';
 import {
     APP_CONSTANTS,
     AlarmEventType,
-    PUSH_MESSAGE_TYPE,
     JourneyStatus,
     OccurrenceState,
     REPLAN_REQUIRED_STATUSES,
@@ -23,8 +22,10 @@ import Routine from '../models/Routine.entity';
 import Schedule from '../models/Schedule.entity';
 import ScheduleOccurrence from '../models/ScheduleOccurrence.entity';
 import { AppDataSource } from '../../database/typeorm-db';
+import { DisruptionSweepService } from './DisruptionSweepService';
+import type { SweepResult } from './DisruptionSweepService';
 import { OccurrenceService } from './OccurrenceService';
-import { PushService } from './PushService';
+import { PushDeliveryService } from './PushDeliveryService';
 import { TransportProviderFactory } from './TransportProviderFactory';
 
 /**
@@ -36,18 +37,12 @@ import { TransportProviderFactory } from './TransportProviderFactory';
  */
 const CLAIM_LEASE_MINUTES = 5;
 
-/**
- * How long to wait for an acknowledgement before assuming the push was lost.
- *
- * Longer than a phone needs to wake its radio, apply the change and answer, and
- * short enough that a genuinely dropped push is retried several times before the
- * alarm rings. Retrying every tick instead would spam a device that is simply
- * mid-flight; never retrying would leave a lost push lost until morning.
- */
-const PUSH_RETRY_MINUTES = 10;
-
 /** What one pass over an occurrence did, for the tick's log line. */
 export interface TickResult {
+    /** Active disruptions NS reported, from the one call that covers everyone. */
+    disruptions: number;
+    /** Occurrences the sweep pulled forward to be checked now. */
+    promoted: number;
     claimed: number;
     moved: number;
     unchanged: number;
@@ -73,11 +68,33 @@ export interface TickResult {
  */
 export class MonitorService {
     private readonly occurrences = new OccurrenceService();
-    private readonly push = new PushService();
+    private readonly delivery = new PushDeliveryService();
+    private readonly sweep: DisruptionSweepService;
+
+    /**
+     * Both collaborators are injected so a test can drive a tick without an NS
+     * request or an Expo call. Neither branch is otherwise reachable in
+     * development: the feed is live, and no development device has a push token.
+     */
+    constructor(sweep: DisruptionSweepService = new DisruptionSweepService()) {
+        this.sweep = sweep;
+    }
 
     async tick(now = new Date()): Promise<TickResult> {
+        // Before claiming, so anything the sweep promotes is picked up by this
+        // same pass rather than waiting a minute for the next one. A
+        // cancellation is worth exactly that minute.
+        const swept = await this.sweepDisruptions(now);
+
         const ids = await this.claim(now);
-        const result: TickResult = { claimed: ids.length, moved: 0, unchanged: 0, failed: 0 };
+        const result: TickResult = {
+            disruptions: swept.disruptions,
+            promoted: swept.promoted,
+            claimed: ids.length,
+            moved: 0,
+            unchanged: 0,
+            failed: 0,
+        };
 
         for (const id of ids) {
             try {
@@ -96,6 +113,23 @@ export class MonitorService {
         }
 
         return result;
+    }
+
+    /**
+     * The global disruption sweep, which must never take the tick down with it.
+     *
+     * One NS call covers every user, so a failure here costs visibility into
+     * disruptions for a minute and nothing else: the cadence ladder still
+     * re-checks every armed occurrence on its own schedule. Aborting the pass
+     * over it would trade a delayed notice for no notice at all.
+     */
+    private async sweepDisruptions(now: Date): Promise<SweepResult> {
+        try {
+            return await this.sweep.sweep(now);
+        } catch (error) {
+            console.error('Disruption sweep failed:', error);
+            return { disruptions: 0, promoted: 0 };
+        }
     }
 
     /**
@@ -205,7 +239,7 @@ export class MonitorService {
             // A time that moved on an earlier tick may still not have reached
             // the phone. Nothing new was computed here, so this is the only
             // place that retry can happen.
-            await this.deliver(occurrence, device, schedule.timezone, null);
+            await this.delivery.deliver(occurrence, device, schedule.timezone, null, now);
             return false;
         }
 
@@ -235,123 +269,9 @@ export class MonitorService {
         // After the event, deliberately. The trail is what makes a wrong wake
         // time explainable in the morning, and it must survive a push that
         // fails.
-        await this.deliver(occurrence, device, schedule.timezone, { reason, message });
+        await this.delivery.deliver(occurrence, device, schedule.timezone, { reason, message }, now);
 
         return true;
-    }
-
-    /**
-     * Tells the phone, if it still needs telling.
-     *
-     * The device holds an OS alarm already, so this is best effort by design and
-     * never throws: whether a phone heard about a change is a different question
-     * from whether the server's answer is right, and letting a network blip
-     * abort a pass that had already computed the correct time would trade the
-     * reliable part for the unreliable one.
-     *
-     * What it will not do is push the same time twice in quick succession. The
-     * comparison is against `deviceAckedWakeAt`, the time the phone says it
-     * actually holds, so an acknowledged change is finished and an unacknowledged
-     * one is retried on a later tick. That retry is the entire reason a dropped
-     * push is survivable without a delivery queue.
-     *
-     * `change` is null on a retry, where the reason and the sentence come from
-     * the recorded event instead. Describing the timetable as it looks now would
-     * explain a different morning than the one the alarm was actually moved for.
-     */
-    private async deliver(
-        occurrence: ScheduleOccurrence,
-        device: Device,
-        timezone: string,
-        change: { reason: WakeChangeReason; message: string } | null,
-    ): Promise<void> {
-        const wakeAt = occurrence.currentWakeAt;
-        if (wakeAt === null) {
-            return;
-        }
-
-        const held = occurrence.deviceAckedWakeAt;
-        if (held !== null) {
-            const differs = shouldPushWakeChange(held.toISOString(), wakeAt.toISOString(), timezone, {
-                // Either direction counts here. This is asking whether the phone
-                // holds a materially different time, not whether the change was
-                // allowed: that was already decided before the time was written.
-                allowEarlier: true,
-            });
-            if (!differs) {
-                return;
-            }
-        }
-
-        const alreadySent =
-            occurrence.pushedWakeAt !== null &&
-            occurrence.pushedWakeAt.getTime() === wakeAt.getTime();
-        if (alreadySent && !this.retryDue(occurrence.lastPushedAt)) {
-            // Sent recently and not yet acknowledged. Probably in flight, and
-            // pushing again would wake the radio for a change the phone is
-            // already applying.
-            return;
-        }
-
-        const told = change ?? (await this.recordedChange(occurrence));
-        if (told === null) {
-            // Nothing was ever recorded for this occurrence, so there is no
-            // change to retry. A push with no explanation behind it would be a
-            // guess.
-            return;
-        }
-
-        const outcome = await this.push.send(
-            device,
-            {
-                type: PUSH_MESSAGE_TYPE.WAKE_CHANGED,
-                occurrenceId: occurrence.id,
-                wakeAt: wakeAt.toISOString(),
-                reason: told.reason,
-                message: told.message,
-                emergency: held !== null && wakeAt.getTime() < held.getTime(),
-            },
-            // Worthless once the alarm has rung, so Expo drops it rather than
-            // the app having to reject a message about a past morning.
-            wakeAt,
-        );
-
-        if (outcome !== 'SENT') {
-            // Nothing is written, so this looks exactly like a push that never
-            // happened and the next tick tries again.
-            console.warn(`Push for occurrence ${occurrence.id}: ${outcome}`);
-            return;
-        }
-
-        occurrence.pushedWakeAt = wakeAt;
-        occurrence.lastPushedAt = new Date();
-        await occurrence.save();
-    }
-
-    /** Whether enough time has passed to assume the last push was lost. */
-    private retryDue(lastPushedAt: Date | null): boolean {
-        if (lastPushedAt === null) {
-            return true;
-        }
-        const minutes = (Date.now() - lastPushedAt.getTime()) / 60_000;
-        return minutes >= PUSH_RETRY_MINUTES;
-    }
-
-    /**
-     * The change being retried, as it was recorded when it happened.
-     *
-     * Read back rather than rewritten: the delay that caused it may have
-     * changed since, and describing the timetable as it looks now would explain
-     * a different morning than the one the alarm was moved for.
-     */
-    private async recordedChange(
-        occurrence: ScheduleOccurrence,
-    ): Promise<{ reason: WakeChangeReason; message: string } | null> {
-        const event = await AlarmEvent.findOne({
-            where: { occurrenceId: occurrence.id },
-            order: { createdAt: 'DESC' },
-        });
-        return event === null ? null : { reason: event.reason, message: event.message };
     }
 
     /**
@@ -393,7 +313,10 @@ export class MonitorService {
         if (REPLAN_REQUIRED_STATUSES.includes(after.status)) {
             return WakeChangeReason.CANCELLATION;
         }
-        if (after.status === JourneyStatus.NORMAL && (before?.status ?? JourneyStatus.NORMAL) !== JourneyStatus.NORMAL) {
+        if (
+            after.status === JourneyStatus.NORMAL &&
+            (before?.status ?? JourneyStatus.NORMAL) !== JourneyStatus.NORMAL
+        ) {
             return WakeChangeReason.DELAY_RESOLVED;
         }
         return WakeChangeReason.DELAY;

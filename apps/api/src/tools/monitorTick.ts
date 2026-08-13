@@ -52,7 +52,8 @@ async function main(): Promise<void> {
     // One line, because a minute of these is read as a column. Quiet nights are
     // the normal case and should look boring.
     console.log(
-        `Tick: claimed ${String(result.claimed)}, moved ${String(result.moved)}, ` +
+        `Tick: ${String(result.disruptions)} disruptions, ${String(result.promoted)} promoted, ` +
+            `claimed ${String(result.claimed)}, moved ${String(result.moved)}, ` +
             `unchanged ${String(result.unchanged)}, failed ${String(result.failed)} ` +
             `in ${String(result.durationMs)}ms.`,
     );
