@@ -11,7 +11,7 @@ import {
     UpdateDateColumn,
 } from 'typeorm';
 import { OccurrenceState } from '@alarm/types';
-import type { Journey, OccurrenceDto, WakePlan } from '@alarm/types';
+import type { OccurrenceDto, WakePlan } from '@alarm/types';
 
 import Device from './Device.entity';
 import Schedule from './Schedule.entity';
@@ -91,14 +91,15 @@ export default class ScheduleOccurrence extends BaseEntity {
     departHomeAt!: Date | null;
 
     /**
-     * The itinerary as last seen.
+     * The plan as computed, which is what the alarm was armed from.
      *
-     * Kept so a refresh can reconstruct this exact trip rather than adding a
-     * reported delay to a stored plan, which is the difference between knowing
-     * the journey still works and assuming it does.
+     * The whole `WakePlan` rather than just the journey: it carries the
+     * breakdown that answers "why that time", and storing it means reading an
+     * occurrence costs no provider call. Replaced wholesale when the monitor
+     * recomputes, so it is a snapshot rather than a second source of truth.
      */
-    @Column({ name: 'trip_snapshot', type: 'json', nullable: true })
-    tripSnapshot!: Journey | null;
+    @Column({ name: 'plan_snapshot', type: 'json', nullable: true })
+    planSnapshot!: WakePlan | null;
 
     /** NS reconstruction context. Null for car journeys, which have no such thing. */
     @Column({ name: 'ctx_recon', type: 'text', nullable: true })
@@ -128,24 +129,32 @@ export default class ScheduleOccurrence extends BaseEntity {
     updatedAt!: Date;
 
     /**
-     * The wire shape, which needs the plan recomputed rather than stored.
+     * The wire shape.
      *
-     * `WakePlan` carries the whole breakdown, and keeping a second copy of it on
-     * the row would let the stored version drift from the times beside it. The
-     * caller passes the plan it already has.
+     * The schedule name is passed in rather than joined, because the caller
+     * already has the schedule in hand and loading a relation to read one string
+     * would be a second query per occurrence in the monitor's hot path.
+     *
+     * Throws when there is no plan, which means the row was created but never
+     * armed. That is a bug rather than a state to render: every path that
+     * creates an occurrence computes a plan in the same breath.
      */
-    toDto(scheduleName: string, plan: WakePlan): OccurrenceDto {
+    toDto(scheduleName: string): OccurrenceDto {
+        if (this.planSnapshot === null || this.anchorWakeAt === null) {
+            throw new Error(`Occurrence ${this.id} has no plan, so it was never armed`);
+        }
+
         return {
             id: this.id,
             scheduleId: this.scheduleId,
             scheduleName,
             date: this.date,
             state: this.state,
-            anchorWakeAt: (this.anchorWakeAt ?? new Date()).toISOString(),
-            currentWakeAt: (this.currentWakeAt ?? this.anchorWakeAt ?? new Date()).toISOString(),
-            departHomeAt: (this.departHomeAt ?? new Date()).toISOString(),
-            journey: this.tripSnapshot,
-            plan,
+            anchorWakeAt: this.anchorWakeAt.toISOString(),
+            currentWakeAt: (this.currentWakeAt ?? this.anchorWakeAt).toISOString(),
+            departHomeAt: (this.departHomeAt ?? this.anchorWakeAt).toISOString(),
+            journey: this.planSnapshot.journey,
+            plan: this.planSnapshot,
             lastCheckedAt: this.lastCheckedAt?.toISOString() ?? null,
         };
     }

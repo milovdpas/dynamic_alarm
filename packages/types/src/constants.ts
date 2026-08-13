@@ -23,8 +23,10 @@ export const API_ENDPOINTS = {
         LIST: '/api/v1/schedules',
         CREATE: '/api/v1/schedules',
         DETAIL: (id: string) => `/api/v1/schedules/${id}`,
-        /** The wake plan for this schedule's next occurrence. */
+        /** The wake plan for this schedule's next occurrence, computed and not stored. */
         PLAN: (id: string) => `/api/v1/schedules/${id}/plan`,
+        /** Arms that occurrence, which is the same plan made durable. */
+        ARM: (id: string) => `/api/v1/schedules/${id}/arm`,
     },
     OCCURRENCES: {
         NEXT: '/api/v1/occurrences/next',

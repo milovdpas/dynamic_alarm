@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import type { IRoute } from '../../interfaces/IRouter';
 import DeviceRoutes from './groups/device';
+import OccurrenceRoutes from './groups/occurrence';
 import PlaceRoutes from './groups/place';
 import PlanRoutes from './groups/plan';
 import RoutineRoutes from './groups/routine';
@@ -22,6 +23,7 @@ export default class Api implements IRoute {
         new RoutineRoutes(),
         new ScheduleRoutes(),
         new PlanRoutes(),
+        new OccurrenceRoutes(),
     ];
 
     getRoutes(): Router {
@@ -31,7 +33,7 @@ export default class Api implements IRoute {
             router.use(group.getRoutes());
         }
 
-        // Occurrences and the monitor loop follow in M2.
+        // The monitor loop follows.
 
         return router;
     }
