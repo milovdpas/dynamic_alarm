@@ -87,6 +87,21 @@ export default class ScheduleOccurrence extends BaseEntity {
     @Column({ name: 'device_acked_wake_at', type: 'datetime', precision: 3, nullable: true })
     deviceAckedWakeAt!: Date | null;
 
+    /**
+     * The wake time last successfully pushed, and when.
+     *
+     * Written only on a successful send, so a failed push is indistinguishable
+     * from one that never happened and the next tick retries it. Together with
+     * `deviceAckedWakeAt` this separates "in flight" from "lost": a push that
+     * has not been acknowledged after a while was probably dropped, and one
+     * acknowledged needs nothing further.
+     */
+    @Column({ name: 'pushed_wake_at', type: 'datetime', precision: 3, nullable: true })
+    pushedWakeAt!: Date | null;
+
+    @Column({ name: 'last_pushed_at', type: 'datetime', precision: 3, nullable: true })
+    lastPushedAt!: Date | null;
+
     @Column({ name: 'depart_home_at', type: 'datetime', precision: 3, nullable: true })
     departHomeAt!: Date | null;
 

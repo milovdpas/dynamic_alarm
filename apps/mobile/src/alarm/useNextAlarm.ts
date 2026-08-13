@@ -4,6 +4,7 @@ import type { OccurrenceResponse } from '@alarm/types';
 import { ackOccurrence, armSchedule, listSchedules, nextOccurrence } from '@/api';
 import { canGuaranteeAlarm, getAlarmScheduler } from '@/alarm';
 import i18n from '@/i18n/i18n';
+import { rememberHeldAlarm } from '@/push/heldAlarm';
 import { ApiRequestError } from '@/utils/modules/Axios';
 
 /** What the home screen knows about the next morning. */
@@ -161,5 +162,13 @@ async function arm(occurrence: OccurrenceResponse): Promise<boolean> {
         occurrenceId: occurrence.id,
     });
 
-    return (await scheduler.listScheduled()).includes(id);
+    if (!(await scheduler.listScheduled()).includes(id)) {
+        return false;
+    }
+
+    // Written only once the OS confirms, because this is what a later push is
+    // judged against. Recording an intention would let the monotonic rule
+    // compare against a time nothing is holding.
+    await rememberHeldAlarm({ occurrenceId: occurrence.id, wakeAt: occurrence.currentWakeAt });
+    return true;
 }

@@ -68,7 +68,15 @@ export default {
             storage: 'Thema en taal worden bij elke herstart gereset.',
             localization: 'De taal van het toestel wordt niet herkend.',
             secure_store: 'Het toestel kan zijn API-token niet bewaren.',
+            task_manager: 'Het alarm past zich niet aan terwijl je slaapt.',
         },
+    },
+    push: {
+        title: 'Meldingen tijdens je slaap',
+        background_task: 'Achtergrondtaak',
+        held: 'Dit toestel heeft staan',
+        received: 'Binnengekomen',
+        clear: 'Lijst wissen',
     },
     api: {
         title: 'API-verbinding',

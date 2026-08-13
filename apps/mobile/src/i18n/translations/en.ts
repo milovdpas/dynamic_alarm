@@ -68,7 +68,15 @@ export default {
             storage: 'Theme and language reset on every restart.',
             localization: 'Device language is not detected.',
             secure_store: 'The device cannot store its API token.',
+            task_manager: 'The alarm will not adjust itself while you sleep.',
         },
+    },
+    push: {
+        title: 'Pushes while you sleep',
+        background_task: 'Background task',
+        held: 'This device holds',
+        received: 'Received',
+        clear: 'Clear list',
     },
     api: {
         title: 'API connection',

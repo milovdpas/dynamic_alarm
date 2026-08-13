@@ -48,6 +48,11 @@ export function getNativeModuleStatuses(): NativeModuleStatus[] {
             available: hasExpoModule(() => require('expo-secure-store')),
             impactKey: 'diagnostics.impact.secure_store',
         },
+        {
+            name: 'ExpoTaskManager',
+            available: hasExpoModule(() => require('expo-task-manager')),
+            impactKey: 'diagnostics.impact.task_manager',
+        },
     ];
 }
 

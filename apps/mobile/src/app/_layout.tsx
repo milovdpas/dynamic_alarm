@@ -3,7 +3,21 @@ import { useTranslation } from 'react-i18next';
 
 import '@/i18n/i18n';
 import { useAlarmRouting } from '@/alarm/useAlarmRouting';
+import { defineWakeChangePushTask } from '@/push/backgroundTask';
+import { usePushRescheduling } from '@/push/usePushRescheduling';
 import { ThemeProvider, useTheme } from '@/utils/contexts/ThemeContext';
+
+/**
+ * At module scope on purpose, and this is the one place that is correct.
+ *
+ * When a push arrives with the app not running, the platform boots the bundle
+ * headlessly and then looks for a task with that name. A task defined inside a
+ * React effect would not exist yet: nothing has mounted, and nothing will. The
+ * call itself loads no native module directly, it goes through
+ * `loadOptionalModule`, so a build that predates the dependency returns early
+ * rather than throwing here and taking the whole app down with it.
+ */
+defineWakeChangePushTask();
 
 function RootNavigator() {
     const { theme } = useTheme();
@@ -11,6 +25,8 @@ function RootNavigator() {
 
     // Sends the app to the ring screen when a full-screen intent wakes it.
     useAlarmRouting();
+    // Registers this device for the pushes that move an armed alarm.
+    usePushRescheduling();
 
     return (
         <NavigationTheme value={theme === 'dark' ? DarkTheme : DefaultTheme}>

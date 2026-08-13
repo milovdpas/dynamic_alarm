@@ -34,6 +34,9 @@ import DetailRow from '@/components/ui/DetailRow';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import WarningBanner from '@/components/ui/WarningBanner';
+import { registerWakeChangePushTask } from '@/push/backgroundTask';
+import { readHeldAlarm, type HeldAlarm } from '@/push/heldAlarm';
+import { clearPushLog, readPushLog, type PushLogEntry } from '@/push/pushLog';
 import { useApiConnection } from '@/utils/hooks/useApiConnection';
 import { buildDebugReport } from '@/utils/modules/debugReport';
 import {
@@ -49,6 +52,13 @@ function formatLastRearm(diagnostics: AlarmDiagnostics): string {
     const at = new Date(diagnostics.lastRearmAt).toLocaleTimeString();
     const source = diagnostics.lastRearmSource ?? '?';
     return source + ' @ ' + at + ' (missed ' + diagnostics.lastRearmMissedCount + ')';
+}
+
+/** One line describing a handled push, for the diagnostics row. */
+function formatPush(entry: PushLogEntry): string {
+    const at = new Date(entry.at).toLocaleTimeString();
+    const wake = new Date(entry.wakeAt).toLocaleTimeString();
+    return `${at} -> ${wake} (${entry.outcome})`;
 }
 
 /**
@@ -196,6 +206,38 @@ export default function DebugScreen() {
     ]);
 
     const { connection, retry: retryApi } = useApiConnection();
+
+    /**
+     * Whether this device can be told to move an alarm while it is asleep.
+     *
+     * Registration is attempted on every launch anyway; this reads back the
+     * answer, because the only part of the system that runs while nobody is
+     * watching is also the only part that cannot report itself any other way.
+     */
+    const [pushRegistered, setPushRegistered] = useState<boolean | null>(null);
+    const [held, setHeld] = useState<HeldAlarm | null>(null);
+    const [pushLog, setPushLog] = useState<PushLogEntry[]>([]);
+
+    useEffect(() => {
+        let cancelled = false;
+        void Promise.all([registerWakeChangePushTask(), readHeldAlarm(), readPushLog()]).then(
+            ([registered, current, log]) => {
+                if (!cancelled) {
+                    setPushRegistered(registered);
+                    setHeld(current);
+                    setPushLog(log);
+                }
+            },
+        );
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const clearPushes = useCallback(async () => {
+        await clearPushLog();
+        setPushLog([]);
+    }, []);
 
     const cancelAll = useCallback(async () => {
         await getAlarmScheduler().cancelAll();
@@ -355,6 +397,43 @@ export default function DebugScreen() {
                         )}
                         {connection !== null && connection.state !== 'registering' && (
                             <ActionButton label={t('api.retry')} onPress={retryApi} />
+                        )}
+                    </Section>
+
+                    <Section title={t('push.title')}>
+                        <DetailRow
+                            label={t('push.background_task')}
+                            value={
+                                pushRegistered === null
+                                    ? t('common.unknown')
+                                    : pushRegistered
+                                      ? t('diagnostics.linked')
+                                      : t('diagnostics.missing')
+                            }
+                            warn={pushRegistered === false}
+                        />
+                        <DetailRow
+                            label={t('push.held')}
+                            value={
+                                held === null
+                                    ? t('harness.none')
+                                    : new Date(held.wakeAt).toLocaleString()
+                            }
+                        />
+                        {pushLog.length === 0 ? (
+                            <DetailRow label={t('push.received')} value={t('harness.none')} />
+                        ) : (
+                            pushLog.map((entry) => (
+                                <DetailRow
+                                    key={entry.at}
+                                    label={t('push.received')}
+                                    value={formatPush(entry)}
+                                    warn={entry.outcome !== 'APPLIED'}
+                                />
+                            ))
+                        )}
+                        {pushLog.length > 0 && (
+                            <ActionButton label={t('push.clear')} onPress={clearPushes} />
                         )}
                     </Section>
 

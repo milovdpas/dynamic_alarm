@@ -361,10 +361,52 @@ Where the product actually becomes itself.
 - [x] Cadence ladder (30m / 10m / 3m bands), verified against the live database: five armed occurrences claimed, refreshed and pushed out 30 minutes in 1.1s
 - [x] The tick is a route driven by the VPS scheduler, not a timer inside the process (see below)
 - [ ] Global disruption sweep promoting affected occurrences
-- [~] Anchor vs live split done; the monotonic-later rule waits for the push path, which is where an unexpected earlier time actually carries risk
-- [ ] High-priority push → device reschedules
+- [x] Anchor vs live split, with the monotonic-later rule now where it belongs: on the device, applied to what the OS actually holds
+- [~] High-priority push → device reschedules. Written and wired both ends; unverified on a phone, see below
 - [ ] NS call-count instrumentation + loud 429 logging
 - [ ] The "you can sleep 12 minutes longer" moment works end to end
+
+### The push path, and what is not yet proven about it
+
+The monitor sends a **data-only** push the moment a wake time moves: no title, no
+body, so nothing is displayed. A visible notification at 03:00 would wake the
+person it is trying to let sleep longer. Expo's TTL is set to the wake time
+itself, so a message that arrives after the alarm has already rung is dropped by
+the delivery service rather than by the app.
+
+The device applies it under the rule that keeps this safe: **later is applied,
+earlier is refused unless the server marked it an emergency.** The comparison is
+against what this phone actually holds, recorded after the OS confirms the alarm
+rather than when it was asked, since a device that missed a message would
+otherwise judge the next one against a time nothing is holding.
+
+Delivery is best effort and nothing pretends otherwise. `pushedWakeAt` is written
+only on a successful send, so a failed push is indistinguishable from one that
+never happened and the next tick retries it; a push not acknowledged within ten
+minutes is assumed lost and sent again. There is no queue and no delivery
+receipt, because the phone is already holding an OS alarm at the anchor time and
+the worst case is waking early.
+
+**Verified so far:** Expo rejects a dead token with `DeviceNotRegistered` and the
+row's push token is cleared, so a stale token stops costing a request per tick; a
+device with no token is a recorded outcome rather than an exception; the retry
+window suppresses a second push of the same time.
+
+**Not verified, and it needs the phone:**
+
+- No device has ever registered a push token. Every row in `devices` has
+  `push_token` null, including the real phone, so nothing has been delivered
+  end to end yet. The debug panel's push token row says why.
+- `expo-task-manager` was added for background delivery, which **desynchronises
+  every installed build until it is rebuilt**. The harness banner names it.
+- The exact shape Android hands the background task is documented loosely, so
+  the payload reader tries the known shapes and validates the result rather than
+  assuming one. The debug panel keeps the last ten handled pushes, because a
+  background task's console output is visible to nobody.
+
+Until a push is seen to move an alarm on a locked phone, the home screen keeps
+saying the alarm does not update while you sleep. That copy changes when the
+device proves it, not when the code is written.
 
 ### The tick runs from outside the process
 
