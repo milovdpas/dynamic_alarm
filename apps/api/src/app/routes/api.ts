@@ -2,6 +2,10 @@ import { Router } from 'express';
 
 import type { IRoute } from '../../interfaces/IRouter';
 import DeviceRoutes from './groups/device';
+import PlaceRoutes from './groups/place';
+import PlanRoutes from './groups/plan';
+import RoutineRoutes from './groups/routine';
+import ScheduleRoutes from './groups/schedule';
 
 /**
  * API routes.
@@ -12,15 +16,22 @@ import DeviceRoutes from './groups/device';
  * than 404ing at runtime.
  */
 export default class Api implements IRoute {
-    private readonly deviceRoutes = new DeviceRoutes();
+    private readonly groups: IRoute[] = [
+        new DeviceRoutes(),
+        new PlaceRoutes(),
+        new RoutineRoutes(),
+        new ScheduleRoutes(),
+        new PlanRoutes(),
+    ];
 
     getRoutes(): Router {
         const router = Router();
 
-        router.use(this.deviceRoutes.getRoutes());
+        for (const group of this.groups) {
+            router.use(group.getRoutes());
+        }
 
-        // Places, routines and schedules follow, then occurrences with the
-        // monitor loop in M2.
+        // Occurrences and the monitor loop follow in M2.
 
         return router;
     }

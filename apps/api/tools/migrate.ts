@@ -17,8 +17,17 @@ import config from '../src/database/knexfile';
  */
 type Command = 'latest' | 'rollback' | 'status';
 
+const COMMANDS: readonly string[] = ['latest', 'rollback', 'status'];
+
 async function main(): Promise<void> {
-    const command = (process.argv[2] ?? 'latest') as Command;
+    // Read as a string and checked, rather than cast. A cast would tell the
+    // compiler that the default branch below is unreachable while leaving it
+    // perfectly reachable from the command line.
+    const requested = process.argv[2] ?? 'latest';
+    if (!COMMANDS.includes(requested)) {
+        throw new Error(`Unknown command "${requested}". Use ${COMMANDS.join(', ')}.`);
+    }
+    const command = requested as Command;
     const db = knex(config);
 
     try {
@@ -53,12 +62,10 @@ async function main(): Promise<void> {
                 console.log(`Applied (${completed.length}):`);
                 completed.forEach((row) => console.log(`  ${row.name}`));
                 console.log(`Pending (${pending.length}):`);
-                pending.forEach((row) => console.log(`  ${row.file}`));
+                pending.forEach((row) => console.log(`  ${String(row.file)}`));
                 break;
             }
 
-            default:
-                throw new Error(`Unknown command "${command}". Use latest, rollback or status.`);
         }
     } finally {
         // Without this the pool keeps the process alive and the script appears

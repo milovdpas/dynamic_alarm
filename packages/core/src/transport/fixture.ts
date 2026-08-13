@@ -87,13 +87,16 @@ export class FixtureTransportProvider implements TransportProvider {
         this.pendingStatus = null;
     }
 
-    async plan(request: PlanRequest): Promise<Journey[]> {
-        return [this.build(request, 0)];
+    // Synchronous underneath, and typed as async because the interface is. The
+    // real providers make network calls; this one exists so the engine and the
+    // monitor can be tested without one.
+    plan(request: PlanRequest): Promise<Journey[]> {
+        return Promise.resolve([this.build(request, 0)]);
     }
 
-    async refresh(journey: Journey): Promise<Journey | null> {
+    refresh(journey: Journey): Promise<Journey | null> {
         if (journey.ctxRecon === null) {
-            return null;
+            return Promise.resolve(null);
         }
         const status = this.pendingStatus ?? journey.status;
         if (
@@ -103,9 +106,9 @@ export class FixtureTransportProvider implements TransportProvider {
         ) {
             // Mirrors the real contract: a broken itinerary cannot be reconstructed,
             // so the caller must re-plan rather than patch what it already has.
-            return null;
+            return Promise.resolve(null);
         }
-        return this.shift(journey, this.pendingDelayMinutes, status);
+        return Promise.resolve(this.shift(journey, this.pendingDelayMinutes, status));
     }
 
     private build(request: PlanRequest, delayMinutes: number): Journey {

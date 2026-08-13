@@ -10,7 +10,7 @@ import {
     UpdateDateColumn,
 } from 'typeorm';
 import { TransportMode } from '@alarm/types';
-import type { BufferConfig, Weekday } from '@alarm/types';
+import type { BufferConfig, Schedule as ScheduleDto, Weekday } from '@alarm/types';
 
 import Device from './Device.entity';
 import Place from './Place.entity';
@@ -104,4 +104,22 @@ export default class Schedule extends BaseEntity {
 
     @UpdateDateColumn({ name: 'updated_at', type: 'datetime', precision: 3 })
     updatedAt!: Date;
+
+    toDto(): ScheduleDto {
+        return {
+            id: this.id,
+            name: this.name,
+            originPlaceId: this.originPlaceId,
+            destinationPlaceId: this.destinationPlaceId,
+            routineId: this.routineId,
+            // MySQL returns TIME as HH:mm:ss, the domain type is HH:mm.
+            arrivalTime: this.arrivalTime.slice(0, 5),
+            daysOfWeek: this.daysOfWeek,
+            mode: this.mode,
+            fixedTravelMinutes: this.fixedTravelMinutes ?? undefined,
+            buffers: this.buffers,
+            timezone: this.timezone,
+            active: this.active,
+        };
+    }
 }

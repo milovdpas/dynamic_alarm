@@ -10,6 +10,8 @@ import {
     UpdateDateColumn,
 } from 'typeorm';
 
+import type { Place as PlaceDto } from '@alarm/types';
+
 import Device from './Device.entity';
 import { decimalTransformer } from '../utils/ColumnTransformers';
 
@@ -63,4 +65,27 @@ export default class Place extends BaseEntity {
 
     @UpdateDateColumn({ name: 'updated_at', type: 'datetime', precision: 3 })
     updatedAt!: Date;
+
+    /**
+     * The wire shape of this place.
+     *
+     * Serialising the entity itself would put `deviceId` in every response and
+     * let a schema change alter the API by accident. Going through the type in
+     * `@alarm/types` means the app parses the same declaration the API compiles
+     * against, so a drift fails the build rather than a screen.
+     *
+     * `null` becomes `undefined` on the way out. The column has to be nullable,
+     * the wire type says optional, and an explicit `"address": null` is a third
+     * case the app would have to handle for no reason.
+     */
+    toDto(): PlaceDto {
+        return {
+            id: this.id,
+            label: this.label,
+            address: this.address ?? undefined,
+            lat: this.lat,
+            lng: this.lng,
+            nsStationCode: this.nsStationCode ?? undefined,
+        };
+    }
 }

@@ -9,7 +9,11 @@ build/
 # env — NEVER commit real keys (NS_SUBSCRIPTION_KEY, TOMTOM_API_KEY)
 .env
 .env.*
+# Templates, not real files: examples hold empty values and .env.dist holds
+# envsubst placeholders. All are meant to be committed.
 !.env.example
+!.env.*.example
+!.env.dist
 
 # expo
 .expo/

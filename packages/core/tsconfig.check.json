@@ -1,0 +1,11 @@
+{
+  "$comment": "Checking only, never emitting. tsconfig.json is the build project and excludes tests so they stay out of dist; that left them unchecked by both tsc and eslint. This config covers everything, and is what `npm run type-check` and eslint use.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src/**/*"],
+  "exclude": ["dist", "node_modules"]
+}

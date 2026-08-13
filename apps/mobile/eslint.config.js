@@ -2,10 +2,15 @@
 const { defineConfig } = require('eslint/config');
 const expoConfig = require('eslint-config-expo/flat');
 
+// The one shared rule. Everything else in the base config is server-shaped, and
+// the Expo config already brings the React and React Native conventions this
+// workspace needs, so only the project-wide writing rule crosses over.
+const alarm = require('../../tools/eslint-plugin-alarm/index.cjs');
+
 /**
  * Native modules that must never be imported at module scope.
  *
- * They throw at *import* time when absent — which happens in Expo Go, and far
+ * They throw at *import* time when absent, which happens in Expo Go, and far
  * more often on a development build that predates the dependency. A throwing
  * import stops every downstream module from evaluating, so expo-router reports
  * "Route is missing the required default export" for unrelated screens and the
@@ -33,6 +38,13 @@ module.exports = defineConfig([
         ignores: ['dist/*', 'android/*', 'ios/*', '.expo/*'],
     },
     {
+        files: ['**/*.ts', '**/*.tsx', '**/*.js'],
+        plugins: { alarm },
+        rules: {
+            'alarm/no-dashes': 'error',
+        },
+    },
+    {
         files: ['**/*.ts', '**/*.tsx'],
         rules: {
             'no-restricted-imports': [
@@ -40,7 +52,7 @@ module.exports = defineConfig([
                 {
                     paths: IMPORT_TIME_UNSAFE_NATIVE_MODULES.map((name) => ({
                         name,
-                        message: `Do not import ${name} at module scope — it throws at import time when the native module is missing (Expo Go, or a dev build older than the dependency), which takes the whole app down. Load it lazily via loadOptionalModule() inside the function that needs it. See docs/CONVENTIONS.md.`,
+                        message: `Do not import ${name} at module scope. It throws at import time when the native module is missing (Expo Go, or a dev build older than the dependency), which takes the whole app down. Load it lazily via loadOptionalModule() inside the function that needs it. See docs/CONVENTIONS.md.`,
                     })),
                 },
             ],

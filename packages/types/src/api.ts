@@ -14,7 +14,7 @@ import type {
     LocalTimeString,
     Place,
     Routine,
-    RoutineStep,
+    Schedule,
     TimeZone,
     WakePlan,
 } from './domain';
@@ -23,23 +23,33 @@ import type {
 /* Envelopes                                                                   */
 /* -------------------------------------------------------------------------- */
 
-export interface ApiError {
+/**
+ * There is no success envelope. A successful response is the resource itself.
+ *
+ * The status code already says whether it worked, so `{ success: true, data }`
+ * restated it and made every caller unwrap a level to reach anything. A list
+ * endpoint returns a bare array for the same reason.
+ *
+ * The trade, stated so it is a choice rather than a surprise: a bare array has
+ * nowhere to put pagination metadata later. That is deliberate here, since
+ * every list is one device's own places, routines or schedules, which is a
+ * handful of rows and will never be paged. A collection that could grow
+ * unbounded should be given an object with its own `items` field instead of
+ * quietly becoming an envelope again.
+ */
+
+/**
+ * The body of any failed request, flat for the same reason.
+ *
+ * `code` is machine-readable and stable; `message` is for a human reading a log
+ * rather than for a user, since user-facing copy lives in the app's
+ * translations. `details` carries validation issues when there are any.
+ */
+export interface ApiErrorResponse {
     code: string;
     message: string;
     details?: unknown;
 }
-
-export interface ApiSuccess<T> {
-    success: true;
-    data: T;
-}
-
-export interface ApiFailure {
-    success: false;
-    error: ApiError;
-}
-
-export type ApiResponse<T> = ApiSuccess<T> | ApiFailure;
 
 /* -------------------------------------------------------------------------- */
 /* Devices, anonymous accounts                                                */
@@ -57,6 +67,20 @@ export interface RegisterDeviceResponse {
     deviceId: string;
     /** Bearer token, stored in expo-secure-store. This is the only credential. */
     token: string;
+}
+
+/**
+ * What a device may know about itself.
+ *
+ * Deliberately not the whole row. `tokenHash` must never leave the server, and
+ * the push token is reported as a boolean because the device already has the
+ * value; what it cannot otherwise tell is whether the server still holds one.
+ */
+export interface DeviceResponse {
+    deviceId: string;
+    platform: DevicePlatform;
+    timezone: TimeZone;
+    hasPushToken: boolean;
 }
 
 /**
@@ -80,9 +104,28 @@ export interface UpdateDeviceRequest {
 export type CreatePlaceRequest = Omit<Place, 'id'>;
 export type UpdatePlaceRequest = Partial<CreatePlaceRequest>;
 
+/**
+ * A step on the way in. No `id`, and no `order` either.
+ *
+ * Position in the array is the order. Sending both would be two sources of the
+ * same fact, and when they disagree (duplicate values, a gap after a delete)
+ * something has to break the tie arbitrarily, which the user sees as the app
+ * losing the arrangement they just made.
+ */
+export interface CreateRoutineStepRequest {
+    label: string;
+    minutes: number;
+    enabled: boolean;
+}
+
 export interface CreateRoutineRequest {
     name: string;
-    steps: Omit<RoutineStep, 'id'>[];
+    /**
+     * Replaces every existing step when present, and leaves them alone when
+     * absent. The editor changes names, order and membership together, so a
+     * diff would have to infer which of those happened from a set of ids.
+     */
+    steps: CreateRoutineStepRequest[];
 }
 export type UpdateRoutineRequest = Partial<CreateRoutineRequest>;
 
@@ -122,6 +165,55 @@ export interface PlanPreviewRequest {
 }
 
 export type PlanPreviewResponse = WakePlan;
+
+/* -------------------------------------------------------------------------- */
+/* Responses                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One declared type per endpoint, named after the endpoint rather than the
+ * thing it happens to return.
+ *
+ * These exist so `sendSuccess` can be told what an endpoint promised instead of
+ * inferring it from whatever was passed. An inferred type argument can never
+ * fail: the argument defines the expectation, so the check is circular. Named
+ * explicitly, the mapper's output has to satisfy the contract, and the app
+ * imports the same name it will parse.
+ *
+ * Aliases rather than fresh interfaces on purpose. A list endpoint returning
+ * something structurally different from the resource's own type is a bug, not a
+ * design, and giving it a separate shape here would let that happen quietly.
+ */
+
+export type ListPlacesResponse = Place[];
+export type PlaceResponse = Place;
+export type PlaceAutosuggestResponse = PlaceSuggestion[];
+
+export type ListRoutinesResponse = Routine[];
+export type RoutineResponse = Routine;
+
+export type ListSchedulesResponse = Schedule[];
+export type ScheduleResponse = Schedule;
+
+export type ListOccurrencesResponse = OccurrenceDto[];
+export type OccurrenceResponse = OccurrenceDto;
+export type ListAlarmEventsResponse = AlarmEventDto[];
+
+/**
+ * Health, and the one response that is not wrapped in the envelope.
+ *
+ * Load balancers and uptime checks read this, and none of them know about
+ * `{ success, data }`. It also reports the database separately rather than
+ * folding it into one boolean: a process that is up but cannot reach MySQL is
+ * exactly the state where the monitor loop silently stops moving alarms, and
+ * "ok" would hide it.
+ */
+export interface HealthResponse {
+    status: 'ok' | 'degraded';
+    database: boolean;
+    uptime: number;
+    timestamp: IsoDateTimeString;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Occurrences, one day's instance of a schedule                              */
@@ -198,10 +290,3 @@ export interface WakeTimeChangedPush {
 }
 
 export type PushPayload = WakeTimeChangedPush;
-
-/* -------------------------------------------------------------------------- */
-/* Convenience aliases                                                         */
-/* -------------------------------------------------------------------------- */
-
-export type PlaceDto = Place;
-export type RoutineDto = Routine;

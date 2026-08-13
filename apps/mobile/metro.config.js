@@ -17,7 +17,7 @@ config.resolver.nodeModulesPaths = [
 ];
 
 // 3. Only look in the paths above. Without this, Metro walks up the filesystem
-//    and can silently bind to a package from an unrelated parent directory —
+//    and can silently bind to a package from an unrelated parent directory,
 //    which produces "works on my machine" bugs that are miserable to trace.
 config.resolver.disableHierarchicalLookup = true;
 

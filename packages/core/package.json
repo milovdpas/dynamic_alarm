@@ -18,10 +18,12 @@
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch --preserveWatchOutput",
-    "type-check": "tsc -b",
+    "type-check": "tsc -p tsconfig.check.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rimraf dist tsconfig.tsbuildinfo"
+    "clean": "rimraf dist tsconfig.tsbuildinfo",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "dependencies": {
     "@alarm/types": "*",

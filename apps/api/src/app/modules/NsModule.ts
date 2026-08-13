@@ -51,7 +51,7 @@ export class NsModule {
         });
 
         const payload = await this.get<{ trips?: NsTrip[] }>(
-            `/reisinformatie-api/api/v3/trips?${params}`,
+            `/reisinformatie-api/api/v3/trips?${params.toString()}`,
         );
         return (payload.trips ?? []).map((trip) => this.toJourney(trip));
     }
@@ -69,7 +69,7 @@ export class NsModule {
     async refreshTrip(ctxRecon: string): Promise<Journey | null> {
         try {
             const params = new URLSearchParams({ ctxRecon });
-            const trip = await this.get<NsTrip>(`/reisinformatie-api/api/v3/trips/trip?${params}`);
+            const trip = await this.get<NsTrip>(`/reisinformatie-api/api/v3/trips/trip?${params.toString()}`);
             return this.toJourney(trip);
         } catch {
             return null;
@@ -99,7 +99,7 @@ export class NsModule {
             limit: String(Math.max(limit + 4, 5)),
         });
         const payload = await this.get<{ payload?: NsStation[] }>(
-            `/reisinformatie-api/api/v2/stations/nearest?${params}`,
+            `/reisinformatie-api/api/v2/stations/nearest?${params.toString()}`,
         );
         return (payload.payload ?? [])
             .filter((station) => station.heeftVertrektijden !== false)
@@ -109,7 +109,10 @@ export class NsModule {
     /** Active disruptions, swept once globally per monitor tick. */
     async disruptions(): Promise<unknown[]> {
         const payload = await this.get<unknown>('/disruptions/v3?isActive=true');
-        return Array.isArray(payload) ? payload : [];
+        // Array.isArray widens unknown to any[], which would let anything past
+        // the type system from here on. The shape is only ever forwarded, so
+        // unknown[] is both honest and enough.
+        return Array.isArray(payload) ? (payload as unknown[]) : [];
     }
 
     private async get<T>(path: string): Promise<T> {

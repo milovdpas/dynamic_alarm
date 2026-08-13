@@ -11,6 +11,9 @@ import {
     UpdateDateColumn,
 } from 'typeorm';
 
+import type { Routine as RoutineDto } from '@alarm/types';
+import { sortedSteps } from '@alarm/core';
+
 import Device from './Device.entity';
 import RoutineStep from './RoutineStep.entity';
 
@@ -43,4 +46,15 @@ export default class Routine extends BaseEntity {
 
     @UpdateDateColumn({ name: 'updated_at', type: 'datetime', precision: 3 })
     updatedAt!: Date;
+
+    toDto(): RoutineDto {
+        return {
+            id: this.id,
+            name: this.name,
+            // Sorted here rather than relied upon from the database. The
+            // relation is eager and unordered, so without this the order a step
+            // happened to be inserted in would decide how the routine reads.
+            steps: sortedSteps((this.steps ?? []).map((step) => step.toDto())),
+        };
+    }
 }

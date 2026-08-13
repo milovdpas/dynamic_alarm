@@ -1,4 +1,22 @@
-import 'dotenv/config';
+import path from 'node:path';
+import { config as loadEnvFile } from 'dotenv';
+
+/**
+ * Tests read `.env.test`, everything else reads `.env`.
+ *
+ * Vitest sets `NODE_ENV=test` before any of this is imported, so the choice is
+ * made once and cannot be changed later by anything that runs afterwards.
+ *
+ * The path is resolved against this file rather than the working directory. A
+ * relative path would load a different file depending on whether the command
+ * was run from the repo root or from `apps/api`, and the failure mode is a test
+ * run pointed at the development database.
+ *
+ * `tests/globalSetup.ts` refuses to run unless the resulting database name ends
+ * in `_test`, which is the check that actually stops that happening.
+ */
+const envFile = process.env.NODE_ENV === 'test' ? '.env.test' : '.env';
+loadEnvFile({ path: path.resolve(__dirname, '../..', envFile) });
 
 function required(name: string): string {
     const value = process.env[name];

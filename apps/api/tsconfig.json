@@ -13,6 +13,6 @@
     // built dist/, so `npm run build:packages` must run before type-checking.
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "tools/**/*.ts"],
+  "include": ["src/**/*.ts", "tools/**/*.ts", "tests/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }

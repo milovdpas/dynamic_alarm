@@ -1,6 +1,8 @@
 import { BaseEntity,
     Column, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 
+import type { RoutineStep as RoutineStepDto } from '@alarm/types';
+
 import Routine from './Routine.entity';
 
 /** One step of a morning routine, such as "Shower, 10 minutes". */
@@ -36,4 +38,14 @@ export default class RoutineStep extends BaseEntity {
      */
     @Column({ type: 'boolean', default: true })
     enabled!: boolean;
+
+    toDto(): RoutineStepDto {
+        return {
+            id: this.id,
+            label: this.label,
+            minutes: this.minutes,
+            order: this.order,
+            enabled: this.enabled,
+        };
+    }
 }

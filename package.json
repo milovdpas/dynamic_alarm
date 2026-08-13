@@ -1,33 +1,38 @@
 {
-    "name": "dynamic-alarm",
-    "version": "0.1.0",
-    "private": true,
-    "description": "Smart dynamic alarm for the Netherlands — wake-up time derived from a live journey",
-    "license": "MIT",
-    "workspaces": [
-        "packages/*",
-        "apps/*"
-    ],
-    "scripts": {
-        "build:packages": "tsc -b packages/types packages/core",
-        "watch:packages": "tsc -b --watch --preserveWatchOutput packages/types packages/core",
-        "dev:mobile": "npm run start --workspace=@alarm/mobile",
-        "dev:api": "npm run dev --workspace=@alarm/api",
-        "dev": "npm-run-all --parallel watch:packages dev:api dev:mobile",
-        "build": "npm run build:packages && npm run build --workspaces --if-present",
-        "test": "npm run test --workspaces --if-present",
-        "lint": "npm run lint --workspaces --if-present",
-        "type-check": "npm run build:packages && npm run type-check --workspaces --if-present",
-        "clean": "npm run clean --workspaces --if-present",
-        "docker:up": "docker compose up -d",
-        "docker:down": "docker compose down"
-    },
-    "devDependencies": {
-        "npm-run-all": "^4.1.5",
-        "prettier": "^3.9.6",
-        "typescript": "~6.0.3"
-    },
-    "engines": {
-        "node": ">=22"
-    }
+  "name": "dynamic-alarm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Smart dynamic alarm for the Netherlands — wake-up time derived from a live journey",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build:packages": "tsc -b packages/types packages/core",
+    "watch:packages": "tsc -b --watch --preserveWatchOutput packages/types packages/core",
+    "dev:mobile": "npm run start --workspace=@alarm/mobile",
+    "dev:api": "npm run dev --workspace=@alarm/api",
+    "dev": "npm-run-all --parallel watch:packages dev:api dev:mobile",
+    "build": "npm run build:packages && npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "type-check": "npm run build:packages && npm run type-check --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "lint:fix": "npm run lint:fix --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^9.39.5",
+    "globals": "^17.11.0",
+    "npm-run-all": "^4.1.5",
+    "prettier": "^3.9.6",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.67.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
 }

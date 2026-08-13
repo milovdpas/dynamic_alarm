@@ -4,6 +4,8 @@ import { API_ENDPOINTS } from '@alarm/types';
 import type { IRoute } from '../../../interfaces/IRouter';
 import DeviceController from '../../controllers/DeviceController';
 import { deviceAuth } from '../../middleware/DeviceAuth';
+import { validate } from '../../middleware/ValidateRequest';
+import { registerDeviceSchema, updateDeviceSchema } from '../../validators/deviceSchemas';
 
 /**
  * Device registration and upkeep.
@@ -18,10 +20,19 @@ export default class DeviceRoutes implements IRoute {
     getRoutes(): Router {
         const router = Router();
 
-        // The one unauthenticated endpoint: it creates the credential that
+        // The one route without `deviceAuth`: it creates the credential that
         // every other route requires.
-        router.post(API_ENDPOINTS.DEVICES.REGISTER, this.controller.register);
-        router.patch(API_ENDPOINTS.DEVICES.UPDATE(':id'), deviceAuth, this.controller.update);
+        router.post(
+            API_ENDPOINTS.DEVICES.REGISTER,
+            validate({ body: registerDeviceSchema }),
+            this.controller.register,
+        );
+        router.patch(
+            API_ENDPOINTS.DEVICES.UPDATE(':id'),
+            deviceAuth,
+            validate({ body: updateDeviceSchema }),
+            this.controller.update,
+        );
 
         return router;
     }

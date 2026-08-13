@@ -19,7 +19,9 @@
     "build": "tsc -b",
     "dev": "tsc -b --watch --preserveWatchOutput",
     "type-check": "tsc -b",
-    "clean": "rimraf dist tsconfig.tsbuildinfo"
+    "clean": "rimraf dist tsconfig.tsbuildinfo",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "devDependencies": {
     "rimraf": "^6.0.1",

@@ -305,11 +305,27 @@ Arrive by Wednesday 12 Aug 08:30 (Europe/Amsterdam)
 
 ## M1: static smart alarm
 
-Real alarm driven by the engine, with hand-entered travel time. No transport APIs yet.
+Real alarm driven by the engine. The API turned out to reach further than planned:
+the transport providers were built early to de-risk them, so `/plan/preview` runs
+against live NS and TomTom rather than a hand-entered duration.
 
-- [ ] `packages/core` wake-time engine + vitest table tests
-- [ ] Anonymous device registration (`POST /api/v1/devices`, expo-secure-store)
-- [ ] Entities: Device, Place, Routine, RoutineStep, Schedule
+**Backend**
+
+- [x] `packages/core` wake-time engine + vitest table tests (51 tests)
+- [x] Anonymous device registration (`POST /api/v1/devices`, expo-secure-store)
+- [x] Entities: Device, Place, Routine, RoutineStep, Schedule
+- [x] Places CRUD + `GET /places/autosuggest` proxying NS Places
+- [x] Routines CRUD, steps replaced as a unit
+- [x] Schedules CRUD with cross-resource ownership checks
+- [x] `POST /plan/preview` for all three modes (fixed, public transport, car)
+- [x] `CarJourneyService` + `TransportProviderFactory`, so the engine reads one shape
+- [x] `tools/smokeApi.ts`: 16 live checks against real NS and TomTom, including the refusals
+- [x] 53 integration tests over the real app, database and middleware (`npm test -w @alarm/api`)
+- [x] `.env.dist` for envsubst-based deployment
+- [x] Postman collections in `docs/postman/`, split app-facing and backend-only
+
+**App**
+
 - [ ] Onboarding flow
 - [ ] Routine editor
 - [ ] Schedule screen: arrival time, days of week, fixed travel duration
@@ -354,6 +370,22 @@ Reversals and corrections worth remembering. Rationale lives in PLAN.md.
 
 | Date | Decision |
 |---|---|
+| 2026-08-13 | **No response envelope.** A success is the resource itself, a failure is a flat `{ code, message, details }`. The status code already said whether it worked, so `{ success, data }` restated it and made every caller unwrap a level. Changed while nothing consumed it yet. The trade, taken deliberately: a bare array has nowhere to put pagination later, which is fine because every list is one device's own places, routines or schedules. A collection that could grow unbounded should get an object with its own `items` field rather than quietly becoming an envelope again. |
+| 2026-08-13 | **A shared lint base, not a shared config.** `eslint.config.base.mjs` holds the rules that are as true on the server as in the app (`no-floating-promises`, `no-misused-promises`, `await-thenable`, no `any`). Platform rules stay in `apps/mobile`, where `eslint-config-expo` and the native-module `no-restricted-imports` rule belong. Type-aware rules are on: they are slower, and they are the only ones that catch a promise nobody awaited. Turning it on found 11 real problems in the API and 2 in `packages/core`, including a `default:` branch the compiler had narrowed to `never` while it stayed reachable from the command line. |
+| 2026-08-13 | **`alarm/no-dashes` enforces the no-em-dash rule.** It scans raw source rather than the AST, because the dashes kept appearing in comments, which a node visitor would not see. Not auto-fixable on purpose: a dash separating a label from its description wants a colon and one joining two clauses wants a comma, so the substitution depends on the sentence. It found three violations in files nobody had thought to grep. |
+| 2026-08-13 | **`packages/core` gained `tsconfig.check.json`.** Its build config excludes `*.test.ts` so tests stay out of `dist`, which also put them outside any program, so 51 tests were neither type-checked nor lintable. The build config is untouched; the new one covers everything and is what `type-check` and eslint use. |
+| 2026-08-13 | **The dev server moves to the next free port, loudly. Production refuses to.** Another project holding port 3000 is routine on a development machine, and the useful response is to keep going and say twice which port was actually used, since the app and the Postman collections point at the configured one. In production the port is what a reverse proxy forwards to, so moving would leave the deployment running and unreachable, which looks like a healthy service and is not one. Bounded to ten ports: a machine with ten consecutive ports in use has a different problem, and scanning until something answers eventually lands on a port that means something else. |
+| 2026-08-13 | **Refusals are returned, not thrown.** `ApiError` is gone. Middleware writes its own 401 and 422, services return outcomes (`Place \| null`, the names of the schedules blocking a delete, a `ScheduleProblem` union) and controllers render them. An exception now means the code is wrong, so `errorHandler` only ever produces a 500 or the upstream 429. The one deliberate exception is `NsRateLimitError`, thrown three layers down in an HTTP module, where threading a result type up through the service and controller would cost more than it explains. |
+| 2026-08-13 | **No wrapper around route handlers.** Verified rather than assumed: Express 5 forwards a rejected promise from an async handler to the error middleware on its own. With `deviceAuth` guaranteeing `req.device` and `validate` guaranteeing the body, the base `Controller` had nothing left to do and was deleted. `req.device` is declared non-optional on `Express.Request`, which is a small lie for the one route without the middleware and is what removes a narrowing wrapper from every handler. |
+| 2026-08-13 | **`sendSuccess<T>` cannot infer its type argument.** `sendSuccess(res, x)` with an inferred `T` can never fail, because the argument is what defines the expectation. `NoInfer<T>` plus a `never` default makes the type argument compulsory, so every endpoint names a response type declared in `@alarm/types` and the mapper's output has to satisfy it. Proven with a probe file: an unnamed type and a wrong shape both fail to compile. |
+| 2026-08-13 | **Validation is route middleware, and checks every part before answering.** `validate({ params, body, query })` reports all issues at once with each path prefixed by its source. Stopping at the first failing part would report a bad id, then on the retry a bad body. Query and params go to `req.validatedQuery` / `req.validatedParams`: Express 5 made `req.query` a getter with no setter, and the router rewrites `req.params` per layer, so neither survives being written back. |
+| 2026-08-13 | **The test suite refuses to run against a database whose name does not end in `_test`, or without `.env.test` present.** Both, because either alone is easy to satisfy by accident: without that file dotenv falls back to whatever `DB_*` happens to be set, which on a developer machine is the development database, and the suite truncates every table it can see before each test. Verified by pointing it at `dynamic_alarm_db` and watching it refuse. |
+| 2026-08-13 | **Tests never call NS or TomTom.** The provider factory is spied and answers with `FixtureTransportProvider`. A suite that depends on a live timetable fails when a train is late, which is neither true nor fixable, and it spends a 300-per-5-minutes budget shared by the whole deployment. |
+| 2026-08-11 | **Another device's resource answers 404, not 403.** The device id is part of the lookup rather than checked after it. A found-then-compare would answer 403 for a real id and 404 for an invented one, which tells anyone holding a token exactly which place ids exist. Both are indistinguishable now, because to that device they genuinely are. |
+| 2026-08-11 | **Cross-resource ownership is checked on every schedule write.** A schedule names a place and a routine by id, and the foreign keys accept any valid id, so without an explicit check a device could point a schedule at another device's place and read back where that person lives through `/plan/preview`. That is the most sensitive data the app holds, and it is the only place in the API where the check is load-bearing rather than tidy. |
+| 2026-08-11 | **NS Places autosuggest needs an explicit `type` filter.** The default response contains addresses only, so a user typing "Utrecht Centraal" is offered four streets and no station. Now requests `stationV2,address,poi`. |
+| 2026-08-11 | **Autosuggest enforces a three-character minimum server-side.** It proxies an NS endpoint drawing on the same 300 requests per 5 minutes as journey planning, and it is the one route a user can fire per keystroke. Client debouncing is still needed, but the ceiling cannot depend on the client behaving. |
+| 2026-08-11 | **Routine steps are replaced wholesale, and position in the array is the order.** The editor renames, reorders and deletes together, so reconstructing which happened from a set of ids is guesswork that gets the order wrong. `order` was removed from the create DTO: two sources for one fact means something has to break the tie when they disagree, and the user reads that as the app losing their arrangement. |
 | 2026-08-11 | **The nearest station is not the nearest *useful* station.** For a home address near the Spoorwegmuseum, NS `/stations/nearest` returned Utrecht Maliebaan (755m, `heeftVertrektijden: false`), a museum halt with no scheduled service. `searchForArrival` then answered with the last train that ever left it, the previous evening, so an 08:30 deadline produced a 16:59 departure that satisfied every check and reported `feasible: true`. Nearest-station lookup now over-fetches and filters on `heeftVertrektijden`. Two days were lost to formats and timezones because the output was internally consistent, which is what made it dangerous. |
 | 2026-08-11 | **The planner drops trips departing in the past.** "Arrive by" has no lower bound, so any sparsely served origin can produce a yesterday journey that passes the deadline arithmetic and yields a wake time already gone. The filter is a second line of defence: the station fix removes the known cause, this removes the failure mode. |
 | 2026-08-10 | **MySQL 8, not Postgres.** The production hosting only offers MySQL. Caught before M2 was built on it. Three Postgres habits do not survive: no `gen_random_uuid()` default (TypeORM generates UUIDs app-side, since MySQL's `UUID()` is version 1 and leaks a MAC address), no array columns (`days_of_week` is JSON), and no `timestamptz` (every instant is `datetime(3)` in UTC with the connection pinned to UTC, because MySQL `timestamp` silently converts to the session zone and stops in 2038). Decimal columns need a transformer, as the driver returns them as strings and a latitude of `"52.090700"` reaches NS as nonsense. **The M2 monitor design survives:** MySQL 8.0 supports `FOR UPDATE SKIP LOCKED`. |

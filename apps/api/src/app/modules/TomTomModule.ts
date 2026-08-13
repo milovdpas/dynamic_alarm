@@ -68,7 +68,7 @@ export class TomTomModule {
             params.set('traffic', 'false');
         }
 
-        const url = `${env.transport.tomtomBaseUrl}/routing/1/calculateRoute/${locations}/json?${params}`;
+        const url = `${env.transport.tomtomBaseUrl}/routing/1/calculateRoute/${locations}/json?${params.toString()}`;
         const response = await fetch(url);
 
         if (response.status === 429) {

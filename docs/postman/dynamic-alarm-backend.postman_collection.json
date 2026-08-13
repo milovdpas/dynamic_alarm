@@ -1,0 +1,476 @@
+{
+  "info": {
+    "_postman_id": "1a20cd24-05a8-4104-b825-86a30f9dc38f",
+    "name": "Dynamic Alarm: Backend",
+    "description": "Everything the app never calls.\n\nTwo kinds of thing live here. The health check is served by our API but read by uptime monitors and load balancers rather than by the phone. The rest are the upstream NS and TomTom calls the backend makes on the app's behalf, reproduced exactly as the server sends them.\n\nThose upstream requests are the reason this collection exists. When a wake time comes back wrong, the question is almost always whether the API composed the journey badly or whether NS answered oddly, and the only way to separate the two is to make the same call by hand. Every diagnosis in this project so far has come from doing that: the subscription refusing door-to-door planning, and `stations/nearest` returning a railway museum with no scheduled service.\n\n**These requests spend the shared NS budget.** 300 requests per 5 minutes for the whole deployment, not per user. Do not point a Postman Runner at the NS folder.\n\nThe keys go in a Postman environment, never in this file. `apps/api/.env` holds the real ones.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "13715750",
+    "_collection_link": "https://go.postman.co/collection/13715750-1a20cd24-05a8-4104-b825-86a30f9dc38f?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "1. Operations",
+      "item": [
+        {
+          "name": "Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('database is reachable', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(body.database).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "health"
+              ]
+            },
+            "description": "The one response deliberately outside the `{ success, data }` envelope, because load balancers and uptime checks do not know about it. The status code carries the same answer, so nothing is lost.\n\n200 when the database is reachable, 503 when it is not. The database is reported as its own field rather than folded into one boolean: a process that is up but cannot reach MySQL is exactly the state where the monitor loop silently stops moving alarms, and \"ok\" would hide it.\n\nResponse: `HealthResponse`."
+          },
+          "response": [
+            {
+              "name": "success",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/health",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "health"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": "X-Powered-By",
+                  "value": "Express"
+                },
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                },
+                {
+                  "key": "Content-Length",
+                  "value": "90"
+                },
+                {
+                  "key": "ETag",
+                  "value": "W/\"5a-TfRwcOH1gOb7XZvZQdg4eGHOx3Q\""
+                },
+                {
+                  "key": "Date",
+                  "value": "Thu, 13 Aug 2026 16:06:22 GMT"
+                },
+                {
+                  "key": "Connection",
+                  "value": "keep-alive"
+                },
+                {
+                  "key": "Keep-Alive",
+                  "value": "timeout=5"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"status\": \"ok\",\n    \"database\": true,\n    \"uptime\": 56.4667378,\n    \"timestamp\": \"2026-08-13T16:06:22.344Z\"\n}"
+            }
+          ]
+        }
+      ],
+      "description": "Served by our API, not called by the app."
+    },
+    {
+      "name": "2. NS Reisinformatie (upstream)",
+      "item": [
+        {
+          "name": "Trips, station to station, arriving by",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Ocp-Apim-Subscription-Key",
+                "value": "{{nsSubscriptionKey}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{nsBaseUrl}}/reisinformatie-api/api/v3/trips?fromStation=UT&toStation=ASDZ&dateTime={{arriveBy}}&searchForArrival=true&addChangeTime=2",
+              "host": [
+                "{{nsBaseUrl}}"
+              ],
+              "path": [
+                "reisinformatie-api",
+                "api",
+                "v3",
+                "trips"
+              ],
+              "query": [
+                {
+                  "key": "fromStation",
+                  "value": "UT"
+                },
+                {
+                  "key": "toStation",
+                  "value": "ASDZ"
+                },
+                {
+                  "key": "dateTime",
+                  "value": "{{arriveBy}}"
+                },
+                {
+                  "key": "searchForArrival",
+                  "value": "true"
+                },
+                {
+                  "key": "addChangeTime",
+                  "value": "2"
+                }
+              ]
+            },
+            "description": "The rail half of every journey.\n\nStation to station only. Passing coordinates instead returns `API_KEY_NOT_ALLOWED_TO_PLAN_DOOR_TO_DOOR` on this subscription, which is why `JourneyPlannerService` composes door to door from this plus TomTom walking legs.\n\n`addChangeTime` goes to the planner rather than being applied afterwards, so a connection tighter than the user's transfer buffer is never proposed. Padding the result could not achieve that, because it cannot change which train was chosen.\n\n`searchForArrival` has no lower bound, and that is worth knowing: for a station with sparse service it will happily answer with the last train that ever got there, possibly the previous evening. Such a trip satisfies the deadline arithmetic and produces a wake time in the past, so the planner drops departures already gone."
+          },
+          "response": []
+        },
+        {
+          "name": "Trip by ctxRecon (realtime refresh)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Ocp-Apim-Subscription-Key",
+                "value": "{{nsSubscriptionKey}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{nsBaseUrl}}/reisinformatie-api/api/v3/trips/trip?ctxRecon={{ctxRecon}}",
+              "host": [
+                "{{nsBaseUrl}}"
+              ],
+              "path": [
+                "reisinformatie-api",
+                "api",
+                "v3",
+                "trips",
+                "trip"
+              ],
+              "query": [
+                {
+                  "key": "ctxRecon",
+                  "value": "{{ctxRecon}}"
+                }
+              ]
+            },
+            "description": "The mechanism that makes the product honest.\n\nRather than adding a reported delay to a stored plan, NS reconstructs the same itinerary and says what it now looks like, including whether the connection still works. Copy a `ctxRecon` from the trips response above into the collection variable.\n\nWhen it can no longer be reconstructed the answer means \"plan again\", never \"no change\"."
+          },
+          "response": []
+        },
+        {
+          "name": "Nearest stations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Ocp-Apim-Subscription-Key",
+                "value": "{{nsSubscriptionKey}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{nsBaseUrl}}/reisinformatie-api/api/v2/stations/nearest?lat=52.0907&lng=5.1214&limit=5",
+              "host": [
+                "{{nsBaseUrl}}"
+              ],
+              "path": [
+                "reisinformatie-api",
+                "api",
+                "v2",
+                "stations",
+                "nearest"
+              ],
+              "query": [
+                {
+                  "key": "lat",
+                  "value": "52.0907"
+                },
+                {
+                  "key": "lng",
+                  "value": "5.1214"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": "How an address becomes a departure station.\n\n**Read `heeftVertrektijden` on every result.** These exact coordinates return Utrecht Maliebaan first, 755 metres away, which is the railway museum and has no scheduled service. Planning from it produced a journey eight hours adrift that passed every internal check. The API over-fetches and filters on that field for this reason, and there is no way to ask the server to do it.\n\nThe answer is stable for a given home or office, so it is cached rather than re-asked per plan."
+          },
+          "response": []
+        },
+        {
+          "name": "Places autosuggest",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Ocp-Apim-Subscription-Key",
+                "value": "{{nsSubscriptionKey}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{nsBaseUrl}}/places-api/v2/autosuggest?q=Utrecht Centraal&type=stationV2,address,poi&limit=5",
+              "host": [
+                "{{nsBaseUrl}}"
+              ],
+              "path": [
+                "places-api",
+                "v2",
+                "autosuggest"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "Utrecht Centraal"
+                },
+                {
+                  "key": "type",
+                  "value": "stationV2,address,poi"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": "What the app's `/places/autosuggest` proxies.\n\n**The `type` filter is not a refinement, it is required.** Without it the response contains addresses only, so a user typing \"Utrecht Centraal\" is offered four streets and no station. Drop the parameter and compare.\n\nResults come back grouped by type, each group holding a `locations` array. The API flattens that."
+          },
+          "response": []
+        },
+        {
+          "name": "Active disruptions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Ocp-Apim-Subscription-Key",
+                "value": "{{nsSubscriptionKey}}"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{nsBaseUrl}}/disruptions/v3?isActive=true",
+              "host": [
+                "{{nsBaseUrl}}"
+              ],
+              "path": [
+                "disruptions",
+                "v3"
+              ],
+              "query": [
+                {
+                  "key": "isActive",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "Swept once globally per monitor tick in M2, not once per user.\n\nA flat 1440 calls a day regardless of how many people use the app. Anything touching a station an armed occurrence passes through promotes that occurrence to an immediate re-check, which catches a cancellation within about a minute even for someone sitting in the 30-minute polling band. No per-user cadence could afford that."
+          },
+          "response": []
+        }
+      ],
+      "description": "What `NsModule` sends. Auth is the `Ocp-Apim-Subscription-Key` header from the `Ns-App` product.\n\nThese share one ceiling of 300 requests per 5 minutes across the whole deployment, so use them one at a time."
+    },
+    {
+      "name": "3. TomTom Routing (upstream)",
+      "item": [
+        {
+          "name": "Drive, arriving by",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{tomtomBaseUrl}}/routing/1/calculateRoute/52.0907,5.1214:52.3391,4.8731/json?key={{tomtomApiKey}}&travelMode=car&routeType=fastest&arriveAt={{arriveBy}}&traffic=true",
+              "host": [
+                "{{tomtomBaseUrl}}"
+              ],
+              "path": [
+                "routing",
+                "1",
+                "calculateRoute",
+                "52.0907,5.1214:52.3391,4.8731",
+                "json"
+              ],
+              "query": [
+                {
+                  "key": "key",
+                  "value": "{{tomtomApiKey}}"
+                },
+                {
+                  "key": "travelMode",
+                  "value": "car"
+                },
+                {
+                  "key": "routeType",
+                  "value": "fastest"
+                },
+                {
+                  "key": "arriveAt",
+                  "value": "{{arriveBy}}"
+                },
+                {
+                  "key": "traffic",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "Car journeys, planned backwards from the arrival time.\n\n**For a future `arriveAt`, live traffic is ignored.** Only historic and predictive data shape the road speeds, so a route calculated the night before is a forecast, and one calculated inside the departure window reflects the road as it is. The engine relaxes the risk buffer accordingly and the monitor re-queries as departure approaches. Comparing this request against the same one without `arriveAt` shows the difference directly.\n\nRead `summary.travelTimeInSeconds` and `summary.trafficDelayInSeconds`. The second is congestion cost against free flow, which is what the app shows as a delay even though a road has no timetable."
+          },
+          "response": []
+        },
+        {
+          "name": "Walk to the station",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{tomtomBaseUrl}}/routing/1/calculateRoute/52.0907,5.1214:52.0888,5.1102/json?key={{tomtomApiKey}}&travelMode=pedestrian&routeType=fastest&traffic=false",
+              "host": [
+                "{{tomtomBaseUrl}}"
+              ],
+              "path": [
+                "routing",
+                "1",
+                "calculateRoute",
+                "52.0907,5.1214:52.0888,5.1102",
+                "json"
+              ],
+              "query": [
+                {
+                  "key": "key",
+                  "value": "{{tomtomApiKey}}"
+                },
+                {
+                  "key": "travelMode",
+                  "value": "pedestrian"
+                },
+                {
+                  "key": "routeType",
+                  "value": "fastest"
+                },
+                {
+                  "key": "traffic",
+                  "value": "false"
+                }
+              ]
+            },
+            "description": "The walking legs that NS will not supply on this subscription.\n\nA routed pedestrian time along real paths, which is a better number than a straight-line estimate and arguably better than what NS would have returned. Rounded up to whole minutes by the API, because the error that costs a train is being half a minute short, not half a minute early.\n\n`traffic=false` is required: pedestrian routing rejects traffic-aware options, and a footpath has no congestion to model."
+          },
+          "response": []
+        }
+      ],
+      "description": "What `TomTomModule` sends. Auth is the `key` query parameter.\n\nSeparate quota from NS, and not the one that binds."
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "requests": {},
+        "exec": [
+          "// Tomorrow at 08:30 Amsterdam time, as a real instant. Computed rather",
+          "// than hardcoded, because the offset is +02:00 in summer and +01:00 in",
+          "// winter, and NS honours what it is sent: a stale offset returns a",
+          "// plausible journey an hour out rather than an error.",
+          "const tomorrow = new Date(Date.now() + 86400000);",
+          "const ymd = new Intl.DateTimeFormat('en-CA', {",
+          "    timeZone: 'Europe/Amsterdam', year: 'numeric', month: '2-digit', day: '2-digit',",
+          "}).format(tomorrow);",
+          "const zone = new Intl.DateTimeFormat('en-US', {",
+          "    timeZone: 'Europe/Amsterdam', timeZoneName: 'longOffset',",
+          "}).formatToParts(tomorrow).find((part) => part.type === 'timeZoneName');",
+          "const offset = (zone ? zone.value : 'GMT+00:00').replace('GMT', '') || '+00:00';",
+          "",
+          "pm.collectionVariables.set('arriveBy', ymd + 'T08:30:00' + offset);"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "nsBaseUrl",
+      "value": "https://gateway.apiportal.ns.nl"
+    },
+    {
+      "key": "nsSubscriptionKey",
+      "value": ""
+    },
+    {
+      "key": "tomtomBaseUrl",
+      "value": "https://api.tomtom.com"
+    },
+    {
+      "key": "tomtomApiKey",
+      "value": ""
+    },
+    {
+      "key": "ctxRecon",
+      "value": ""
+    },
+    {
+      "key": "arriveBy",
+      "value": ""
+    }
+  ]
+}

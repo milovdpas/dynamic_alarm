@@ -90,6 +90,88 @@ than placeholder copy, see `getSoundLabel`.
 bearer token is read from secure storage per request rather than cached, so onboarding
 can register and immediately make an authenticated call.
 
+## The API: where each concern lives
+
+```
+routes/groups/*   deviceAuth + validate({ params, body, query }), then the handler
+controllers/*     read req.device and req.body, call a service, render the outcome
+services/*        the domain. Return outcomes; never write a response
+models/*.entity   columns, relations, and toDto()
+middleware/*      hold the response, so they answer directly
+```
+
+**Refusals are returned, exceptions mean the code is wrong.** A missing place, a
+bad payload, a delete something still depends on: all ordinary results of
+ordinary requests. Services return them (`Place | null`, the names blocking a
+delete, a `ScheduleProblem` union) and controllers turn them into responses.
+Throwing is reserved for a route pattern that disagrees with its handler, and
+for `NsRateLimitError`, which comes from an HTTP module three layers down where
+a result type would cost more than it explains.
+
+**No wrapper around handlers.** Express 5 forwards a rejected promise to the
+error middleware by itself. `deviceAuth` guarantees `req.device`, `validate`
+guarantees the body, so a handler is the handler. Type it with `Handler<Body,
+Params>` from `interfaces/IHttp.ts`; a route with an `:id` also needs
+`router.get<IdParams>(...)`, because Express infers params from a literal path
+and ours come from `API_ENDPOINTS`.
+
+**A success is the resource, unwrapped; a failure is flat.** There is no
+`{ success, data }` envelope, because the status code already carries that. A
+refusal is `{ code, message, details }` with a 4xx or 5xx. Lists are bare arrays,
+which is a deliberate trade: nowhere to add pagination later, and every list here
+is one device's own handful of rows. A collection that could grow unbounded
+should be given an object with its own `items` field instead.
+
+**Every response type is named.** `sendSuccess` cannot infer its type argument,
+so `sendSuccess<PlaceResponse>(res, place.toDto())` is the only way to call it.
+The names live in `@alarm/types`, which the app imports to parse, so a renamed
+field breaks both sides at build time instead of rendering `undefined`.
+
+**Answer with a 404, never a 403,** for another device's resource. The device id
+goes into the lookup rather than being compared afterwards, so a real id and an
+invented one are indistinguishable. Anything else confirms which ids exist.
+
+## Testing the API
+
+`npm test -w @alarm/api` runs 53 integration tests through the real app, router,
+middleware, TypeORM and MySQL, via supertest. Unit-testing a service in
+isolation would have missed every bug this API has actually produced: decimals
+returned as strings, a MySQL TIME arriving as `08:30:00`, Express matching `:id`
+before a literal path.
+
+- Credentials come from `.env.test`, chosen by `NODE_ENV`, which vitest sets.
+- The schema is migrated once per run, and every table is truncated **before**
+  each test, so a failure leaves its rows behind to be looked at.
+- The suite refuses to start unless `.env.test` exists and `DB_NAME` ends in
+  `_test`. It truncates everything it can see, so the cost of the wrong database
+  is total and silent.
+- Files run one at a time. They share a database, and parallel workers would
+  wipe each other's rows mid-request.
+- No test calls NS or TomTom. `TransportProviderFactory.forMode` is spied and
+  answers with `FixtureTransportProvider`.
+
+## Linting
+
+`npm run lint` at the root runs every workspace.
+
+Rules are split rather than shared wholesale. `eslint.config.base.mjs` holds what
+is as true on the server as in the app: no floating promises, no async function
+where a synchronous one is expected, no `any`. Platform rules stay in
+`apps/mobile/eslint.config.js`, where `eslint-config-expo` and the native-module
+`no-restricted-imports` rule belong; neither means anything to the API.
+
+Type-aware rules are on. They need a TypeScript program and are slower than a
+syntax-only pass, and they are the only ones that catch the mistakes that
+actually happen here. Turning them on found 11 real problems in the API,
+including a `default:` branch the compiler had narrowed to `never` while it
+remained reachable from the command line.
+
+`alarm/no-dashes` (in `tools/eslint-plugin-alarm/`) enforces the writing rule
+from CLAUDE.md. It scans raw source rather than the AST, because the dashes kept
+turning up in comments. It is deliberately not auto-fixable: a dash separating a
+label from its description wants a colon, one joining two clauses wants a comma,
+and only the sentence says which.
+
 ## Native modules, the rule that bit us three times
 
 **Never import a native module at module scope. Ever. No exceptions.**
