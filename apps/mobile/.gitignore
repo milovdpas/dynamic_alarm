@@ -41,3 +41,19 @@ example
 # generated native folders
 /ios
 /android
+
+# Firebase service account private keys.
+#
+# Unlike google-services.json, which ships inside every APK and is not secret,
+# this file authorises sending push notifications as this project. It belongs in
+# EAS credentials and nowhere else. Committing one means anyone with repo access
+# can wake every user's phone.
+*-firebase-adminsdk-*.json
+
+# Firebase Android config.
+#
+# Not secret in the usual sense: every value in it ships inside the APK. It is
+# kept out of this public repository so the Android API key it carries is not
+# handed to scrapers, and it reaches builds through the EAS file environment
+# variable GOOGLE_SERVICES_JSON instead. See app.config.js.
+google-services.json
