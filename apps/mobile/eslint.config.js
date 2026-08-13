@@ -30,6 +30,10 @@ const IMPORT_TIME_UNSAFE_NATIVE_MODULES = [
     'expo-device',
     'expo-updates',
     '@react-native-async-storage/async-storage',
+    // Calls requireNativeView at module scope, so importing it throws when the
+    // native view is absent: Expo Go, iOS, or any build older than the
+    // dependency. Loaded lazily by TimeField, which falls back to a typed field.
+    '@expo/ui/jetpack-compose',
 ];
 
 module.exports = defineConfig([
@@ -61,7 +65,7 @@ module.exports = defineConfig([
     {
         // The wrappers exist precisely to contain these lazy requires.
         files: [
-            'index.js',
+            'src/components/ui/TimeField.tsx',
             'src/utils/modules/Storage.ts',
             'src/utils/modules/Axios.ts',
             'src/utils/modules/optionalModule.ts',

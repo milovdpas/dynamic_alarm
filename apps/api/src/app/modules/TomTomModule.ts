@@ -1,3 +1,4 @@
+import { AccessMode } from '@alarm/types';
 import type { GeoPoint } from '@alarm/types';
 
 import { env } from '../../config/app';
@@ -36,21 +37,31 @@ export class TomTomModule {
     }
 
     /**
-     * Walking time in minutes, rounded up.
+     * Minutes to reach a station, by whichever means the traveller uses.
+     *
+     * This used to be walking only, which quietly added about twenty minutes to
+     * the wake-up time of anyone who cycles to their local station, in the
+     * direction that makes them miss the train.
      *
      * Rounded up rather than to nearest, because this feeds a wake-up time: the
      * error that costs a train is being half a minute short, not half a minute
      * early.
      */
-    async walkMinutes(origin: GeoPoint, destination: GeoPoint): Promise<number | null> {
-        const result = await this.route(origin, destination, { travelMode: 'pedestrian' });
+    async accessMinutes(
+        origin: GeoPoint,
+        destination: GeoPoint,
+        mode: AccessMode,
+    ): Promise<number | null> {
+        const result = await this.route(origin, destination, {
+            travelMode: mode === AccessMode.BIKE ? 'bicycle' : 'pedestrian',
+        });
         return result === null ? null : Math.ceil(result.travelSeconds / 60);
     }
 
     private async route(
         origin: GeoPoint,
         destination: GeoPoint,
-        options: { arriveAt?: string; travelMode: 'car' | 'pedestrian' },
+        options: { arriveAt?: string; travelMode: 'car' | 'pedestrian' | 'bicycle' },
     ): Promise<RouteResult | null> {
         const locations = `${origin.lat},${origin.lng}:${destination.lat},${destination.lng}`;
         const params = new URLSearchParams({
@@ -63,8 +74,8 @@ export class TomTomModule {
             params.set('arriveAt', options.arriveAt);
             params.set('traffic', 'true');
         } else {
-            // Pedestrian routing rejects traffic-aware options, and a walking
-            // route has no congestion to model anyway.
+            // Pedestrian and bicycle routing reject traffic-aware options, and
+            // neither has road congestion to model anyway.
             params.set('traffic', 'false');
         }
 

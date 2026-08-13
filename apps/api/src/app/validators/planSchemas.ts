@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TransportMode } from '@alarm/types';
+import { AccessMode, MAX_JOURNEY_OPTIONS, TransportMode } from '@alarm/types';
 
 import { bufferConfigSchema, localTimeSchema } from './scheduleSchemas';
 
@@ -24,6 +24,9 @@ export const planPreviewSchema = z
             .regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a date as YYYY-MM-DD')
             .optional(),
         mode: z.enum(TransportMode),
+        originAccess: z.enum(AccessMode).default(AccessMode.WALK),
+        destinationAccess: z.enum(AccessMode).default(AccessMode.WALK),
+        journeyOffset: z.number().int().min(0).max(MAX_JOURNEY_OPTIONS - 1).default(0),
         fixedTravelMinutes: z.number().int().min(0).max(24 * 60).optional(),
         routineMinutes: z.number().int().min(0).max(12 * 60),
         buffers: bufferConfigSchema,

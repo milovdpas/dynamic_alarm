@@ -1,4 +1,5 @@
 import type {
+    AccessMode,
     AlarmEventType,
     DevicePlatform,
     OccurrenceState,
@@ -137,6 +138,11 @@ export interface CreateScheduleRequest {
     arrivalTime: LocalTimeString;
     daysOfWeek: Weekday[];
     mode: TransportMode;
+    /** Defaults to walking at both ends when omitted. */
+    originAccess?: AccessMode;
+    destinationAccess?: AccessMode;
+    /** Counting back from the latest on-time departure. Defaults to 0. */
+    journeyOffset?: number;
     fixedTravelMinutes?: number;
     buffers: BufferConfig;
     timezone: TimeZone;
@@ -158,6 +164,9 @@ export interface PlanPreviewRequest {
     /** Defaults to the next matching day when omitted. */
     date?: IsoDateString;
     mode: TransportMode;
+    originAccess?: AccessMode;
+    destinationAccess?: AccessMode;
+    journeyOffset?: number;
     fixedTravelMinutes?: number;
     routineMinutes: number;
     buffers: BufferConfig;
@@ -165,6 +174,19 @@ export interface PlanPreviewRequest {
 }
 
 export type PlanPreviewResponse = WakePlan;
+
+/**
+ * The same journey planned several ways, one plan per option.
+ *
+ * A whole `WakePlan` per option rather than a list of journeys, because the
+ * number the user is actually choosing between is the wake-up time, and that
+ * only exists once the routine and the buffers have been applied. Showing
+ * departures alone would make them do that arithmetic themselves.
+ *
+ * Ordered latest departure first, so index 0 is the most sleep and the index is
+ * the `journeyOffset` to store.
+ */
+export type PlanOptionsResponse = WakePlan[];
 
 /* -------------------------------------------------------------------------- */
 /* Responses                                                                   */

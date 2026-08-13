@@ -1,4 +1,4 @@
-import type { PlanPreviewResponse } from '@alarm/types';
+import type { PlanOptionsResponse, PlanPreviewResponse } from '@alarm/types';
 
 import type { Handler } from '../../interfaces/IHttp';
 import type { BodyOf } from '../middleware/ValidateRequest';
@@ -22,5 +22,18 @@ export default class PlanController {
      */
     preview: Handler<BodyOf<typeof planPreviewSchema>> = async (req, res) => {
         sendSuccess<PlanPreviewResponse>(res, await this.plans.preview(req.body));
+    };
+
+    /**
+     * The same commute planned several ways, latest departure first.
+     *
+     * The index in this list is the `journeyOffset` a schedule stores, which is
+     * why the order is part of the contract rather than a presentation detail.
+     *
+     * One provider call covers all of them, so this costs the same NS budget as
+     * a single preview.
+     */
+    options: Handler<BodyOf<typeof planPreviewSchema>> = async (req, res) => {
+        sendSuccess<PlanOptionsResponse>(res, await this.plans.options(req.body));
     };
 }

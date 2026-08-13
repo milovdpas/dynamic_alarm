@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "0502775a-7462-4e3a-839d-e301d0c1f28c",
     "name": "Dynamic Alarm: App",
-    "description": "Every endpoint the mobile app calls, in the order onboarding uses them.\n\nRun the folders top to bottom the first time. `Register device` stores the bearer token in a collection variable and every later request picks it up automatically, so nothing needs to be pasted by hand. Creating the two places and the routine stores their ids the same way, which is what the schedule request needs.\n\nEvery response is wrapped in `{ \"success\": true, \"data\": ... }` or `{ \"success\": false, \"error\": { code, message, details } }`. The shapes are declared in `packages/types/src/api.ts`, and the API is compiled against them, so what is documented here and what the server sends cannot drift.\n\nEndpoints the app never calls live in the companion collection, `Dynamic Alarm: Backend`.",
+    "description": "Every endpoint the mobile app calls, in the order onboarding uses them.\n\nRun the folders top to bottom the first time. Everything destructive lives in the final Cleanup folder, so a straight run creates a working schedule and only then tears it down. `Register device` stores the bearer token in a collection variable and every later request picks it up automatically, so nothing needs to be pasted by hand. Creating the two places and the routine stores their ids the same way, which is what the schedule request needs.\n\nEvery response is wrapped in `{ \"success\": true, \"data\": ... }` or `{ \"success\": false, \"error\": { code, message, details } }`. The shapes are declared in `packages/types/src/api.ts`, and the API is compiled against them, so what is documented here and what the server sends cannot drift.\n\nOnboarding uses `POST /plan/options` rather than `/plan/preview`: it shows the traveller three journeys and stores the chosen index as the schedule's `journeyOffset`. The preview remains for a single answer.\n\nEndpoints the app never calls live in the companion collection, `Dynamic Alarm: Backend`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "13715750",
     "_collection_link": "https://go.postman.co/collection/13715750-0502775a-7462-4e3a-839d-e301d0c1f28c?source=collection_link"
@@ -780,70 +780,6 @@
               "body": "{\n    \"id\": \"1df5cd66-5d39-430a-9b03-c9c5f1d19db6\",\n    \"label\": \"Home (new flat)\",\n    \"address\": \"Utrecht\",\n    \"lat\": 52.0907,\n    \"lng\": 5.1214\n}"
             }
           ]
-        },
-        {
-          "name": "Delete place",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/places/{{homePlaceId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "places",
-                "{{homePlaceId}}"
-              ]
-            },
-            "description": "204 on success, and 409 while a schedule still points at it, naming the schedules in the way.\n\nThe foreign key would refuse this anyway, but as a driver error it reaches the user as \"something went wrong\". The check exists to turn that into a sentence they can act on."
-          },
-          "response": [
-            {
-              "name": "success",
-              "originalRequest": {
-                "method": "DELETE",
-                "header": [],
-                "url": {
-                  "raw": "{{baseUrl}}/api/v1/places/{{homePlaceId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "places",
-                    "{{homePlaceId}}"
-                  ]
-                }
-              },
-              "status": "No Content",
-              "code": 204,
-              "_postman_previewlanguage": null,
-              "header": [
-                {
-                  "key": "X-Powered-By",
-                  "value": "Express"
-                },
-                {
-                  "key": "Date",
-                  "value": "Thu, 13 Aug 2026 16:15:01 GMT"
-                },
-                {
-                  "key": "Connection",
-                  "value": "keep-alive"
-                },
-                {
-                  "key": "Keep-Alive",
-                  "value": "timeout=5"
-                }
-              ],
-              "cookie": [],
-              "body": null
-            }
-          ]
         }
       ],
       "description": "Saved origins and destinations, and the address search that produces them."
@@ -1203,70 +1139,6 @@
               "body": "{\n    \"id\": \"765070aa-341d-43b9-b1ca-0363c4e86e0e\",\n    \"name\": \"Weekday\",\n    \"steps\": [\n        {\n            \"id\": \"535f84d1-dd60-4f72-8da2-0325077bcc72\",\n            \"label\": \"Shower\",\n            \"minutes\": 12,\n            \"order\": 0,\n            \"enabled\": true\n        },\n        {\n            \"id\": \"86ecb075-9710-4aa1-93a0-acd23c170749\",\n            \"label\": \"Coffee\",\n            \"minutes\": 6,\n            \"order\": 1,\n            \"enabled\": true\n        }\n    ]\n}"
             }
           ]
-        },
-        {
-          "name": "Delete routine",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/routines/{{routineId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "routines",
-                "{{routineId}}"
-              ]
-            },
-            "description": "204, or 409 while a schedule still uses it."
-          },
-          "response": [
-            {
-              "name": "success",
-              "originalRequest": {
-                "method": "DELETE",
-                "header": [],
-                "url": {
-                  "raw": "{{baseUrl}}/api/v1/routines/{{routineId}}",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "api",
-                    "v1",
-                    "routines",
-                    "{{routineId}}"
-                  ]
-                }
-              },
-              "status": "No Content",
-              "code": 204,
-              "_postman_previewlanguage": null,
-              "header": [
-                {
-                  "key": "X-Powered-By",
-                  "value": "Express"
-                },
-                {
-                  "key": "Date",
-                  "value": "Thu, 13 Aug 2026 16:16:36 GMT"
-                },
-                {
-                  "key": "Connection",
-                  "value": "keep-alive"
-                },
-                {
-                  "key": "Keep-Alive",
-                  "value": "timeout=5"
-                }
-              ],
-              "cookie": [],
-              "body": null
-            }
-          ]
         }
       ],
       "description": "The morning routine, whose enabled steps sum to the time between the alarm and leaving the house."
@@ -1304,7 +1176,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"name\": \"Work mornings\",\n    \"originPlaceId\": \"{{homePlaceId}}\",\n    \"destinationPlaceId\": \"{{workPlaceId}}\",\n    \"routineId\": \"{{routineId}}\",\n    \"arrivalTime\": \"08:30\",\n    \"daysOfWeek\": [1, 2, 3, 4, 5],\n    \"mode\": \"PUBLIC_TRANSPORT\",\n    \"buffers\": {\n        \"arrivalMinutes\": 3,\n        \"preDepartureMinutes\": 5,\n        \"transferMinutes\": 2,\n        \"wakeSlackMinutes\": 0\n    },\n    \"timezone\": \"Europe/Amsterdam\"\n}"
+              "raw": "{\n    \"name\": \"Work mornings\",\n    \"originPlaceId\": \"{{homePlaceId}}\",\n    \"destinationPlaceId\": \"{{workPlaceId}}\",\n    \"routineId\": \"{{routineId}}\",\n    \"arrivalTime\": \"08:30\",\n    \"daysOfWeek\": [\n        1,\n        2,\n        3,\n        4,\n        5\n    ],\n    \"mode\": \"PUBLIC_TRANSPORT\",\n    \"buffers\": {\n        \"arrivalMinutes\": 3,\n        \"preDepartureMinutes\": 5,\n        \"transferMinutes\": 2,\n        \"wakeSlackMinutes\": 0\n    },\n    \"timezone\": \"Europe/Amsterdam\",\n    \"originAccess\": \"BIKE\",\n    \"destinationAccess\": \"WALK\",\n    \"journeyOffset\": 0\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/schedules",
@@ -1317,7 +1189,7 @@
                 "schedules"
               ]
             },
-            "description": "`arrivalTime` is wall-clock, not an instant. \"Be at work by 08:30\" stays 08:30 across daylight saving, which a stored timestamp would not.\n\n`daysOfWeek` uses ISO numbering, 1 is Monday. Duplicates are rejected: the same day twice would arm two occurrences for one morning and ring twice.\n\n`mode` is `PUBLIC_TRANSPORT`, `CAR` or `FIXED`. `FIXED` also requires `fixedTravelMinutes`, since there is no provider to ask and without that number no wake time can be computed at all.\n\nThe four buffers sit at different layers of the calculation and a single combined buffer cannot express that. `transferMinutes` in particular is never subtracted: it is handed to the NS planner as a minimum connection time, so a transfer that tight is never proposed in the first place.\n\nEvery referenced place and routine must belong to this device, checked explicitly. The foreign keys accept any valid id, so without that check a device could point a schedule at another device's place and read back where that person lives through the plan preview.\n\nResponse: `ScheduleResponse` (Schedule)."
+            "description": "`arrivalTime` is wall-clock, not an instant. \"Be at work by 08:30\" stays 08:30 across daylight saving, which a stored timestamp would not.\n\n`daysOfWeek` uses ISO numbering, 1 is Monday. Duplicates are rejected: the same day twice would arm two occurrences for one morning and ring twice.\n\n`mode` is `PUBLIC_TRANSPORT`, `CAR` or `FIXED`. `FIXED` also requires `fixedTravelMinutes`, since there is no provider to ask and without that number no wake time can be computed at all.\n\nThe four buffers sit at different layers of the calculation and a single combined buffer cannot express that. `transferMinutes` in particular is never subtracted: it is handed to the NS planner as a minimum connection time, so a transfer that tight is never proposed in the first place.\n\nEvery referenced place and routine must belong to this device, checked explicitly. The foreign keys accept any valid id, so without that check a device could point a schedule at another device's place and read back where that person lives through the plan preview.\n\nResponse: `ScheduleResponse` (Schedule).\n\n`originAccess` and `destinationAccess` are how the traveller reaches each station, and they are separate because the usual Dutch commute is a bike at the home end and a walk at the other. One setting for both would get one of them wrong, and on a two-kilometre access leg the difference is around twenty minutes applied straight to the wake-up time. Only `WALK` and `BIKE` exist: driving to a station is a real habit, but the parking and the walk from the car park are unmodelled, so a car access leg would be optimistic in exactly the direction that makes someone miss a train.\n\nBoth are ignored when `mode` is not `PUBLIC_TRANSPORT`, which is the only mode with a station to reach.\n\n`journeyOffset` is which on-time journey to take, counting back from the latest departure. Zero is the most sleep and is what the engine picks unasked. It is a **position, not a train**: the alarm recurs and the timetable does not hold still, so a cancellation moves the choice along the list rather than invalidating it. A morning with fewer options clamps to the earliest rather than refusing to plan. Get the value from `POST /plan/options`, where it is the index."
           },
           "response": [
             {
@@ -1559,7 +1431,7 @@
                 "{{scheduleId}}"
               ]
             },
-            "description": "Paused rather than deleted, so a holiday does not lose the setup.\n\nCoherence is checked against the merged result rather than the payload: switching to `FIXED` without sending a duration, or clearing the duration while already on `FIXED`, both leave a schedule that cannot compute a wake time, and neither is visible from the request alone."
+            "description": "Paused rather than deleted, so a holiday does not lose the setup.\n\nCoherence is checked against the merged result rather than the payload: switching to `FIXED` without sending a duration, or clearing the duration while already on `FIXED`, both leave a schedule that cannot compute a wake time, and neither is visible from the request alone.\n\nEvery field from create is patchable here too, including `originAccess`, `destinationAccess` and `journeyOffset`."
           },
           "response": [
             {
@@ -1626,26 +1498,6 @@
               "body": "{\n    \"id\": \"11d3e631-386f-459e-823b-7c87c619f953\",\n    \"name\": \"Work mornings\",\n    \"originPlaceId\": \"b0c7d94d-8675-40dd-84bd-f43d855711d1\",\n    \"destinationPlaceId\": \"df15c18a-2827-499b-b5e7-a3b9e6db0a0f\",\n    \"routineId\": \"4cbdfd99-aaa3-40b1-b2fc-b2831ce8f786\",\n    \"arrivalTime\": \"08:30\",\n    \"daysOfWeek\": [\n        1,\n        2,\n        3,\n        4,\n        5\n    ],\n    \"mode\": \"PUBLIC_TRANSPORT\",\n    \"buffers\": {\n        \"arrivalMinutes\": 3,\n        \"transferMinutes\": 2,\n        \"wakeSlackMinutes\": 0,\n        \"preDepartureMinutes\": 5\n    },\n    \"timezone\": \"Europe/Amsterdam\",\n    \"active\": false\n}"
             }
           ]
-        },
-        {
-          "name": "Delete schedule",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/schedules/{{scheduleId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "schedules",
-                "{{scheduleId}}"
-              ]
-            }
-          },
-          "response": []
         }
       ],
       "description": "A recurring commitment: be at this place, by this time, on these days. Note what is absent, there is no wake-up time here. The user does not own that number."
@@ -1653,6 +1505,129 @@
     {
       "name": "5. Plan",
       "item": [
+        {
+          "name": "Options (pick a train)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const options = pm.response.json();",
+                  "",
+                  "pm.test('returns at least one option', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(options).to.be.an('array').that.is.not.empty;",
+                  "});",
+                  "",
+                  "pm.test('ordered latest departure first', function () {",
+                  "    const departures = options.map(function (o) {",
+                  "        return new Date(o.departHomeAt).getTime();",
+                  "    });",
+                  "    const sorted = departures.slice().sort(function (a, b) { return b - a; });",
+                  "    pm.expect(departures).to.eql(sorted);",
+                  "});",
+                  "",
+                  "// The index is what a schedule stores, so read it from here.",
+                  "options.forEach(function (o, i) {",
+                  "    console.log(i, 'wake', o.wakeUpAt, 'arrive', o.journey && o.journey.arrivalAt);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"origin\": {\n        \"lat\": 52.0907,\n        \"lng\": 5.1214\n    },\n    \"destination\": {\n        \"lat\": 52.3391,\n        \"lng\": 4.8731\n    },\n    \"arrivalTime\": \"08:30\",\n    \"mode\": \"PUBLIC_TRANSPORT\",\n    \"routineMinutes\": 33,\n    \"buffers\": {\n        \"arrivalMinutes\": 3,\n        \"preDepartureMinutes\": 5,\n        \"transferMinutes\": 2,\n        \"wakeSlackMinutes\": 0\n    },\n    \"timezone\": \"Europe/Amsterdam\",\n    \"originAccess\": \"BIKE\",\n    \"destinationAccess\": \"WALK\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/plan/options",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "plan",
+                "options"
+              ]
+            },
+            "description": "The same commute planned several ways, so the traveller can choose.\n\nSame body as the preview. The engine's own answer is the latest journey that still arrives on time, because that buys the most sleep, and it is the wrong answer for anyone who wants a seat, the direct train, or simply some margin.\n\nReturns up to three whole `WakePlan` objects rather than a list of departures: the number being chosen between is the wake-up time, and that only exists once the routine and the buffers have been applied.\n\n**Ordered latest departure first, and the index is the `journeyOffset` to store on the schedule.** That ordering is part of the contract, not presentation.\n\nCosts the same NS budget as one preview: a single request already returns several itineraries.\n\nWhen nothing arrives on time it returns a single plan for the least-late journey, carrying `feasible: false` and `shortfallMinutes`, because the user still needs an alarm.\n\nResponse: `PlanOptionsResponse` (WakePlan[])."
+          },
+          "response": [
+            {
+              "name": "success",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"origin\": { \"lat\": 52.0907, \"lng\": 5.1214 },\n    \"destination\": { \"lat\": 52.3391, \"lng\": 4.8731 },\n    \"arrivalTime\": \"08:30\",\n    \"mode\": \"PUBLIC_TRANSPORT\",\n    \"routineMinutes\": 33,\n    \"buffers\": {\n        \"arrivalMinutes\": 3,\n        \"preDepartureMinutes\": 5,\n        \"transferMinutes\": 2,\n        \"wakeSlackMinutes\": 0\n    },\n    \"timezone\": \"Europe/Amsterdam\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/plan/preview",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "plan",
+                    "preview"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": "X-Powered-By",
+                  "value": "Express"
+                },
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                },
+                {
+                  "key": "Content-Length",
+                  "value": "2328"
+                },
+                {
+                  "key": "ETag",
+                  "value": "W/\"918-Rs3JKbhLnRp6hmsIilq45q+UTwU\""
+                },
+                {
+                  "key": "Date",
+                  "value": "Thu, 13 Aug 2026 16:24:19 GMT"
+                },
+                {
+                  "key": "Connection",
+                  "value": "keep-alive"
+                },
+                {
+                  "key": "Keep-Alive",
+                  "value": "timeout=5"
+                }
+              ],
+              "cookie": [],
+              "body": "{\n    \"feasible\": true,\n    \"wakeUpAt\": \"2026-08-14T07:00:00.000+02:00\",\n    \"departHomeAt\": \"2026-08-14T07:33:00.000+02:00\",\n    \"journey\": {\n        \"id\": \"arnu|fromStation=8400621|requestedFromStation=8400621|toStation=8400061|requestedToStation=8400061|plannedFromTime=2026-08-14T07:56:00+02:00|plannedArrivalTime=2026-08-14T08:19:00+02:00|excludeHighSpeedTrains=false|showLiftInfo=false|searchForAccessibleTrip=false|addChangeTime=2|localTrainsOnly=false|disabledTransportModalities=BUS,FERRY,TRAM,METRO|travelAssistance=false|tripSummaryHash=3704438422\",\n        \"ctxRecon\": \"arnu|fromStation=8400621|requestedFromStation=8400621|toStation=8400061|requestedToStation=8400061|plannedFromTime=2026-08-14T07:56:00+02:00|plannedArrivalTime=2026-08-14T08:19:00+02:00|excludeHighSpeedTrains=false|showLiftInfo=false|searchForAccessibleTrip=false|addChangeTime=2|localTrainsOnly=false|disabledTransportModalities=BUS,FERRY,TRAM,METRO|travelAssistance=false|tripSummaryHash=3704438422\",\n        \"status\": \"NORMAL\",\n        \"legs\": [\n            {\n                \"type\": \"WALK\",\n                \"fromName\": \"Origin\",\n                \"toName\": \"Utrecht Centraal\",\n                \"plannedDeparture\": \"2026-08-14T07:42:00.000+02:00\",\n                \"actualDeparture\": \"2026-08-14T07:42:00.000+02:00\",\n                \"plannedArrival\": \"2026-08-14T07:56:00.000+02:00\",\n                \"actualArrival\": \"2026-08-14T07:56:00.000+02:00\",\n                \"delaySeconds\": 0,\n                \"cancelled\": false\n            },\n            {\n                \"type\": \"TRAIN\",\n                \"name\": \"NS Intercity\",\n                \"fromName\": \"Utrecht Centraal\",\n                \"toName\": \"Amsterdam Zuid\",\n                \"plannedDeparture\": \"2026-08-14T07:56:00+0200\",\n                \"actualDeparture\": \"2026-08-14T07:56:00+0200\",\n                \"plannedArrival\": \"2026-08-14T08:19:00+0200\",\n                \"actualArrival\": \"2026-08-14T08:19:00+0200\",\n                \"delaySeconds\": 0,\n                \"plannedTrack\": \"5\",\n                \"actualTrack\": \"5\",\n                \"cancelled\": false\n            },\n            {\n                \"type\": \"WALK\",\n                \"fromName\": \"Amsterdam Zuid\",\n                \"toName\": \"Destination\",\n                \"plannedDeparture\": \"2026-08-14T08:19:00.000+02:00\",\n                \"actualDeparture\": \"2026-08-14T08:19:00.000+02:00\",\n                \"plannedArrival\": \"2026-08-14T08:21:00.000+02:00\",\n                \"actualArrival\": \"2026-08-14T08:21:00.000+02:00\",\n                \"delaySeconds\": 0,\n                \"cancelled\": false\n            }\n        ],\n        \"departureAt\": \"2026-08-14T07:42:00.000+02:00\",\n        \"arrivalAt\": \"2026-08-14T08:21:00.000+02:00\",\n        \"transferCount\": 0,\n        \"source\": \"NS+TOMTOM\",\n        \"watchedStationCodes\": [\n            \"UT\",\n            \"ASDZ\"\n        ]\n    },\n    \"breakdown\": {\n        \"requiredArrivalAt\": \"2026-08-14T08:30:00.000+02:00\",\n        \"arrivalBufferMinutes\": 3,\n        \"latestArrivalAt\": \"2026-08-14T08:27:00.000+02:00\",\n        \"travelMinutes\": 39,\n        \"riskBufferMinutes\": 4,\n        \"preDepartureBufferMinutes\": 5,\n        \"routineMinutes\": 33,\n        \"wakeSlackMinutes\": 0\n    }\n}"
+            }
+          ]
+        },
         {
           "name": "Preview (public transport)",
           "event": [
@@ -1686,7 +1661,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"origin\": { \"lat\": 52.0907, \"lng\": 5.1214 },\n    \"destination\": { \"lat\": 52.3391, \"lng\": 4.8731 },\n    \"arrivalTime\": \"08:30\",\n    \"mode\": \"PUBLIC_TRANSPORT\",\n    \"routineMinutes\": 33,\n    \"buffers\": {\n        \"arrivalMinutes\": 3,\n        \"preDepartureMinutes\": 5,\n        \"transferMinutes\": 2,\n        \"wakeSlackMinutes\": 0\n    },\n    \"timezone\": \"Europe/Amsterdam\"\n}"
+              "raw": "{\n    \"origin\": {\n        \"lat\": 52.0907,\n        \"lng\": 5.1214\n    },\n    \"destination\": {\n        \"lat\": 52.3391,\n        \"lng\": 4.8731\n    },\n    \"arrivalTime\": \"08:30\",\n    \"mode\": \"PUBLIC_TRANSPORT\",\n    \"routineMinutes\": 33,\n    \"buffers\": {\n        \"arrivalMinutes\": 3,\n        \"preDepartureMinutes\": 5,\n        \"transferMinutes\": 2,\n        \"wakeSlackMinutes\": 0\n    },\n    \"timezone\": \"Europe/Amsterdam\",\n    \"originAccess\": \"BIKE\",\n    \"destinationAccess\": \"WALK\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/plan/preview",
@@ -1700,7 +1675,7 @@
                 "preview"
               ]
             },
-            "description": "A wake plan computed and thrown away. This is what makes onboarding honest: the user is still deciding, and the only convincing answer is their real commute against the real timetable.\n\nTakes coordinates rather than saved places, because at this point nothing is saved.\n\nPOST despite reading nothing. The body carries two coordinate pairs and a routine length, which is where the user lives and works. In a query string that lands in access logs and browser history.\n\n`date` is optional. Omitted, it means the next time that clock reading comes round, which is tomorrow once today's has passed.\n\nAn infeasible result is still a 200. \"The earliest you can arrive is 08:41\" is an answer, not a failure, so the plan carries `feasible: false` and `shortfallMinutes`, and the alarm is still set for that best effort.\n\nResponse: `PlanPreviewResponse` (WakePlan). `breakdown` carries every term of the calculation, so the app can show its work and \"why did it wake me at 06:12?\" stays answerable."
+            "description": "A wake plan computed and thrown away. This is what makes onboarding honest: the user is still deciding, and the only convincing answer is their real commute against the real timetable.\n\nTakes coordinates rather than saved places, because at this point nothing is saved.\n\nPOST despite reading nothing. The body carries two coordinate pairs and a routine length, which is where the user lives and works. In a query string that lands in access logs and browser history.\n\n`date` is optional. Omitted, it means the next time that clock reading comes round, which is tomorrow once today's has passed.\n\nAn infeasible result is still a 200. \"The earliest you can arrive is 08:41\" is an answer, not a failure, so the plan carries `feasible: false` and `shortfallMinutes`, and the alarm is still set for that best effort.\n\nResponse: `PlanPreviewResponse` (WakePlan). `breakdown` carries every term of the calculation, so the app can show its work and \"why did it wake me at 06:12?\" stays answerable.\n\n`originAccess` and `destinationAccess` default to `WALK` when omitted, so an older client keeps the behaviour it was written against. Sending `BIKE` for the home end is the common case and typically moves the wake time later by ten to twenty minutes for the same train."
           },
           "response": [
             {
@@ -2038,6 +2013,224 @@
         }
       ],
       "description": "One day's instance of a schedule, and the audit trail behind every alarm change. These routes are declared in `API_ENDPOINTS` and will 404 until the monitor loop lands in M2. They are here so the shape is agreed before the app is written against it."
+    },
+    {
+      "name": "7. Cleanup",
+      "description": "Last on purpose. These used to sit in their own resource folders, which broke the instruction to run the collection top to bottom: the places and the routine were deleted before the schedule that references them was created, and every schedule request after that failed on an id that was never set.\n\nOrder matters here too. A place or a routine still referenced by a schedule answers 409 and names what is in the way, so the schedule goes first.",
+      "item": [
+        {
+          "name": "Delete schedule",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/schedules/{{scheduleId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "schedules",
+                "{{scheduleId}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete routine",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/routines/{{routineId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routines",
+                "{{routineId}}"
+              ]
+            },
+            "description": "204, or 409 while a schedule still uses it."
+          },
+          "response": [
+            {
+              "name": "success",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/routines/{{routineId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "routines",
+                    "{{routineId}}"
+                  ]
+                }
+              },
+              "status": "No Content",
+              "code": 204,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": "X-Powered-By",
+                  "value": "Express"
+                },
+                {
+                  "key": "Date",
+                  "value": "Thu, 13 Aug 2026 16:16:36 GMT"
+                },
+                {
+                  "key": "Connection",
+                  "value": "keep-alive"
+                },
+                {
+                  "key": "Keep-Alive",
+                  "value": "timeout=5"
+                }
+              ],
+              "cookie": [],
+              "body": null
+            }
+          ]
+        },
+        {
+          "name": "Delete place (home)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/places/{{homePlaceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "places",
+                "{{homePlaceId}}"
+              ]
+            },
+            "description": "204 on success, and 409 while a schedule still points at it, naming the schedules in the way.\n\nThe foreign key would refuse this anyway, but as a driver error it reaches the user as \"something went wrong\". The check exists to turn that into a sentence they can act on."
+          },
+          "response": [
+            {
+              "name": "success",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/places/{{homePlaceId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "places",
+                    "{{homePlaceId}}"
+                  ]
+                }
+              },
+              "status": "No Content",
+              "code": 204,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": "X-Powered-By",
+                  "value": "Express"
+                },
+                {
+                  "key": "Date",
+                  "value": "Thu, 13 Aug 2026 16:15:01 GMT"
+                },
+                {
+                  "key": "Connection",
+                  "value": "keep-alive"
+                },
+                {
+                  "key": "Keep-Alive",
+                  "value": "timeout=5"
+                }
+              ],
+              "cookie": [],
+              "body": null
+            }
+          ]
+        },
+        {
+          "name": "Delete place (work)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/places/{{workPlaceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "places",
+                "{{workPlaceId}}"
+              ]
+            },
+            "description": "The other half of the commute, so a full run leaves nothing behind."
+          },
+          "response": [
+            {
+              "name": "success",
+              "originalRequest": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/places/{{homePlaceId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "places",
+                    "{{homePlaceId}}"
+                  ]
+                }
+              },
+              "status": "No Content",
+              "code": 204,
+              "_postman_previewlanguage": null,
+              "header": [
+                {
+                  "key": "X-Powered-By",
+                  "value": "Express"
+                },
+                {
+                  "key": "Date",
+                  "value": "Thu, 13 Aug 2026 16:15:01 GMT"
+                },
+                {
+                  "key": "Connection",
+                  "value": "keep-alive"
+                },
+                {
+                  "key": "Keep-Alive",
+                  "value": "timeout=5"
+                }
+              ],
+              "cookie": [],
+              "body": null
+            }
+          ]
+        }
+      ]
     }
   ],
   "auth": {

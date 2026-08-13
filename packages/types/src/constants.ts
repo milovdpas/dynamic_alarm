@@ -30,9 +30,19 @@ export const API_ENDPOINTS = {
     },
     PLAN: {
         PREVIEW: '/api/v1/plan/preview',
+        OPTIONS: '/api/v1/plan/options',
     },
     HEALTH: '/api/v1/health',
 } as const;
+
+/**
+ * How many journeys the options endpoint offers.
+ *
+ * Three is enough to express "a bit earlier" without turning a wake-up time
+ * into a timetable to read at night. Every extra option is another NS itinerary
+ * to render and another decision to make.
+ */
+export const MAX_JOURNEY_OPTIONS = 3;
 
 export const DEFAULT_BUFFERS: BufferConfig = {
     arrivalMinutes: 3,

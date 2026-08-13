@@ -1,11 +1,13 @@
 import { DateTime } from 'luxon';
-import { Weekday } from '@alarm/types';
+import { MAX_JOURNEY_OPTIONS, Weekday } from '@alarm/types';
 import type { PlanPreviewRequest, WakePlan } from '@alarm/types';
 import {
     computeWakePlan,
     nextOccurrenceDate,
     planWake,
+    rankJourneys,
     resolveLocalTimeOnDate,
+    selectJourney,
     toIso,
 } from '@alarm/core';
 
@@ -50,9 +52,79 @@ export class PlanService {
         }
 
         return planWake(
-            { ...shared, origin: input.origin, destination: input.destination },
+            {
+                ...shared,
+                origin: input.origin,
+                destination: input.destination,
+                originAccess: input.originAccess,
+                destinationAccess: input.destinationAccess,
+                journeyOffset: input.journeyOffset,
+            },
             provider,
         );
+    }
+
+    /**
+     * The same commute planned several ways, so the traveller can choose.
+     *
+     * The engine takes the latest journey that still arrives on time, because
+     * that buys the most sleep. It is the right default and the wrong answer for
+     * anyone who wants a seat, the direct train, or simply some margin.
+     *
+     * A whole plan per option rather than a list of departures: the number being
+     * chosen between is the wake-up time, and that only exists once the routine
+     * and the buffers have been applied.
+     *
+     * Ordered latest departure first, so the index is the `journeyOffset` to
+     * store. One provider call serves all of them, since NS returns several
+     * itineraries for a single request.
+     */
+    async options(input: PlanPreviewRequest): Promise<WakePlan[]> {
+        const requiredArrivalAt = this.resolveArrival(input);
+        const provider = TransportProviderFactory.forMode(input.mode);
+
+        const shared = {
+            requiredArrivalAt,
+            mode: input.mode,
+            fixedTravelMinutes: input.fixedTravelMinutes,
+            routineMinutes: input.routineMinutes,
+            buffers: input.buffers,
+            timezone: input.timezone,
+        };
+
+        if (provider === null) {
+            // FIXED mode has one answer by construction: the user supplied the
+            // travel time, so there is nothing to choose between.
+            return [computeWakePlan({ ...shared, journey: null })];
+        }
+
+        const journeys = await provider.plan({
+            origin: input.origin,
+            destination: input.destination,
+            arriveBy: toIso(
+                DateTime.fromISO(requiredArrivalAt, { setZone: true })
+                    .setZone(input.timezone)
+                    .minus({ minutes: input.buffers.arrivalMinutes }),
+            ),
+            addChangeTimeMinutes: input.buffers.transferMinutes,
+            originAccess: input.originAccess,
+            destinationAccess: input.destinationAccess,
+            timezone: input.timezone,
+        });
+
+        const ranked = rankJourneys(journeys, requiredArrivalAt, input.timezone);
+
+        if (ranked.length === 0) {
+            // Nothing arrives on time. The least-late journey is still an
+            // answer, and the plan carries feasible: false with the shortfall,
+            // so the user gets an alarm rather than an error.
+            const journey = selectJourney(journeys, requiredArrivalAt, input.timezone);
+            return [computeWakePlan({ ...shared, journey })];
+        }
+
+        return ranked
+            .slice(0, MAX_JOURNEY_OPTIONS)
+            .map((journey) => computeWakePlan({ ...shared, journey }));
     }
 
     /**

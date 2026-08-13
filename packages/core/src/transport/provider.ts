@@ -1,4 +1,4 @@
-import type { GeoPoint, IsoDateTimeString, Journey, TimeZone } from '@alarm/types';
+import type { AccessMode, GeoPoint, IsoDateTimeString, Journey, TimeZone } from '@alarm/types';
 
 export interface PlanRequest {
     origin: GeoPoint;
@@ -13,6 +13,13 @@ export interface PlanRequest {
      * the fact, so a connection that is too tight is never proposed at all.
      */
     addChangeTimeMinutes: number;
+    /**
+     * How the traveller reaches the departure station and leaves the arrival
+     * one. Only the public-transport provider reads these; a car journey has no
+     * station to reach.
+     */
+    originAccess?: AccessMode;
+    destinationAccess?: AccessMode;
     timezone: TimeZone;
 }
 

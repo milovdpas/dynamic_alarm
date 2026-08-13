@@ -14,6 +14,13 @@ function RootNavigator() {
         <NavigationTheme value={theme === 'dark' ? DarkTheme : DefaultTheme}>
             <Stack>
                 <Stack.Screen name="index" options={{ title: 'Dynamic Alarm' }} />
+                {/*
+                 * The group runs its own Stack, which draws its own header with
+                 * its own back arrow. Without this the two nest and the screen
+                 * gets two headers and two ways back, one of which leaves the
+                 * flow entirely.
+                 */}
+                <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
                 <Stack.Screen
                     name="ring"
                     options={{

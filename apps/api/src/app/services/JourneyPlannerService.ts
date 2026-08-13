@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { JourneyStatus, LegType } from '@alarm/types';
+import { AccessMode, JourneyStatus, LegType } from '@alarm/types';
 import type { GeoPoint, Journey, JourneyLeg } from '@alarm/types';
 import type { PlanRequest, TransportProvider } from '@alarm/core';
 
@@ -35,31 +35,35 @@ export class JourneyPlannerService implements TransportProvider {
     private readonly tomtom = new TomTomModule();
 
     /**
-     * Nearest station and walk time, cached per rounded coordinate.
+     * Nearest station and access time, cached per coordinate and mode.
      *
      * Neither answer changes for a given home or office, and NS allows 300
      * requests per 5 minutes across every user of this deployment. Spending
      * three of them per plan to rediscover that Utrecht Centraal is still the
      * nearest station to the same address would be the first thing to exhaust
      * the budget.
+     *
+     * The mode is part of the key. Cycling and walking to the same station are
+     * different answers, and sharing one entry would hand whichever was asked
+     * for first to everyone after it.
      */
     private readonly accessCache = new Map<string, StationAccess>();
 
     async plan(request: PlanRequest): Promise<Journey[]> {
         const [from, to] = await Promise.all([
-            this.resolveAccess(request.origin),
-            this.resolveAccess(request.destination),
+            this.resolveAccess(request.origin, request.originAccess ?? AccessMode.WALK),
+            this.resolveAccess(request.destination, request.destinationAccess ?? AccessMode.WALK),
         ]);
 
         if (from === null || to === null) {
             return [];
         }
 
-        // NS plans to the arrival station, not to the destination. The final
-        // walk has to come off the deadline before asking.
+        // NS plans to the arrival station, not to the destination. The last
+        // access leg has to come off the deadline before asking.
         const stationArriveBy = DateTime.fromISO(request.arriveBy, { setZone: true })
             .setZone(request.timezone)
-            .minus({ minutes: to.walkMinutes });
+            .minus({ minutes: to.accessMinutes });
 
         const trips = await this.ns.planStationToStation({
             fromStation: from.station.code ?? '',
@@ -76,7 +80,7 @@ export class JourneyPlannerService implements TransportProvider {
         // engine reason about them.
         const now = DateTime.now().setZone(request.timezone);
         return trips
-            .map((trip) => this.withWalkingLegs(trip, from, to, request.timezone))
+            .map((trip) => this.withAccessLegs(trip, from, to, request.timezone))
             .filter((journey) => DateTime.fromISO(journey.departureAt, { setZone: true }) > now);
     }
 
@@ -96,19 +100,22 @@ export class JourneyPlannerService implements TransportProvider {
             return null;
         }
 
-        const leadingWalk = journey.legs[0];
-        const trailingWalk = journey.legs[journey.legs.length - 1];
+        const leading = journey.legs[0];
+        const trailing = journey.legs[journey.legs.length - 1];
 
-        return this.reattachWalks(
+        return this.reattachAccessLegs(
             refreshed,
-            leadingWalk?.type === LegType.WALK ? leadingWalk : null,
-            trailingWalk?.type === LegType.WALK ? trailingWalk : null,
+            leading !== undefined && isAccessLeg(leading) ? leading : null,
+            trailing !== undefined && isAccessLeg(trailing) ? trailing : null,
         );
     }
 
-    /** Nearest station plus the walk to it, cached. */
-    private async resolveAccess(point: GeoPoint): Promise<StationAccess | null> {
-        const key = `${point.lat.toFixed(4)},${point.lng.toFixed(4)}`;
+    /** Nearest station plus the time to reach it, cached. */
+    private async resolveAccess(
+        point: GeoPoint,
+        mode: AccessMode,
+    ): Promise<StationAccess | null> {
+        const key = `${point.lat.toFixed(4)},${point.lng.toFixed(4)},${mode}`;
         const cached = this.accessCache.get(key);
         if (cached !== undefined) {
             return cached;
@@ -120,22 +127,25 @@ export class JourneyPlannerService implements TransportProvider {
         }
 
         const stationPoint = stationCoordinates(station);
-        const walkMinutes =
-            stationPoint === null ? null : await this.tomtom.walkMinutes(point, stationPoint);
+        const minutes =
+            stationPoint === null
+                ? null
+                : await this.tomtom.accessMinutes(point, stationPoint, mode);
 
         const access: StationAccess = {
             station,
-            // A failed walk lookup falls back to zero rather than guessing a
-            // number. Zero is visibly wrong in the breakdown; an invented eight
-            // minutes would look correct and quietly cost someone their train.
-            walkMinutes: walkMinutes ?? 0,
+            mode,
+            // A failed lookup falls back to zero rather than guessing a number.
+            // Zero is visibly wrong in the breakdown; an invented eight minutes
+            // would look correct and quietly cost someone their train.
+            accessMinutes: minutes ?? 0,
             point: stationPoint,
         };
         this.accessCache.set(key, access);
         return access;
     }
 
-    private withWalkingLegs(
+    private withAccessLegs(
         trip: Journey,
         from: StationAccess,
         to: StationAccess,
@@ -144,41 +154,43 @@ export class JourneyPlannerService implements TransportProvider {
         const railDeparture = DateTime.fromISO(trip.departureAt, { setZone: true }).setZone(timezone);
         const railArrival = DateTime.fromISO(trip.arrivalAt, { setZone: true }).setZone(timezone);
 
-        const leadingWalk: JourneyLeg | null =
-            from.walkMinutes > 0
-                ? walkLeg(
-                      railDeparture.minus({ minutes: from.walkMinutes }),
+        const leading: JourneyLeg | null =
+            from.accessMinutes > 0
+                ? accessLeg(
+                      railDeparture.minus({ minutes: from.accessMinutes }),
                       railDeparture,
                       'Origin',
                       stationName(from.station),
+                      from.mode,
                   )
                 : null;
 
-        const trailingWalk: JourneyLeg | null =
-            to.walkMinutes > 0
-                ? walkLeg(
+        const trailing: JourneyLeg | null =
+            to.accessMinutes > 0
+                ? accessLeg(
                       railArrival,
-                      railArrival.plus({ minutes: to.walkMinutes }),
+                      railArrival.plus({ minutes: to.accessMinutes }),
                       stationName(to.station),
                       'Destination',
+                      to.mode,
                   )
                 : null;
 
-        return this.reattachWalks(trip, leadingWalk, trailingWalk);
+        return this.reattachAccessLegs(trip, leading, trailing);
     }
 
-    private reattachWalks(
+    private reattachAccessLegs(
         trip: Journey,
-        leadingWalk: JourneyLeg | null,
-        trailingWalk: JourneyLeg | null,
+        leading: JourneyLeg | null,
+        trailing: JourneyLeg | null,
     ): Journey {
-        // Any walks already on the journey are dropped first, so re-attaching
-        // after a refresh cannot accumulate a second pair.
-        const railLegs = trip.legs.filter((leg) => leg.type !== LegType.WALK);
+        // Any access legs already on the journey are dropped first, so
+        // re-attaching after a refresh cannot accumulate a second pair.
+        const railLegs = trip.legs.filter((leg) => !isAccessLeg(leg));
         const legs = [
-            ...(leadingWalk === null ? [] : [leadingWalk]),
+            ...(leading === null ? [] : [leading]),
             ...railLegs,
-            ...(trailingWalk === null ? [] : [trailingWalk]),
+            ...(trailing === null ? [] : [trailing]),
         ];
 
         const first = legs[0];
@@ -189,8 +201,9 @@ export class JourneyPlannerService implements TransportProvider {
             legs,
             departureAt: first?.actualDeparture ?? trip.departureAt,
             arrivalAt: last?.actualArrival ?? trip.arrivalAt,
-            // Walking is not a transfer, so the count is unchanged and the
-            // discrete risk buffer stays keyed to trains missed, not steps taken.
+            // Reaching the station is not a transfer, so the count is
+            // unchanged and the discrete risk buffer stays keyed to trains
+            // missed rather than to steps taken.
             transferCount: trip.transferCount,
             source: this.name,
             status: trip.status === undefined ? JourneyStatus.NORMAL : trip.status,
@@ -200,22 +213,35 @@ export class JourneyPlannerService implements TransportProvider {
 
 interface StationAccess {
     station: NsStation;
-    walkMinutes: number;
+    mode: AccessMode;
+    accessMinutes: number;
     point: GeoPoint | null;
 }
 
-function walkLeg(from: DateTime, to: DateTime, fromName: string, toName: string): JourneyLeg {
+/** A leg the traveller covers themselves, rather than one a timetable owns. */
+function isAccessLeg(leg: JourneyLeg): boolean {
+    return leg.type === LegType.WALK || leg.type === LegType.BIKE;
+}
+
+function accessLeg(
+    from: DateTime,
+    to: DateTime,
+    fromName: string,
+    toName: string,
+    mode: AccessMode,
+): JourneyLeg {
     const departure = from.toISO() ?? '';
     const arrival = to.toISO() ?? '';
     return {
-        type: LegType.WALK,
+        type: mode === AccessMode.BIKE ? LegType.BIKE : LegType.WALK,
         fromName,
         toName,
         plannedDeparture: departure,
         actualDeparture: departure,
         plannedArrival: arrival,
         actualArrival: arrival,
-        // A walk cannot be delayed or cancelled by anyone but the walker.
+        // Neither a walk nor a ride can be delayed or cancelled by anyone
+        // except the person doing it.
         delaySeconds: 0,
         cancelled: false,
     };

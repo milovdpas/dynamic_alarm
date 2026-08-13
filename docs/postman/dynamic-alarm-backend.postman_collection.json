@@ -368,7 +368,7 @@
           "response": []
         },
         {
-          "name": "Walk to the station",
+          "name": "Reach the station on foot",
           "request": {
             "method": "GET",
             "header": [],
@@ -403,7 +403,47 @@
                 }
               ]
             },
-            "description": "The walking legs that NS will not supply on this subscription.\n\nA routed pedestrian time along real paths, which is a better number than a straight-line estimate and arguably better than what NS would have returned. Rounded up to whole minutes by the API, because the error that costs a train is being half a minute short, not half a minute early.\n\n`traffic=false` is required: pedestrian routing rejects traffic-aware options, and a footpath has no congestion to model."
+            "description": "The access legs that NS will not supply on this subscription.\n\nA routed pedestrian time along real paths, which is a better number than a straight-line estimate and arguably better than what NS would have returned. Rounded up to whole minutes by the API, because the error that costs a train is being half a minute short, not half a minute early.\n\n`traffic=false` is required: pedestrian routing rejects traffic-aware options, and a footpath has no congestion to model."
+          },
+          "response": []
+        },
+        {
+          "name": "Reach the station by bike",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{tomtomBaseUrl}}/routing/1/calculateRoute/52.0907,5.1214:52.0888,5.1102/json?key={{tomtomApiKey}}&travelMode=bicycle&routeType=fastest&traffic=false",
+              "host": [
+                "{{tomtomBaseUrl}}"
+              ],
+              "path": [
+                "routing",
+                "1",
+                "calculateRoute",
+                "52.0907,5.1214:52.0888,5.1102",
+                "json"
+              ],
+              "query": [
+                {
+                  "key": "key",
+                  "value": "{{tomtomApiKey}}"
+                },
+                {
+                  "key": "travelMode",
+                  "value": "bicycle"
+                },
+                {
+                  "key": "routeType",
+                  "value": "fastest"
+                },
+                {
+                  "key": "traffic",
+                  "value": "false"
+                }
+              ]
+            },
+            "description": "The same leg, cycled, which for most Dutch commuters is the real one.\n\nCompare it against the pedestrian request above on the same coordinates. On a one-kilometre hop it is roughly twelve minutes on foot against three by bike; on a two-kilometre access leg the gap is around twenty minutes, applied straight to the wake-up time.\n\nThis is what `AccessMode.BIKE` selects. Until it existed, every access leg was computed as walking, silently, which was wrong at the home end for anyone who cycles and wrong in the direction that wakes them earlier than they need."
           },
           "response": []
         }

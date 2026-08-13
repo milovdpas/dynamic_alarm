@@ -1,5 +1,6 @@
 import { TransportMode } from '@alarm/types';
 import type {
+    AccessMode,
     BufferConfig,
     GeoPoint,
     IsoDateTimeString,
@@ -127,6 +128,18 @@ function resolveTravelMinutes(input: ComputeWakePlanInput): number {
 export interface PlanWakeInput extends Omit<ComputeWakePlanInput, 'journey'> {
     origin: GeoPoint;
     destination: GeoPoint;
+    /**
+     * How the traveller reaches the departure station and leaves the arrival
+     * one. Passed straight through to the provider, which is the only thing
+     * that knows what a station is; the engine works in minutes either way.
+     */
+    originAccess?: AccessMode;
+    destinationAccess?: AccessMode;
+    /**
+     * Which of the on-time journeys to take, counting back from the latest.
+     * Zero is the most sleep. See {@link selectJourney}.
+     */
+    journeyOffset?: number;
 }
 
 /**
@@ -148,39 +161,82 @@ export async function planWake(
         destination: input.destination,
         arriveBy: toIso(latestArrival),
         addChangeTimeMinutes: input.buffers.transferMinutes,
+        originAccess: input.originAccess,
+        destinationAccess: input.destinationAccess,
         timezone: input.timezone,
     });
 
-    const journey = selectBestJourney(journeys, toIso(requiredArrival), input.timezone);
+    const journey = selectJourney(
+        journeys,
+        toIso(requiredArrival),
+        input.timezone,
+        input.journeyOffset,
+    );
     return computeWakePlan({ ...input, journey });
 }
 
 /**
- * Choose the itinerary that buys the most sleep without being late.
+ * On-time itineraries, latest departure first.
  *
- * Among journeys that arrive by the deadline, the latest departure wins, that
- * is the entire point of the product. Departing later is only better if you
- * still arrive on time, so on-time candidates are filtered first; picking
- * purely by departure time would happily hand back a journey that gets the user
- * there half an hour late.
+ * "Best" is the first entry: among journeys that arrive by the deadline, the
+ * latest departure buys the most sleep, which is the entire point of the
+ * product. Departing later is only better if you still arrive on time, so
+ * on-time candidates are filtered first. Ranking purely by departure would
+ * happily put someone on a train that gets them there half an hour late.
  *
- * When nothing arrives on time we return the one that arrives least late, and
- * the caller marks the plan infeasible.
+ * The rest of the list is what makes a preference possible. A traveller who
+ * wants a seat, or the direct train, or simply a little margin, is choosing to
+ * be somewhere further down it.
+ *
+ * Empty when nothing arrives on time. That is a real answer rather than an
+ * error, and {@link selectJourney} handles it by returning the least-late
+ * journey so the user still gets an alarm.
  */
-export function selectBestJourney(
+export function rankJourneys(
     journeys: Journey[],
     deadline: IsoDateTimeString,
     timezone: TimeZone,
+): Journey[] {
+    const deadlineAt = parseInstant(deadline, timezone);
+
+    return journeys
+        .filter((journey) => parseInstant(journey.arrivalAt, timezone) <= deadlineAt)
+        .sort(
+            (a, b) =>
+                parseInstant(b.departureAt, timezone).toMillis() -
+                parseInstant(a.departureAt, timezone).toMillis(),
+        );
+}
+
+/**
+ * The itinerary at `offset` places before the latest on-time one.
+ *
+ * Offset 0 is the most sleep. Higher numbers are earlier journeys, which is how
+ * a stated preference survives a changing timetable: it is a position in each
+ * morning's list rather than a particular train, so a cancellation moves the
+ * choice along instead of invalidating it.
+ *
+ * Clamped rather than failed when the list is shorter than the offset. On a
+ * quiet morning there may be only one way to arrive on time, and refusing to
+ * choose it because a preference cannot be honoured would leave someone with no
+ * alarm over a comfort setting.
+ *
+ * When nothing arrives on time, the one that arrives least late, and the caller
+ * marks the plan infeasible.
+ */
+export function selectJourney(
+    journeys: Journey[],
+    deadline: IsoDateTimeString,
+    timezone: TimeZone,
+    offset = 0,
 ): Journey | null {
     if (journeys.length === 0) {
         return null;
     }
-    const deadlineAt = parseInstant(deadline, timezone);
-    const onTime = journeys.filter(
-        (journey) => parseInstant(journey.arrivalAt, timezone) <= deadlineAt,
-    );
 
-    if (onTime.length === 0) {
+    const ranked = rankJourneys(journeys, deadline, timezone);
+
+    if (ranked.length === 0) {
         return journeys.reduce((best, candidate) =>
             parseInstant(candidate.arrivalAt, timezone) < parseInstant(best.arrivalAt, timezone)
                 ? candidate
@@ -188,9 +244,14 @@ export function selectBestJourney(
         );
     }
 
-    return onTime.reduce((best, candidate) =>
-        parseInstant(candidate.departureAt, timezone) > parseInstant(best.departureAt, timezone)
-            ? candidate
-            : best,
-    );
+    return ranked[Math.min(Math.max(offset, 0), ranked.length - 1)] ?? null;
+}
+
+/** @deprecated Use {@link selectJourney}, which also takes a preference. */
+export function selectBestJourney(
+    journeys: Journey[],
+    deadline: IsoDateTimeString,
+    timezone: TimeZone,
+): Journey | null {
+    return selectJourney(journeys, deadline, timezone, 0);
 }

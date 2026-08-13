@@ -8,6 +8,20 @@ export enum TransportMode {
     FIXED = 'FIXED',
 }
 
+/**
+ * How the traveller reaches the station at each end.
+ *
+ * Only the two that can be modelled honestly. Driving to a station is a real
+ * Dutch habit, but it carries parking time and a walk from the car park that
+ * nothing here measures, so a car access leg would be systematically optimistic
+ * in exactly the direction that makes someone miss a train. Offering two options
+ * that are right beats three where one quietly lies.
+ */
+export enum AccessMode {
+    WALK = 'WALK',
+    BIKE = 'BIKE',
+}
+
 /** Modality of a single leg. Mirrors the NS Reisinformatie leg modality enum. */
 export enum LegType {
     TRAIN = 'TRAIN',

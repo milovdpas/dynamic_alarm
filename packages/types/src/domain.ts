@@ -1,4 +1,4 @@
-import type { JourneyStatus, LegType, TransportMode, Weekday } from './enums';
+import type { AccessMode, JourneyStatus, LegType, TransportMode, Weekday } from './enums';
 
 /**
  * Time formats used across the wire.
@@ -88,6 +88,29 @@ export interface Schedule {
     arrivalTime: LocalTimeString;
     daysOfWeek: Weekday[];
     mode: TransportMode;
+    /**
+     * How the traveller reaches the departure station, and leaves the arrival
+     * one. Separate on purpose: the usual Dutch commute is a bike at the home
+     * end and a walk at the other, and a single setting gets one of them wrong.
+     *
+     * Ignored unless `mode` is `PUBLIC_TRANSPORT`, which is the only mode with
+     * stations to reach.
+     */
+    originAccess: AccessMode;
+    destinationAccess: AccessMode;
+    /**
+     * Which on-time journey to take, counting back from the latest departure.
+     *
+     * Zero is the most sleep, which is the default and what the engine would
+     * choose unasked. Higher numbers are earlier journeys, for a traveller who
+     * wants a seat, the direct train, or simply some margin.
+     *
+     * A position rather than a particular train, because the alarm recurs and
+     * the timetable does not hold still. A cancellation moves the choice along
+     * the list instead of invalidating it, and a morning with fewer options
+     * clamps to the earliest rather than refusing to plan.
+     */
+    journeyOffset: number;
     /** Travel duration in minutes. Only used when `mode` is `FIXED`. */
     fixedTravelMinutes?: number;
     buffers: BufferConfig;

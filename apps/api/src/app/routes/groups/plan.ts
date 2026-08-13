@@ -20,6 +20,15 @@ export default class PlanRoutes implements IRoute {
             this.controller.preview,
         );
 
+        // Same body as the preview: the options are the same question asked
+        // once, with every answer returned instead of only the best one.
+        router.post(
+            API_ENDPOINTS.PLAN.OPTIONS,
+            deviceAuth,
+            validate({ body: planPreviewSchema }),
+            this.controller.options,
+        );
+
         return router;
     }
 }

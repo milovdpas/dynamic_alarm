@@ -1,4 +1,4 @@
-import { TransportMode } from '@alarm/types';
+import { AccessMode, TransportMode } from '@alarm/types';
 import type { CreateScheduleRequest, UpdateScheduleRequest } from '@alarm/types';
 
 import Place from '../models/Place.entity';
@@ -49,6 +49,9 @@ export class ScheduleService {
             arrivalTime: input.arrivalTime,
             daysOfWeek: input.daysOfWeek,
             mode: input.mode,
+            originAccess: input.originAccess ?? AccessMode.WALK,
+            destinationAccess: input.destinationAccess ?? AccessMode.WALK,
+            journeyOffset: input.journeyOffset ?? 0,
             fixedTravelMinutes: input.fixedTravelMinutes ?? null,
             buffers: input.buffers,
             timezone: input.timezone,
@@ -75,6 +78,11 @@ export class ScheduleService {
         if (input.arrivalTime !== undefined) schedule.arrivalTime = input.arrivalTime;
         if (input.daysOfWeek !== undefined) schedule.daysOfWeek = input.daysOfWeek;
         if (input.mode !== undefined) schedule.mode = input.mode;
+        if (input.originAccess !== undefined) schedule.originAccess = input.originAccess;
+        if (input.destinationAccess !== undefined) {
+            schedule.destinationAccess = input.destinationAccess;
+        }
+        if (input.journeyOffset !== undefined) schedule.journeyOffset = input.journeyOffset;
         if (input.buffers !== undefined) schedule.buffers = input.buffers;
         if (input.timezone !== undefined) schedule.timezone = input.timezone;
         if (input.active !== undefined) schedule.active = input.active;

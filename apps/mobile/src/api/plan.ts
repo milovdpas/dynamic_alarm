@@ -1,5 +1,9 @@
 import { API_ENDPOINTS } from '@alarm/types';
-import type { PlanPreviewRequest, PlanPreviewResponse } from '@alarm/types';
+import type {
+    PlanOptionsResponse,
+    PlanPreviewRequest,
+    PlanPreviewResponse,
+} from '@alarm/types';
 
 import Axios from '@/utils/modules/Axios';
 
@@ -17,4 +21,18 @@ import Axios from '@/utils/modules/Axios';
  */
 export async function previewPlan(input: PlanPreviewRequest): Promise<PlanPreviewResponse> {
     return Axios.post<PlanPreviewResponse>(API_ENDPOINTS.PLAN.PREVIEW, input);
+}
+
+/**
+ * The same commute planned several ways, latest departure first.
+ *
+ * The index is the `journeyOffset` a schedule stores. The engine's default is
+ * index 0, the latest journey that still arrives on time, which buys the most
+ * sleep; later entries are earlier departures for anyone who wants a seat, the
+ * direct train, or simply some margin.
+ *
+ * Costs the same as one preview: NS returns several itineraries per request.
+ */
+export async function planOptions(input: PlanPreviewRequest): Promise<PlanOptionsResponse> {
+    return Axios.post<PlanOptionsResponse>(API_ENDPOINTS.PLAN.OPTIONS, input);
 }

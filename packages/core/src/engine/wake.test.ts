@@ -3,7 +3,7 @@ import { DateTime } from 'luxon';
 import { JourneyStatus, LegType, TransportMode } from '@alarm/types';
 import type { BufferConfig } from '@alarm/types';
 import { FixtureTransportProvider } from '../transport/fixture';
-import { computeWakePlan, planWake, selectBestJourney } from './wake';
+import { computeWakePlan, planWake, rankJourneys, selectJourney } from './wake';
 
 const TZ = 'Europe/Amsterdam';
 const HOME = { lat: 52.09, lng: 5.11 };
@@ -190,7 +190,7 @@ describe('computeWakePlan', () => {
     });
 });
 
-describe('selectBestJourney', () => {
+describe('selectJourney', () => {
     const journey = (departure: string, arrival: string) => ({
         id: `${departure}-${arrival}`,
         ctxRecon: null,
@@ -203,8 +203,61 @@ describe('selectBestJourney', () => {
         watchedStationCodes: [],
     });
 
+    it('ranks on-time journeys latest first, so a preference has a list to sit in', () => {
+        const ranked = rankJourneys(
+            [journey('06:40', '07:42'), journey('07:40', '08:26'), journey('07:10', '08:12')],
+            ARRIVE_BY,
+            TZ,
+        );
+
+        expect(ranked.map((each) => localTime(each.departureAt))).toEqual([
+            '07:40',
+            '07:10',
+            '06:40',
+        ]);
+    });
+
+    it('takes an earlier journey when one is preferred', () => {
+        const chosen = selectJourney(
+            [journey('06:40', '07:42'), journey('07:40', '08:26'), journey('07:10', '08:12')],
+            ARRIVE_BY,
+            TZ,
+            1,
+        );
+
+        // A preference is a position in the list rather than a particular train,
+        // which is what lets it survive tomorrow's timetable.
+        expect(localTime(chosen!.departureAt)).toBe('07:10');
+    });
+
+    it('clamps to the earliest on-time journey rather than failing', () => {
+        const chosen = selectJourney(
+            [journey('07:40', '08:26'), journey('07:10', '08:12')],
+            ARRIVE_BY,
+            TZ,
+            5,
+        );
+
+        // On a quiet morning there may be fewer options than the preference
+        // asks for. Refusing to choose would leave someone with no alarm over a
+        // comfort setting.
+        expect(localTime(chosen!.departureAt)).toBe('07:10');
+    });
+
+    it('ignores the preference when nothing arrives on time', () => {
+        const chosen = selectJourney(
+            [journey('08:00', '09:10'), journey('07:30', '08:44')],
+            ARRIVE_BY,
+            TZ,
+            2,
+        );
+
+        // Least late, so the alarm is still set for the best that can be done.
+        expect(localTime(chosen!.arrivalAt)).toBe('08:44');
+    });
+
     it('buys the most sleep among journeys that still arrive on time', () => {
-        const best = selectBestJourney(
+        const best = selectJourney(
             [journey('07:00', '08:00'), journey('07:40', '08:25'), journey('07:20', '08:10')],
             ARRIVE_BY,
             TZ,
@@ -214,7 +267,7 @@ describe('selectBestJourney', () => {
 
     it('never trades punctuality for a later departure', () => {
         // The 08:00 departure leaves latest but arrives 20 minutes late.
-        const best = selectBestJourney(
+        const best = selectJourney(
             [journey('07:40', '08:25'), journey('08:00', '08:50')],
             ARRIVE_BY,
             TZ,
@@ -223,7 +276,7 @@ describe('selectBestJourney', () => {
     });
 
     it('falls back to the least-late option when everything misses', () => {
-        const best = selectBestJourney(
+        const best = selectJourney(
             [journey('07:50', '08:45'), journey('07:45', '08:35')],
             ARRIVE_BY,
             TZ,
@@ -232,6 +285,6 @@ describe('selectBestJourney', () => {
     });
 
     it('returns null rather than inventing a journey', () => {
-        expect(selectBestJourney([], ARRIVE_BY, TZ)).toBeNull();
+        expect(selectJourney([], ARRIVE_BY, TZ)).toBeNull();
     });
 });

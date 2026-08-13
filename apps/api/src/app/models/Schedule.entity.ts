@@ -9,7 +9,7 @@ import {
     PrimaryGeneratedColumn,
     UpdateDateColumn,
 } from 'typeorm';
-import { TransportMode } from '@alarm/types';
+import { AccessMode, TransportMode } from '@alarm/types';
 import type { BufferConfig, Schedule as ScheduleDto, Weekday } from '@alarm/types';
 
 import Device from './Device.entity';
@@ -79,6 +79,29 @@ export default class Schedule extends BaseEntity {
     @Column({ type: 'varchar', length: 32, default: TransportMode.PUBLIC_TRANSPORT })
     mode!: TransportMode;
 
+    /**
+     * How the traveller reaches the departure station, and leaves the arrival
+     * one. Separate because the two ends genuinely differ: the bike is at the
+     * home end, and there is rarely one waiting at the other.
+     *
+     * Only read when `mode` is PUBLIC_TRANSPORT, the only mode with stations.
+     */
+    @Column({ name: 'origin_access', type: 'varchar', length: 16, default: AccessMode.WALK })
+    originAccess!: AccessMode;
+
+    @Column({ name: 'destination_access', type: 'varchar', length: 16, default: AccessMode.WALK })
+    destinationAccess!: AccessMode;
+
+    /**
+     * Which on-time journey to take, counting back from the latest departure.
+     *
+     * A position rather than a particular train. The alarm recurs and the
+     * timetable does not hold still, so a cancellation moves the choice along
+     * the list instead of invalidating it.
+     */
+    @Column({ name: 'journey_offset', type: 'int', default: 0 })
+    journeyOffset!: number;
+
     /** Only used when mode is FIXED, where the user types the duration. */
     @Column({ name: 'fixed_travel_minutes', type: 'int', nullable: true })
     fixedTravelMinutes!: number | null;
@@ -116,6 +139,9 @@ export default class Schedule extends BaseEntity {
             arrivalTime: this.arrivalTime.slice(0, 5),
             daysOfWeek: this.daysOfWeek,
             mode: this.mode,
+            originAccess: this.originAccess,
+            destinationAccess: this.destinationAccess,
+            journeyOffset: this.journeyOffset,
             fixedTravelMinutes: this.fixedTravelMinutes ?? undefined,
             buffers: this.buffers,
             timezone: this.timezone,

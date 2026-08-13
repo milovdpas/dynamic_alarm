@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { DateTime } from 'luxon';
 import * as Clipboard from 'expo-clipboard';
@@ -196,6 +197,7 @@ export default function HomeScreen() {
     ]);
 
     const { connection, retry: retryApi } = useApiConnection();
+    const router = useRouter();
 
     const cancelAll = useCallback(async () => {
         await getAlarmScheduler().cancelAll();
@@ -244,6 +246,24 @@ export default function HomeScreen() {
                             message={t('alarm.volume_muted')}
                         />
                     )}
+
+                    <Section title={t('onboarding.entry_title')}>
+                        <ThemedText type="small" themeColor="textSecondary">
+                            {t('onboarding.entry_body')}
+                        </ThemedText>
+                        <ActionButton
+                            label={t('onboarding.entry_action')}
+                            variant="primary"
+                            // Disabled without a reachable API on purpose. The
+                            // flow ends by saving three records, and letting
+                            // someone answer four screens only to lose the lot
+                            // is worse than not starting.
+                            disabled={connection?.state !== 'connected'}
+                            onPress={() => {
+                                router.push('/(onboarding)/places');
+                            }}
+                        />
+                    </Section>
 
                     <Section title={t('harness.platform')}>
                         <DetailRow

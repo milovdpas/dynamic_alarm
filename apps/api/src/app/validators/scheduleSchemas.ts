@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { APP_CONSTANTS, TransportMode, Weekday } from '@alarm/types';
+import {
+    AccessMode,
+    APP_CONSTANTS,
+    MAX_JOURNEY_OPTIONS,
+    TransportMode,
+    Weekday,
+} from '@alarm/types';
 
 /** `HH:mm` in the schedule's own timezone, not an instant. */
 export const localTimeSchema = z
@@ -33,6 +39,15 @@ const scheduleFields = {
     arrivalTime: localTimeSchema,
     daysOfWeek: daysOfWeekSchema,
     mode: z.enum(TransportMode),
+    // Optional, defaulting to walking, so an older client that knows nothing
+    // about access modes keeps the behaviour it was written against rather than
+    // failing validation.
+    originAccess: z.enum(AccessMode).default(AccessMode.WALK),
+    destinationAccess: z.enum(AccessMode).default(AccessMode.WALK),
+    // Bounded by what the options endpoint offers. A larger number is not
+    // wrong, it just clamps, but accepting it would let a client store a
+    // preference nothing can ever show it.
+    journeyOffset: z.number().int().min(0).max(MAX_JOURNEY_OPTIONS - 1).default(0),
     fixedTravelMinutes: z.number().int().min(0).max(24 * 60).optional(),
     buffers: bufferConfigSchema,
     timezone: z.string().min(1).max(64),
