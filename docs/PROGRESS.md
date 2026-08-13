@@ -334,6 +334,8 @@ against live NS and TomTom rather than a hand-entered duration.
 - [x] Schedule screen: arrival time, days of week, fixed travel duration
 - [x] Engine result drives a real scheduled alarm
 - [ ] Offline mirror (expo-sqlite + drizzle)
+- [ ] Language selector in settings (see PLAN.md). The storage key and the language
+      list already exist; what is missing is the row that writes them
 
 The offline mirror is the only M1 item left, and it is deliberately last. Its
 point is recomputing the anchor with no connectivity, which only matters once the

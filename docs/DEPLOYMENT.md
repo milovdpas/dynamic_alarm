@@ -208,15 +208,63 @@ container each minute would reconnect to an external MySQL across the internet t
 discover, most minutes, that there is nothing due. The command carries no secret;
 the script reads `MONITOR_TOKEN` from the container's own environment.
 
-Reading it:
+## Reading the logs
+
+Everything written with `console.log` or `console.error` goes to stdout and Docker
+keeps it. There are **two** places to look, and which one holds a given line
+depends on which process wrote it.
 
 ```bash
-docker logs scheduler --tail=50        # one line per tick
-cd /opt/apps/dynamic-alarm-api && docker compose exec -T api node dist/tools/monitorTick.js
+cd /opt/apps/dynamic-alarm-api
+
+docker compose logs -f --tail=100    # the API process
+docker compose logs --since 1h       # a window instead of a follow
+docker compose logs --since 10m api  # one service, recent
+
+docker logs scheduler --tail=50      # the Ofelia scheduler, one line per tick
+docker logs -f scheduler             # follow it
 ```
 
-A quiet night looks like `Tick: claimed 0, ...` every minute. That is correct, not
-broken: only occurrences whose `nextCheckAt` has arrived are claimed.
+**The split matters.** The tick's summary line is printed by the small script
+Ofelia runs, so it lands in the **scheduler** log:
+
+```
+NOTICE [Job "monitor-tick" (…)] Started - node dist/tools/monitorTick.js
+NOTICE [Job "monitor-tick" (…)] StdOut: Tick: claimed 0, moved 0, unchanged 0, failed 0 in 3ms.
+NOTICE [Job "monitor-tick" (…)] Finished in "812ms", failed: false, skipped: false, error: none
+```
+
+Anything the loop itself writes is printed inside the API process, so it lands in
+the **api** log instead:
+
+```
+Monitor failed on occurrence <id>: …
+Push for occurrence <id>: NO_TOKEN
+```
+
+That is the pair to remember: if alarms are not moving, the scheduler log says
+whether the tick ran at all, and the api log says what it found when it did.
+
+A quiet night is `claimed 0` every minute. That is correct rather than broken:
+only occurrences whose `nextCheckAt` has arrived are claimed.
+
+To force one tick by hand, exactly as the scheduler would:
+
+```bash
+docker compose exec -T api node dist/tools/monitorTick.js
+```
+
+**If `monitor-tick` never appears in the scheduler log**, the labels have not been
+picked up. Ofelia reads them over the Docker socket and usually notices a
+redeployed container on its own; the guaranteed fix is:
+
+```bash
+cd /opt/apps/scheduler && docker compose restart
+```
+
+Logs are not rotated. The json-file driver grows without a size limit on this
+host, and a per-minute line is small but never stops, so `docker system df` is
+worth a look occasionally. `docker image prune -af` reclaims far more.
 
 ## Afterwards
 

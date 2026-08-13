@@ -304,6 +304,35 @@ visible "Developer options" row inviting a guess.
 The report stays untranslated. It exists to be pasted into a bug report rather
 than read in the app, and that fits a screen a normal user never sees.
 
+### Language selector in settings
+
+Dutch and English are both maintained and the app already picks one: a stored
+choice wins, otherwise the device language if we speak it, otherwise Dutch. What
+is missing is the row that lets someone override it, which matters because the
+device language is a guess and an alarm is a bad place to be surprised by copy
+you cannot read.
+
+Everything except the UI exists. `i18n.ts` reads and writes `appLanguage` through
+`Storage`, and `languages.ts` already declares the list with labels and flags, so
+this is a settings row calling `i18n.changeLanguage` and writing the same key,
+not a new subsystem.
+
+Three things it must get right:
+
+- **Persist through the same key i18n reads on boot** (`appLanguage`), or the
+  choice lasts until the app restarts and then silently reverts.
+- **Say so when it cannot persist.** On a binary without AsyncStorage, `Storage`
+  degrades to memory for the session. `isPersistent()` already reports that, and
+  the row should use it rather than pretending the choice will survive.
+- **Never restart the app to apply it.** `changeLanguage` re-renders the tree,
+  and an alarm app that relaunches itself to change a label is one that might not
+  come back.
+
+Not the same as the theme toggle, which is cosmetic. A language chosen here also
+governs the text on notifications and on the ring screen, both rendered outside
+the React tree from the same synchronously initialised i18n instance, so nothing
+extra is needed for them to follow.
+
 ### Alarm sound, the user's own tones on Android, bundled on iOS
 
 **Android: yes, we can use the phone's real alarm sounds.** `RingtoneManager.ACTION_RINGTONE_PICKER` with `EXTRA_RINGTONE_TYPE = TYPE_ALARM` opens the OS's own picker showing exactly the alarm tones the user already has, and returns a `content://` URI. No permission, no enumeration, no bundled audio, and it looks native because it *is* native.
