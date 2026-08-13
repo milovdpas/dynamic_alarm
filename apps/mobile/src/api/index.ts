@@ -13,4 +13,5 @@ export * from './devices';
 export * from './places';
 export * from './routines';
 export * from './schedules';
+export * from './occurrences';
 export * from './plan';

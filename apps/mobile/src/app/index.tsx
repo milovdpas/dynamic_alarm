@@ -47,7 +47,7 @@ export default function HomeScreen() {
                      * the previous answer on screen and says it is working
                      * below, rather than blanking what the user was reading.
                      */}
-                    {next.planned === null && next.state === 'loading' && (
+                    {next.occurrence === null && next.state === 'loading' && (
                         <ThemedText type="subtitle">{t('home.working')}</ThemedText>
                     )}
 
@@ -78,13 +78,13 @@ export default function HomeScreen() {
                         />
                     )}
 
-                    {next.state === 'ready' && next.planned !== null && (
+                    {next.state === 'ready' && next.occurrence !== null && (
                         <View style={styles.plan}>
                             <ThemedText type="small" themeColor="textSecondary">
-                                {relativeDay(t, next.planned.date)}
+                                {relativeDay(t, next.occurrence.date)}
                             </ThemedText>
                             <ThemedText type="display">
-                                {clock(next.planned.plan.wakeUpAt)}
+                                {clock(next.occurrence.currentWakeAt)}
                             </ThemedText>
 
                             {!next.armed && (
@@ -97,15 +97,15 @@ export default function HomeScreen() {
                             <View style={[styles.card, { borderColor: border }]}>
                                 <DetailRow
                                     label={t('common.leave_home')}
-                                    value={clock(next.planned.plan.departHomeAt)}
+                                    value={clock(next.occurrence.departHomeAt)}
                                 />
                                 <DetailRow
                                     label={t('common.arrive_by')}
                                     value={clock(
-                                        next.planned.plan.breakdown.requiredArrivalAt,
+                                        next.occurrence.plan.breakdown.requiredArrivalAt,
                                     )}
                                 />
-                                {next.planned.plan.journey?.legs.map((leg, index) => (
+                                {next.occurrence.journey?.legs.map((leg, index) => (
                                     <DetailRow
                                         key={`${leg.type}-${String(index)}`}
                                         label={legLabel(t, leg)}
@@ -117,12 +117,12 @@ export default function HomeScreen() {
                                 ))}
                             </View>
 
-                            <Breakdown plan={next.planned.plan} />
+                            <Breakdown plan={next.occurrence.plan} />
 
-                            {!next.planned.plan.feasible && (
+                            {!next.occurrence.plan.feasible && (
                                 <WarningBanner
                                     title={t('plan.infeasible', {
-                                        minutes: next.planned.plan.shortfallMinutes ?? 0,
+                                        minutes: next.occurrence.plan.shortfallMinutes ?? 0,
                                     })}
                                     message={t('schedule.infeasible_help')}
                                 />

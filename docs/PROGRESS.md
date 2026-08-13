@@ -360,7 +360,7 @@ Where the product actually becomes itself.
 - [ ] Monitor loop: minute tick, `nextCheckAt`, `FOR UPDATE SKIP LOCKED`
 - [ ] Cadence ladder (30m / 10m / 3m bands)
 - [ ] Global disruption sweep promoting affected occurrences
-- [ ] Anchor vs live split + monotonic-later rule
+- [~] Anchor vs live split done; the monotonic-later rule waits for the push path, which is where an unexpected earlier time actually carries risk
 - [ ] High-priority push → device reschedules
 - [ ] NS call-count instrumentation + loud 429 logging
 - [ ] The "you can sleep 12 minutes longer" moment works end to end

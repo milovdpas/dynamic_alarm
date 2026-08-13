@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { SchedulePlanResponse } from '@alarm/types';
+import type { OccurrenceResponse } from '@alarm/types';
 
-import { listSchedules, planSchedule } from '@/api';
+import { ackOccurrence, armSchedule, listSchedules, nextOccurrence } from '@/api';
 import { canGuaranteeAlarm, getAlarmScheduler } from '@/alarm';
 import i18n from '@/i18n/i18n';
 import { ApiRequestError } from '@/utils/modules/Axios';
@@ -9,7 +9,7 @@ import { ApiRequestError } from '@/utils/modules/Axios';
 /** What the home screen knows about the next morning. */
 export interface NextAlarm {
     state: 'loading' | 'ready' | 'none' | 'failed';
-    planned: SchedulePlanResponse | null;
+    occurrence: OccurrenceResponse | null;
     /**
      * Whether the alarm is actually armed in the OS.
      *
@@ -24,29 +24,29 @@ export interface NextAlarm {
 
 const LOADING: NextAlarm = {
     state: 'loading',
-    planned: null,
+    occurrence: null,
     armed: false,
     errorCode: null,
 };
 
 /**
- * Plans the next occurrence and arms a real alarm for it.
+ * Reads the next armed morning, makes sure the OS holds it, and says so.
  *
- * This is the whole product in one hook: a saved schedule becomes a wake time
- * from live NS and TomTom data, and that time becomes an exact alarm the OS
- * holds. Everything before this point was setup.
+ * The read comes first and costs nothing: the server stored the plan when the
+ * occurrence was armed, so launching the app does not spend an NS request.
+ * Arming, which does spend one, happens only when nothing is armed yet or when
+ * the user asks for a refresh.
  *
- * The alarm id is derived from the schedule, so re-arming replaces rather than
- * stacks. Without that, opening the app twice would leave two alarms and the
- * earlier one would fire on a time that had already been superseded.
+ * The device arms `currentWakeAt`, the latest computed time, not the anchor. The
+ * anchor is the server's guarantee that a usable time exists even if every later
+ * message is lost; the device's job is to hold the best time it has been told
+ * about.
  *
- * Arming is deliberately not silent about failure. An alarm the user believes
- * is set but which cannot ring is the worst outcome this app has, so a failure
- * leaves `armed` false and the screen says so.
- *
- * M2 replaces the "when the screen opens" trigger with the monitor loop and its
- * pushes. Until then this is honest but manual, which is worth saying on screen
- * rather than implying the alarm keeps itself up to date.
+ * **The monotonic-later rule is deliberately not here.** It belongs on the push
+ * path, where an unexpected earlier time means a disruption resolved and the
+ * risk is real. Refreshing on this screen is an explicit request for the current
+ * answer, and someone who moves their arrival time earlier must get an earlier
+ * alarm rather than be quietly refused.
  */
 export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () => void } {
     const [next, setNext] = useState<NextAlarm>(LOADING);
@@ -58,41 +58,46 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
      * React. The effect below owns that, which keeps the only `setState` in a
      * promise callback where it cannot cascade renders.
      */
-    const load = useCallback(async (): Promise<NextAlarm> => {
+    const load = useCallback(async (force: boolean): Promise<NextAlarm> => {
         try {
-            const schedules = await listSchedules();
-            const active = schedules.find((schedule) => schedule.active);
+            // A refresh skips the read on purpose: the stored plan is exactly
+            // what the user is asking to have recomputed.
+            const existing = force ? null : await nextOccurrence();
+            const occurrence = existing ?? (await armNextSchedule());
 
-            if (active === undefined) {
-                return { state: 'none', planned: null, armed: false, errorCode: null };
+            if (occurrence === null) {
+                return { state: 'none', occurrence: null, armed: false, errorCode: null };
             }
 
-            const planned = await planSchedule(active.id);
-            return {
-                state: 'ready',
-                planned,
-                armed: await arm(planned),
-                errorCode: null,
-            };
+            const armed = await arm(occurrence);
+            if (armed) {
+                // Only once the OS confirms. Reporting an intention would let
+                // the server believe a push landed when it had not, which is
+                // the one thing this endpoint exists to tell apart.
+                await ackOccurrence(occurrence.id, occurrence.currentWakeAt).catch(
+                    () => undefined,
+                );
+            }
+
+            return { state: 'ready', occurrence, armed, errorCode: null };
         } catch (error) {
             return {
                 state: 'failed',
-                planned: null,
+                occurrence: null,
                 armed: false,
                 errorCode: ApiRequestError.from(error).code,
             };
         }
-    },
-    // No dependencies, and that matters more than it looks. Loading spends an
-    // NS request and re-arms an alarm, so tying it to a value whose identity
-    // can change on any render (a translation function, say) turns one refresh
-    // into an unbounded loop of both.
-    []);
+        // No dependencies, and that matters more than it looks. Loading can
+        // spend an NS request and re-arm an alarm, so tying it to a value whose
+        // identity can change on any render turns one refresh into an unbounded
+        // loop of both.
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
 
-        void load().then((result) => {
+        void load(attempt > 0).then((result) => {
             if (!cancelled) {
                 setNext(result);
                 setBusy(false);
@@ -120,6 +125,13 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
     return { next, busy, refresh };
 }
 
+/** Arms the first active schedule, or null when there is nothing to arm. */
+async function armNextSchedule(): Promise<OccurrenceResponse | null> {
+    const schedules = await listSchedules();
+    const active = schedules.find((schedule) => schedule.active);
+    return active === undefined ? null : armSchedule(active.id);
+}
+
 /**
  * Arms the alarm and reports whether the OS is actually holding it.
  *
@@ -128,21 +140,25 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
  * native module, or a device that refused the exact-alarm permission, would
  * otherwise report success and ring nothing.
  */
-async function arm(planned: SchedulePlanResponse): Promise<boolean> {
+async function arm(occurrence: OccurrenceResponse): Promise<boolean> {
     if (!canGuaranteeAlarm()) {
         return false;
     }
 
     const scheduler = getAlarmScheduler();
-    const id = `schedule-${planned.scheduleId}`;
+    // Derived from the occurrence, so one morning has exactly one alarm.
+    // Re-arming replaces rather than stacks, and a superseded time cannot
+    // survive as a second entry that still fires.
+    const id = `occurrence-${occurrence.id}`;
 
     await scheduler.schedule({
         id,
-        at: planned.plan.wakeUpAt,
+        at: occurrence.currentWakeAt,
         // The i18n instance rather than the hook: this is not React code, and
         // i18n is initialised synchronously exactly so it is safe from here.
         title: i18n.t('alarm.ringing_title'),
-        body: i18n.t('home.alarm_body', { name: planned.scheduleName }),
+        body: i18n.t('home.alarm_body', { name: occurrence.scheduleName }),
+        occurrenceId: occurrence.id,
     });
 
     return (await scheduler.listScheduled()).includes(id);
