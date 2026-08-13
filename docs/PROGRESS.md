@@ -326,6 +326,7 @@ against live NS and TomTom rather than a hand-entered duration.
 
 **App**
 
+- [ ] Settings screen, starting with `allowLaterWake` (see PLAN.md, the fail-safe section)
 - [ ] Reach the API from a physical device (base URL resolution, cleartext on preview builds)
 - [ ] Typed API client over the M1 endpoints, device registered on first launch
 - [ ] Onboarding flow
@@ -333,26 +334,8 @@ against live NS and TomTom rather than a hand-entered duration.
 - [ ] Schedule screen: arrival time, days of week, fixed travel duration
 - [ ] Engine result drives a real scheduled alarm
 - [ ] Offline mirror (expo-sqlite + drizzle)
-- [ ] Move the M0 harness off the home screen into a hidden debug panel
+- [ ] Move the M0 harness off the home screen into a hidden debug panel (design in PLAN.md)
 
-### The debug panel
-
-The home screen is currently the M0 diagnostics harness: permissions, native
-module status, alarm scheduling, the missed-alarm list, the copyable report. All
-of it stays, none of it belongs in front of a user who just wants an alarm.
-
-It moves behind the pattern every phone already teaches: **tap the app version in
-settings ten times**. The panel then asks for a password before opening.
-
-The password stops someone stumbling in, which is what it is for. It is not a
-security boundary and must never be treated as one: it ships inside the bundle
-and anyone who wants it can read it out. That is acceptable here because the
-panel shows the user their own device's diagnostics, nothing that belongs to
-anyone else. Anything that would matter if it leaked does not go on this screen.
-
-The report is deliberately untranslated, because it exists to be pasted into a
-bug report rather than read in the app, and that fits a screen a normal user
-never sees.
 
 ## M2: NS live
 

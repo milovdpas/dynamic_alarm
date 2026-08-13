@@ -133,6 +133,40 @@ Rule: **applied only when `liveWakeTime > currentScheduledAlarm`.** The alarm is
 
 **Emergency-earlier path (explicitly best-effort).** If a cancellation blows through the pessimism budget and `requiredWake < scheduledAlarm`, we send a high-priority push *the moment it is detected*, not on the ladder, and reschedule earlier. This is not guaranteed, and the UI must never imply it is. Failing here leaves the user exactly where they'd be with no app at all.
 
+### Letting the alarm move at all is a user setting
+
+**`allowLaterWake`, on by default, in settings.** With it on the alarm behaves as
+described above: a delayed train means extra sleep. With it off the device keeps
+the anchor time and the monitor never pushes a later one, so the user always
+wakes at the pessimistic time.
+
+The reason to offer this is a real failure the design cannot remove. A delay can
+resolve. If the alarm has already moved forty minutes later because the 07:24 was
+running late, and the delay then clears, the correct wake time is earlier again,
+and getting it there depends on the emergency-earlier push arriving. That path is
+best-effort by construction. Someone who would rather lose the extra sleep than
+carry that risk is making a reasonable trade, and the app should let them.
+
+**The setting governs the comfort direction only.** Moving *earlier* is a safety
+action and always happens, best-effort, whatever the setting says. Disabling it
+would make the app strictly worse than no app at all on the morning it matters,
+which is not a choice worth offering.
+
+Cancellations are not a separate switch. A cancellation forces a re-plan, and the
+result is either a later journey, which `allowLaterWake` already governs, or an
+earlier one, which is the safety direction. Splitting delays from cancellations
+would give the user two controls for one decision, and the second would only ever
+be able to make them late.
+
+Global rather than per schedule to begin with. Per-schedule overrides are the
+obvious extension (trusted for the commute, not for a flight), and the field
+should be read through the schedule so that adding them later is a default rather
+than a migration of meaning.
+
+The UI must say which mode it is in wherever a wake time is shown. An alarm the
+user believes is adaptive but is not is the same class of dishonesty as one they
+believe is set and which cannot ring.
+
 ### The monitor loop
 
 A per-minute cron is the right heartbeat. What it must **not** do is refetch every occurrence in the next 8 hours on every tick, that is ~480 NS calls per occurrence per night, scaling linearly with users, against an API whose quota we don't know and can't raise (subscription limit: 1).
@@ -219,6 +253,33 @@ src/
 ```
 
 - The ringing screen is a real route launched by the full-screen intent, not a notification banner.
+
+### Settings, and the debug panel behind it
+
+The settings screen is where anything the user can change but rarely does ends
+up: `allowLaterWake` (see the fail-safe section above), language, theme, alarm
+sound. **The app version sits at the bottom**, the way every phone puts it.
+
+The M0 harness is currently the home screen: permissions, native module status,
+alarm scheduling, the missed-alarm list, the copyable report. All of it stays,
+none of it belongs in front of someone who just wants an alarm. It moves behind
+the pattern every phone already teaches: **tap the version ten times**, then a
+password before the panel opens.
+
+The password stops someone stumbling in, which is exactly what it is for. It is
+not a security boundary and must never be treated as one: it ships inside the
+bundle and anyone who wants it can read it out. That is acceptable here because
+the panel shows the user their own device's diagnostics and nothing belonging to
+anyone else. **Anything that would matter if it leaked does not go on this
+screen**, which is a constraint on what may be added later, not just a
+description of today.
+
+Two counts, one gate. Ten taps is discovery, the password is the door. The taps
+alone would be found by accident eventually; the password alone would be a
+visible "Developer options" row inviting a guess.
+
+The report stays untranslated. It exists to be pasted into a bug report rather
+than read in the app, and that fits a screen a normal user never sees.
 
 ### Alarm sound, the user's own tones on Android, bundled on iOS
 
