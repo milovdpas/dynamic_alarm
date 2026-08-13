@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import type { IRoute } from '../../interfaces/IRouter';
 import DeviceRoutes from './groups/device';
+import MonitorRoutes from './groups/monitor';
 import OccurrenceRoutes from './groups/occurrence';
 import PlaceRoutes from './groups/place';
 import PlanRoutes from './groups/plan';
@@ -24,6 +25,9 @@ export default class Api implements IRoute {
         new ScheduleRoutes(),
         new PlanRoutes(),
         new OccurrenceRoutes(),
+        // Last, and not device authenticated: the scheduler calls it, the app
+        // never does.
+        new MonitorRoutes(),
     ];
 
     getRoutes(): Router {
@@ -32,8 +36,6 @@ export default class Api implements IRoute {
         for (const group of this.groups) {
             router.use(group.getRoutes());
         }
-
-        // The monitor loop follows.
 
         return router;
     }

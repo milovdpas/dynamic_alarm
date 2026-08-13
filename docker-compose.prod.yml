@@ -19,6 +19,19 @@ services:
             - web
         env_file:
             - .env
+        # The monitor loop, declared here rather than as host cron: the VPS runs
+        # an Ofelia container that reads these labels over the Docker socket, so
+        # the schedule deploys with the app instead of being configured by hand
+        # on the server. See vps_hosting/03-architecture.md.
+        #
+        # `job-exec` runs inside the container that is already up, which is the
+        # point: the tick reuses the live database pool rather than reconnecting
+        # to an external MySQL every minute. The command carries no secret; the
+        # script reads MONITOR_TOKEN from the container's own environment.
+        labels:
+            ofelia.enabled: 'true'
+            ofelia.job-exec.monitor-tick.schedule: '@every 1m'
+            ofelia.job-exec.monitor-tick.command: 'node dist/tools/monitorTick.js'
         healthcheck:
             # 127.0.0.1 rather than localhost. BusyBox wget tries ::1 first, and
             # a Node process bound to 0.0.0.0 is IPv4 only, so it refuses the

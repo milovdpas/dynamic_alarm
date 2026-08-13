@@ -38,6 +38,18 @@ export const API_ENDPOINTS = {
         PREVIEW: '/api/v1/plan/preview',
         OPTIONS: '/api/v1/plan/options',
     },
+    /**
+     * Server-side only. The app never calls this, and holds no token for it.
+     *
+     * A route rather than a scheduled job inside the process, because the VPS
+     * declares scheduled work as Ofelia labels on the app's own compose file.
+     * Driving it over HTTP keeps the database pool and the provider caches warm,
+     * where a fresh process each minute would reconnect to an external MySQL
+     * across the internet for a tick that usually has nothing to do.
+     */
+    MONITOR: {
+        TICK: '/api/v1/monitor/tick',
+    },
     HEALTH: '/api/v1/health',
 } as const;
 

@@ -53,6 +53,18 @@ export const env = {
         name: optional('DB_NAME', 'dynamic_alarm_db'),
     },
 
+    /**
+     * Shared secret for the monitor tick, which the scheduler calls and the app
+     * never does.
+     *
+     * Not `required()`: reading it at startup would refuse to boot a deployment
+     * that has not set it, and an API that serves the app is worth more than one
+     * that refuses everything because its cron secret is missing. The route
+     * itself answers 503 instead, so the failure shows up in the scheduler's log
+     * rather than in the alarm.
+     */
+    monitorToken: optional('MONITOR_TOKEN', ''),
+
     transport: {
         /** `Ns-App` product subscription key from apiportal.ns.nl. */
         nsSubscriptionKey: () => required('NS_SUBSCRIPTION_KEY'),

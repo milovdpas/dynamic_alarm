@@ -279,6 +279,27 @@ export interface HealthResponse {
     timestamp: IsoDateTimeString;
 }
 
+/**
+ * What one pass of the monitor did.
+ *
+ * Reported rather than only logged, because the scheduler's output is the first
+ * place anyone looks when alarms stop moving. `claimed: 0` every minute is the
+ * normal night; `failed` above zero for several ticks running is the shape of a
+ * provider outage, and it should be visible without opening the container.
+ *
+ * `skipped` means a previous tick was still running and this one did nothing.
+ * One or two is a slow provider call; a run of them means the batch no longer
+ * fits inside a minute.
+ */
+export interface MonitorTickResponse {
+    claimed: number;
+    moved: number;
+    unchanged: number;
+    failed: number;
+    skipped: boolean;
+    durationMs: number;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Occurrences, one day's instance of a schedule                              */
 /* -------------------------------------------------------------------------- */

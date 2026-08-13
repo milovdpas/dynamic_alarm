@@ -89,3 +89,4 @@ bootstrap().catch((error: unknown) => {
     console.error('Failed to start:', error instanceof Error ? error.message : error);
     process.exit(1);
 });
+

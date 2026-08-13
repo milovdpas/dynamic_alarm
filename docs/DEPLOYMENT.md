@@ -49,9 +49,15 @@ used by every other project here, so a future VPS move is one update.
 | `DB_NAME` | database name |
 | `NS_SUBSCRIPTION_KEY` | apiportal.ns.nl, `Ns-App` product |
 | `TOMTOM_API_KEY` | developer.tomtom.com |
+| `MONITOR_TOKEN` | any long random string, generated once |
+
+`MONITOR_TOKEN` guards `POST /api/v1/monitor/tick`, which the scheduler calls
+every minute. It is not a device token: the tick belongs to no device, and giving
+the scheduler a phone's credential would let a stolen token drive the loop for
+everyone. Generate it with `openssl rand -hex 32` and never put it anywhere else.
 
 The workflow fails loudly when `DB_HOST`, `DB_USER`, `DB_NAME`,
-`NS_SUBSCRIPTION_KEY` or `TOMTOM_API_KEY` render empty. `envsubst` turns an unset
+`NS_SUBSCRIPTION_KEY`, `TOMTOM_API_KEY` or `MONITOR_TOKEN` render empty. `envsubst` turns an unset
 variable into an empty string rather than an error, and without a transport key
 the API starts happily and only fails when the first journey is planned, which is
 the middle of the night for whoever is relying on it.
@@ -178,6 +184,39 @@ the deploy goes green and the schema is simply absent.
 
 To roll one back by hand, `05-operations.md` on the VPS has the general pattern;
 the command is the same with `migrate:rollback`.
+
+## The monitor loop runs on the scheduler, not inside the process
+
+The tick is a route (`POST /api/v1/monitor/tick`) driven from outside, and
+`docker-compose.prod.yml` declares the schedule as Ofelia labels on the service:
+
+```yaml
+labels:
+    ofelia.enabled: 'true'
+    ofelia.job-exec.monitor-tick.schedule: '@every 1m'
+    ofelia.job-exec.monitor-tick.command: 'node dist/tools/monitorTick.js'
+```
+
+That is the VPS convention (`vps_hosting/03-architecture.md`): app jobs are
+labels in the app's own compose file, picked up by the `scheduler` container over
+the Docker socket, so the schedule deploys through CI rather than being
+configured by hand on the server.
+
+`job-exec` rather than `job-run`, because the tick has to reach the process that
+is already up. The database pool and the provider caches live there, and a fresh
+container each minute would reconnect to an external MySQL across the internet to
+discover, most minutes, that there is nothing due. The command carries no secret;
+the script reads `MONITOR_TOKEN` from the container's own environment.
+
+Reading it:
+
+```bash
+docker logs scheduler --tail=50        # one line per tick
+cd /opt/apps/dynamic-alarm-api && docker compose exec -T api node dist/tools/monitorTick.js
+```
+
+A quiet night looks like `Tick: claimed 0, ...` every minute. That is correct, not
+broken: only occurrences whose `nextCheckAt` has arrived are claimed.
 
 ## Afterwards
 

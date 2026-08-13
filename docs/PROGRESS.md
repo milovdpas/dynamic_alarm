@@ -357,13 +357,42 @@ Where the product actually becomes itself.
 - [x] `ctxRecon` refresh path (walks re-attached from the stored journey, so a refresh stays one NS call)
 - [x] Places autosuggest proxy for address entry
 - [x] `ScheduleOccurrence` + `AlarmEvent` entities, with the unique (schedule, date) key and the (state, next_check_at) index the loop claims on
-- [ ] Monitor loop: minute tick, `nextCheckAt`, `FOR UPDATE SKIP LOCKED`
-- [ ] Cadence ladder (30m / 10m / 3m bands)
+- [x] Monitor loop: minute tick, `nextCheckAt`, `FOR UPDATE SKIP LOCKED` with a five minute lease
+- [x] Cadence ladder (30m / 10m / 3m bands), verified against the live database: five armed occurrences claimed, refreshed and pushed out 30 minutes in 1.1s
+- [x] The tick is a route driven by the VPS scheduler, not a timer inside the process (see below)
 - [ ] Global disruption sweep promoting affected occurrences
 - [~] Anchor vs live split done; the monotonic-later rule waits for the push path, which is where an unexpected earlier time actually carries risk
 - [ ] High-priority push → device reschedules
 - [ ] NS call-count instrumentation + loud 429 logging
 - [ ] The "you can sleep 12 minutes longer" moment works end to end
+
+### The tick runs from outside the process
+
+`POST /api/v1/monitor/tick`, called every minute by the VPS's Ofelia scheduler,
+which reads the job from labels on this app's own compose file. That is the
+server's convention: app jobs deploy through the app's CI, never as host cron.
+PLAN.md said `node-cron` in the API process; this replaces that, and no
+dependency was added.
+
+`job-exec` rather than a fresh container: the tick needs the database pool and
+the NS response caches the running process already holds, and a new process each
+minute would reconnect to an external MySQL across the internet to find, most
+minutes, that nothing is due.
+
+Three things the loop does that are easy to get wrong:
+
+- **It re-plans rather than adding the delay to the stored time.** A delay that
+  breaks a connection changes the whole journey, and arithmetic on the old one
+  would not notice.
+- **It re-reads the routine.** The stored breakdown would keep waking someone for
+  a morning they have since edited.
+- **It refuses to move an alarm the device did not ask it to.** All three
+  disruption settings are opt in, so a device that never answered keeps its time.
+  Moving somebody's alarm because nobody objected is the wrong way round.
+
+Nothing here pushes yet. This pass recomputes and records; delivery is next, and
+separating them means a bug in one cannot silently corrupt the other. Until the
+push path exists, a moved time is picked up when the app next opens.
 
 ## M3: car
 

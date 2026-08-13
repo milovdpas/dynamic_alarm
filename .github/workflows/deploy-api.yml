@@ -58,6 +58,7 @@ jobs:
                   DB_NAME: ${{ secrets.DB_NAME }}
                   NS_SUBSCRIPTION_KEY: ${{ secrets.NS_SUBSCRIPTION_KEY }}
                   TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
+                  MONITOR_TOKEN: ${{ secrets.MONITOR_TOKEN }}
               run: |
                   envsubst < .env.dist > .env
 
@@ -67,7 +68,10 @@ jobs:
                   # journey is planned, which is the middle of the night for
                   # whoever is relying on it.
                   missing=""
-                  for name in DB_HOST DB_USER DB_NAME NS_SUBSCRIPTION_KEY TOMTOM_API_KEY; do
+                  # MONITOR_TOKEN is required too: without it the tick route
+                  # answers 503 and no alarm is ever kept current, which is a
+                  # silent failure at 03:00 rather than a loud one here.
+                  for name in DB_HOST DB_USER DB_NAME NS_SUBSCRIPTION_KEY TOMTOM_API_KEY MONITOR_TOKEN; do
                     grep -q "^${name}=.\+" .env || missing="${missing} ${name}"
                   done
                   if [ -n "${missing}" ]; then
