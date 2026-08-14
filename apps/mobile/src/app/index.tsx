@@ -6,6 +6,7 @@ import { DateTime } from 'luxon';
 import { APP_CONSTANTS, LegType } from '@alarm/types';
 import type { JourneyLeg, WakePlan } from '@alarm/types';
 
+import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { Radius, Spacing } from '@/assets/Stylesheet';
 import ActionButton from '@/components/buttons/ActionButton';
 import DetailRow from '@/components/ui/DetailRow';
@@ -74,7 +75,7 @@ export default function HomeScreen() {
                     {next.state === 'failed' && (
                         <WarningBanner
                             title={t('home.failed_title')}
-                            message={translateError(t, next.errorCode)}
+                            message={apiErrorMessage(t, next.errorCode)}
                         />
                     )}
 
@@ -206,12 +207,6 @@ function legLabel(t: (key: string) => string, leg: JourneyLeg): string {
     return leg.name ?? leg.fromName;
 }
 
-function translateError(t: (key: string) => string, code: string | null): string {
-    if (code === null) return t('api.error.unknown');
-    const key = `api.error.${code}`;
-    const copy = t(key);
-    return copy === key ? t('api.error.unknown') : copy;
-}
 
 const styles = StyleSheet.create({
     flex: {

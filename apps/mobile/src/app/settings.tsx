@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import type { DeviceResponse } from '@alarm/types';
 
+import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { getDevice, listSchedules, updateDevice } from '@/api';
 import appConfig from '@/config';
 import { Radius, Spacing } from '@/assets/Stylesheet';
@@ -116,10 +117,42 @@ export default function SettingsScreen() {
         setWrong(true);
     };
 
+    const scroll = useRef<ScrollView>(null);
+
+    /**
+     * Brings the password field into view when it appears.
+     *
+     * Avoiding the keyboard is not enough on its own: the card is added below
+     * the version row, which sits at the foot of the screen, so on a short
+     * screen it opens off the bottom whether a keyboard is up or not.
+     */
+    useEffect(() => {
+        if (revealed) {
+            // After the card has been laid out, otherwise there is nothing to
+            // scroll to yet.
+            const timer = setTimeout(() => {
+                scroll.current?.scrollToEnd({ animated: true });
+            }, 50);
+            return () => {
+                clearTimeout(timer);
+            };
+        }
+        return undefined;
+    }, [revealed]);
+
     return (
         <ThemedView style={styles.flex}>
             <SafeAreaView style={styles.flex} edges={['bottom']}>
+                {/*
+                 * The password field is the last thing on a screen whose content
+                 * is pinned to the bottom, so the keyboard opened straight over
+                 * it. Android no longer resizes the window under edge-to-edge,
+                 * which is why this is needed on both platforms rather than
+                 * being an iOS habit.
+                 */}
+                <KeyboardAvoidingView style={styles.flex} behavior="padding">
                 <ScrollView
+                    ref={scroll}
                     // grow rather than a fixed height, so the content fills a
                     // short screen and still scrolls on a long one. That is what
                     // lets the version sit at the bottom in both cases.
@@ -129,7 +162,7 @@ export default function SettingsScreen() {
                     {errorCode !== null && (
                         <WarningBanner
                             title={t('settings.save_failed')}
-                            message={translateError(t, errorCode)}
+                            message={apiErrorMessage(t, errorCode)}
                         />
                     )}
 
@@ -185,16 +218,12 @@ export default function SettingsScreen() {
                         </View>
                     )}
                 </ScrollView>
+                </KeyboardAvoidingView>
             </SafeAreaView>
         </ThemedView>
     );
 }
 
-function translateError(t: (key: string) => string, code: string): string {
-    const key = `api.error.${code}`;
-    const copy = t(key);
-    return copy === key ? t('api.error.unknown') : copy;
-}
 
 const styles = StyleSheet.create({
     flex: {

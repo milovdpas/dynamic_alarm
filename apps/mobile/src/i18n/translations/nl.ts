@@ -100,7 +100,11 @@ export default {
             API_URL_MISSING:
                 'Deze build heeft geen API-adres en geen Metro-server om er een te raden. Stel EXPO_PUBLIC_API_URL in voor je bouwt.',
             NETWORK_UNREACHABLE:
-                'Er reageerde niets op dat adres. Controleer of de API draait, of de telefoon op hetzelfde wifi-netwerk zit, en of het adres het LAN-IP van de machine is en niet localhost.',
+                'Geen verbinding met de server. Controleer je internetverbinding en probeer het opnieuw.',
+            NETWORK_UNREACHABLE_LOCAL:
+                'Er antwoordde niets op dat adres. Draait de API, zit de telefoon op dezelfde wifi, en is het adres het LAN-IP van die machine in plaats van localhost?',
+            REQUEST_TIMED_OUT:
+                'De server deed er te lang over. Je reis wordt uitgerekend met live gegevens van NS, en dat duurt soms te lang. Probeer het opnieuw.',
             UNAUTHORIZED: 'Dit toestel wordt niet meer herkend. Het registreert zich opnieuw.',
             TRANSPORT_RATE_LIMITED: 'Reisinformatie is nu druk. Het probeert het zo opnieuw.',
             unknown: 'Er ging iets mis bij het bereiken van de API.',

@@ -498,6 +498,23 @@ Nothing here pushes yet. This pass recomputes and records; delivery is next, and
 separating them means a bug in one cannot silently corrupt the other. Until the
 push path exists, a moved time is picked up when the app next opens.
 
+## M2.5: the app becomes usable
+
+Decided 2026-08-14 after the first real morning. The alarm rang correctly; the
+app around it could not show what was armed, which train it had chosen, or let a
+schedule be changed. See the information architecture section in PLAN.md.
+
+- [ ] Tab shell: Today, Schedules, Settings
+- [ ] Schedules tab: list with each schedule's next armed time
+- [ ] Schedule editor: add, edit, delete, pause, reusing the onboarding steps
+- [ ] Arm every active schedule rather than only the first, and cancel OS alarms
+      for occurrences that no longer exist
+- [ ] `GET /api/v1/occurrences` for this device's armed occurrences
+- [ ] Journey detail: leg-by-leg timeline, buffer breakdown, and the event trail
+      that already exists in the database and has never been shown
+- [ ] Simulated delay and cancellation, so the interesting path can be tested on
+      demand rather than twice a month (PLAN.md has the design and its limits)
+
 ## M3: car
 
 - [ ] `TomTomProvider`: `arriveAt`

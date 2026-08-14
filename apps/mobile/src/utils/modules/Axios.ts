@@ -18,6 +18,15 @@ export const CLIENT_ERROR_CODES = {
     API_URL_MISSING: 'API_URL_MISSING',
     /** The request never reached a server: wrong host, wifi off, API not running. */
     NETWORK_UNREACHABLE: 'NETWORK_UNREACHABLE',
+    /**
+     * The server was reached but did not answer in time.
+     *
+     * Kept apart from `NETWORK_UNREACHABLE` because the two need opposite
+     * advice, and because they mean different things for an alarm: a request
+     * that timed out may well have succeeded on the server, so telling someone
+     * nothing happened would be a guess.
+     */
+    REQUEST_TIMED_OUT: 'REQUEST_TIMED_OUT',
 } as const;
 
 /**
@@ -48,8 +57,16 @@ export class ApiRequestError extends Error {
         if (isAxiosError(error)) {
             const body = error.response?.data as ApiErrorResponse | undefined;
             if (error.response === undefined || body === undefined) {
+                // A timeout also arrives with no response, and lumping the two
+                // together produced the app's most misleading message: a request
+                // the server was still working on, reported as "nothing answered
+                // at that address, check your wifi".
+                const timedOut =
+                    error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT';
                 return new ApiRequestError(
-                    CLIENT_ERROR_CODES.NETWORK_UNREACHABLE,
+                    timedOut
+                        ? CLIENT_ERROR_CODES.REQUEST_TIMED_OUT
+                        : CLIENT_ERROR_CODES.NETWORK_UNREACHABLE,
                     null,
                     error.message,
                 );
@@ -133,7 +150,13 @@ export default class Axios {
         const token = await Axios.getToken();
         return {
             baseURL: appConfig.apiUrl,
-            timeout: 15000,
+            /**
+             * Generous, because the slow endpoints are slow for a real reason.
+             * Arming a morning plans a journey, which is two or three calls to
+             * NS and TomTom from the server before it can answer. Fifteen
+             * seconds cut those off often enough to look like an outage.
+             */
+            timeout: 40000,
             headers: token ? { Authorization: `Bearer ${token}` } : {},
         };
     }

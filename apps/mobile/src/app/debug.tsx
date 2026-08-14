@@ -26,6 +26,7 @@ import {
     type AlarmDiagnostics,
     type MissedAlarm,
 } from '@modules/alarm-sound';
+import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { canGuaranteeAlarm, getAlarmScheduler, getAlarmSupport, isFullyPermitted } from '@/alarm';
 import type { AlarmPermissionStatus } from '@/alarm';
 import { Spacing } from '@/assets/Stylesheet';
@@ -603,18 +604,6 @@ function formatTime(iso: string): string {
         .toFormat('HH:mm');
 }
 
-/**
- * Copy for an API failure, chosen by code.
- *
- * The server's own `message` is English and written for a log, so it never
- * reaches the screen. An unrecognised code falls back to a generic translated
- * sentence rather than to the raw one.
- */
-function apiErrorMessage(t: (key: string) => string, code: string): string {
-    const key = `api.error.${code}`;
-    const copy = t(key);
-    return copy === key ? t('api.error.unknown') : copy;
-}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
     return (

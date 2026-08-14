@@ -277,6 +277,71 @@ src/
 
 - The ringing screen is a real route launched by the full-screen intent, not a notification banner.
 
+### Information architecture: three tabs
+
+Decided after the first week of real use, which exposed the gap: the app could
+compute a wake time and ring, and could show you nothing else. No list of what
+was armed, no way to see which train it had chosen, and no way to add, edit or
+remove a schedule after onboarding.
+
+```
+Today          the soonest armed morning, and what it depends on
+Schedules      every schedule, each with its own next armed alarm
+Settings       disruptions, language, theme, sound, version (debug behind it)
+```
+
+Bottom tabs rather than a home screen with links. Managing schedules is not a
+rare configuration task, it is the second thing anyone does after the alarm
+works, and burying it behind a row on the home screen said otherwise.
+
+**Every active schedule arms its own next morning.** A schedule is a standing
+commitment, not a mode: weekdays to Tilburg and Saturday climbing are both true
+at once, and making the user switch between them is a way to miss a Saturday.
+Today shows the soonest; the Schedules tab shows each with the time it is armed
+for. The device holds one OS alarm per occurrence, which the existing id scheme
+(`occurrence-<id>`) already supports, and alarms for occurrences that no longer
+exist are cancelled rather than left to ring.
+
+This is a change from the current behaviour, which arms only the first active
+schedule and silently ignores the rest.
+
+**Today shows a summary, with the whole journey one tap away.**
+
+```
+Tomorrow
+06:53
+Leave home at 07:34
+
+Train 07:52 Oss to Tilburg
+Arrive 08:27, 3 minutes before you must
+
+[ See the whole journey ]
+```
+
+The wake time is the answer, and it should not be buried in a timetable. The
+timeline behind the tap is the justification: every leg with its time, the
+buffers named, and the event trail saying why the alarm moved if it did. That
+trail already exists in `alarm_events` and has never been shown to anyone.
+
+What each screen needs that does not exist yet:
+
+| Screen | Missing |
+|---|---|
+| Today | Journey summary line, leave-home time in the primary position, simulation controls while testing |
+| Journey detail | New route. Leg-by-leg timeline, buffer breakdown, `GET /occurrences/:id/events` rendered |
+| Schedules | New route. List with next armed time, add, edit, delete, pause |
+| Schedule editor | New route, reusing the onboarding steps rather than duplicating them |
+
+One new endpoint: `GET /api/v1/occurrences` for the armed occurrences of this
+device, since `occurrences/next` answers a different question and the Schedules
+tab needs all of them. Everything else the screens need already exists.
+
+**Ordering, and why.** The tab shell and the Schedules tab come first, because
+being unable to edit a schedule is the thing that currently makes the app feel
+unfinished. Arming every active schedule follows, since a list of schedules that
+are not all armed would be a lie. The journey detail comes last of the three: it
+is the most satisfying screen and the least load-bearing.
+
 ### Settings, and the debug panel behind it
 
 The settings screen is where anything the user can change but rarely does ends
@@ -303,6 +368,47 @@ visible "Developer options" row inviting a guess.
 
 The report stays untranslated. It exists to be pasted into a bug report rather
 than read in the app, and that fits a screen a normal user never sees.
+
+### Simulating a delay or a cancellation, on purpose
+
+The one thing this product does that cannot be observed on demand: real trains
+are mostly on time, so the interesting path runs perhaps twice a month and never
+when you are watching. Waiting for NS to cancel something is not a test plan.
+
+**A scenario attached to one occurrence, applied on the next refresh.** The
+device asks for it from the debug panel, the monitor applies it the next time it
+checks that occurrence, and everything downstream is real: the wake time is
+recomputed by the same engine, the push goes through Expo, and the phone
+reschedules under the same monotonic rule. Only the timetable is invented.
+
+```
+POST /api/v1/occurrences/:id/simulate   { kind: 'DELAY', minutes: 20 }
+                                        { kind: 'CANCELLATION' }
+                                        { kind: 'CLEAR' }
+```
+
+Design constraints, each of which is the difference between a test tool and a
+liability:
+
+- **Device authenticated, and it may only touch that device's own occurrence.**
+  Not the monitor token, and not a global switch. A scenario that could be
+  applied to somebody else's alarm is a way to make a stranger late.
+- **It expires.** One application, or an hour, whichever comes first. A
+  simulation left on overnight would silently mean the alarm stops tracking
+  reality, which is the exact failure the product exists to prevent.
+- **It is visible.** The occurrence says it is simulated, the home screen says
+  so, and the alarm event written for the change says so too. Someone who wakes
+  early must be able to see it was a test rather than a delay.
+- **It cannot fabricate an earlier time.** A simulated delay may move the alarm
+  later, and a simulated cancellation may force a re-plan. Neither may pull the
+  alarm earlier than the anchor, because that path is the emergency one and it
+  should be exercised by a real cancellation only.
+
+`DELAY` shifts the stored journey's departure and arrival by the given minutes
+and marks the leg disrupted, so the risk buffer responds the way it would to a
+real delay. `CANCELLATION` makes the refresh return null, which is what NS
+effectively says when a trip can no longer be reconstructed, and forces the
+re-plan path.
 
 ### Language selector in settings
 

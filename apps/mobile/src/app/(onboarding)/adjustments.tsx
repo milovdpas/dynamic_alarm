@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 
+import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { Spacing } from '@/assets/Stylesheet';
 import ActionButton from '@/components/buttons/ActionButton';
 import DisruptionSettings, { settingsForModes } from '@/components/settings/DisruptionSettings';
@@ -88,7 +89,7 @@ export default function AdjustmentsStep() {
                     {errorCode !== null && (
                         <WarningBanner
                             title={t('schedule.preview_failed')}
-                            message={translateError(t, errorCode)}
+                            message={apiErrorMessage(t, errorCode)}
                         />
                     )}
 
@@ -104,11 +105,6 @@ export default function AdjustmentsStep() {
     );
 }
 
-function translateError(t: (key: string) => string, code: string): string {
-    const key = `api.error.${code}`;
-    const copy = t(key);
-    return copy === key ? t('api.error.unknown') : copy;
-}
 
 const styles = StyleSheet.create({
     flex: {

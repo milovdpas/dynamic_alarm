@@ -7,6 +7,7 @@ import { DateTime } from 'luxon';
 import { APP_CONSTANTS, DEFAULT_BUFFERS, Weekday } from '@alarm/types';
 import type { WakePlan } from '@alarm/types';
 
+import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { planOptions } from '@/api';
 import { Radius, Spacing } from '@/assets/Stylesheet';
 import ActionButton from '@/components/buttons/ActionButton';
@@ -162,7 +163,7 @@ export default function ScheduleStep() {
                     {errorCode !== null && (
                         <WarningBanner
                             title={t('schedule.preview_failed')}
-                            message={translateError(t, errorCode)}
+                            message={apiErrorMessage(t, errorCode)}
                         />
                     )}
 
@@ -262,18 +263,6 @@ function clock(iso: string): string {
         .toFormat('HH:mm');
 }
 
-/**
- * Copy for a failure, chosen by code.
- *
- * The server's own message is English and written for a log, so it never
- * reaches the screen. An unrecognised code falls back to a generic translated
- * sentence rather than to the raw one.
- */
-function translateError(t: (key: string) => string, code: string): string {
-    const key = `api.error.${code}`;
-    const copy = t(key);
-    return copy === key ? t('api.error.unknown') : copy;
-}
 
 const styles = StyleSheet.create({
     flex: {
