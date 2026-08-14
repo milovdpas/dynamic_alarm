@@ -368,6 +368,41 @@ Where the product actually becomes itself.
 - [ ] NS call-count instrumentation + loud 429 logging
 - [ ] The "you can sleep 12 minutes longer" moment works end to end
 
+### What the M2 tests assert, and what they deliberately do not
+
+31 new assertions, chosen by one question: what breaks without anything failing?
+
+- **The sweep's suppression rule** (`releaseTime` vs `lastCheckedAt`). Losing it
+  breaks nothing visible: alarms still move, nothing errors. The only symptom is
+  the per-night call count going from about 35 to 360 and a 429 in the middle of
+  someone's night. Mutation checked: removing the comparison fails the test.
+- **Push bookkeeping.** A failed send must write nothing, so it is
+  indistinguishable from one that never happened and the next tick retries it. A
+  successful one must record what it sent, so the same time is not sent twice.
+  This branch is unreachable in development, where no device has a push token,
+  so a test is the only thing that has ever exercised it.
+- **Two workers, one database.** Four due occurrences, two concurrent claims,
+  and every id claimed exactly once. This is the property that makes running a
+  second API instance safe rather than merely tempting.
+- **The monotonic rule, both halves**, in `packages/core` beside the cadence
+  tests: whether the server should send, and whether the device should apply.
+  Including the case that only appears in production, a retried push arriving
+  after the device has already moved on.
+
+Two things moved to make that possible, and both are better for it. The rule now
+lives in `@alarm/core` as `shouldSendWakePush` and `resolvePushedWake`, so the
+server and the app cannot drift apart; a disagreement between two copies would
+have surfaced as somebody waking at the wrong time rather than as a failing
+build. And delivery moved out of `MonitorService` into `PushDeliveryService`,
+which takes its `PushService` through the constructor, so the bookkeeping can be
+asserted without a live Expo call.
+
+**Not tested, and said plainly rather than implied:** the payload reader in
+`apps/mobile/src/push/wakeChangePush.ts`. `apps/mobile` has no test runner at
+all, and adding one for a single function is not worth it yet. The decision it
+feeds is tested in core; the parsing itself is verified the only way that
+actually counts, by a push arriving on a real phone.
+
 ### The disruption sweep closes the gap the cadence leaves
 
 The ladder is slow far from the alarm on purpose: an occurrence six hours out is
