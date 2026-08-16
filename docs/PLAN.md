@@ -330,11 +330,38 @@ What each screen needs that does not exist yet:
 | Today | Journey summary line, leave-home time in the primary position, simulation controls while testing |
 | Journey detail | New route. Leg-by-leg timeline, buffer breakdown, `GET /occurrences/:id/events` rendered |
 | Schedules | New route. List with next armed time, add, edit, delete, pause |
-| Schedule editor | New route, reusing the onboarding steps rather than duplicating them |
+| Schedule editor | A hub, not a form. See below |
 
 One new endpoint: `GET /api/v1/occurrences` for the armed occurrences of this
 device, since `occurrences/next` answers a different question and the Schedules
 tab needs all of them. Everything else the screens need already exists.
+
+**Editing is a hub with focused sub-screens**, not one form and not accordions.
+
+```
+Schedule
+  Your alarm is set for 07:34, Tuesday 18 August
+  When you need to be there   09:00 · Tue Thu Fri   >
+  How you travel              Train · Oss → Tilburg >
+  Your morning                25 min                >
+  [ Work out my options ]
+```
+
+Everything onboarding asks has to be changeable afterwards, notification
+settings aside, which live in Settings because they belong to the device rather
+than to a schedule. Putting all of it on one screen meant an address search, a
+keyboard, a routine list and a set of departures competing for the same space.
+Accordions were the alternative and hide the answer: you would open four of them
+to see what your schedule says.
+
+Each sub-screen commits its own change, and the hub owns the last decision:
+recalculate, choose a departure, and arm from it. That ordering is not cosmetic.
+The wake time is computed backwards from the deadline through the morning, so
+the options are only meaningful once everything above them is settled.
+
+Each form **mounts with its values** rather than being seeded by an effect. The
+seeded version needed a flag to stop a background reload overwriting what was
+being typed, and a flag like that is a bug waiting for the day it is wrong.
 
 **Ordering, and why.** The tab shell and the Schedules tab come first, because
 being unable to edit a schedule is the thing that currently makes the app feel
@@ -438,6 +465,137 @@ Not the same as the theme toggle, which is cosmetic. A language chosen here also
 governs the text on notifications and on the ring screen, both rendered outside
 the React tree from the same synchronously initialised i18n instance, so nothing
 extra is needed for them to follow.
+
+### The app stays readable when the API does not answer
+
+The alarm already survives an outage: it is an OS-level exact alarm, armed on the
+device, and no request is made between arming it and it ringing. What does not
+survive is the **app**. Every screen reads from the API, so a dead backend, a
+train tunnel or a hotel wifi captive portal turns the whole thing into an error
+banner, including the screen whose only job is to tell you what time you are
+being woken.
+
+**Every read is cached; no write is queued.** Those are opposite decisions and
+both are deliberate.
+
+Reads are cached because they describe something that has already been decided.
+Schedules, routines, places and armed occurrences are all stored server-side and
+change only when someone changes them, so the last known copy is nearly always
+the right answer, and when it is not, it is still a better answer than nothing.
+The occurrence carries its whole `WakePlan`, so a cached copy can render the
+journey, the breakdown and the wake time without a single request.
+
+Writes are not queued because a queued write to an alarm is a trap. Someone edits
+their deadline on a train with no signal, the app says "saved", and the request
+lands at 03:00 when connectivity returns, silently moving an alarm they are
+already asleep under. A refused write with the draft still on screen is worse for
+five seconds and better forever.
+
+Rules that make cached data honest rather than merely present:
+
+- **Cached data is labelled and dated.** "Worked out 3 hours ago" under the wake
+  time, not silence. The difference between live and remembered is exactly what
+  someone needs to know before trusting it.
+- **A cached plan never masquerades as a fresh one.** The refresh button says it
+  failed rather than showing an older answer as if it had just arrived.
+- **The cache is a mirror, not a source.** A successful read replaces its slice
+  wholesale. Merging would invent states the server never had.
+- **Nothing is cached that the device should not hold**: no device token beyond
+  the secure store it already lives in, and no other device's anything.
+
+This is the same store as the offline mirror already planned for M1
+(`expo-sqlite` + drizzle), and the two are worth doing together, because they are
+one idea seen from two ends. The mirror exists so the device can recompute an
+anchor with no connectivity; the cache exists so it can show what it already
+knows. Both need the same tables, the same write path and the same staleness
+rule.
+
+The one thing neither of them changes: **an alarm that is armed rings whether any
+of this works or not.** Caching improves what the app can say, never what it can
+promise.
+
+### An optional lock on stopping the alarm
+
+Opt in, off by default, and configured per device. The point is not security: it
+is the two seconds between a hand reaching out and a brain arriving, in which a
+dismiss can happen without anyone remembering it. A small deliberate act closes
+that gap.
+
+Planned forms, in the order they are worth building:
+
+| Form | Why |
+|---|---|
+| Arithmetic | The classic. Difficulty is a setting, because "what wakes you up" varies more than any default could |
+| A typed word or PIN | For people who find maths under duress unpleasant rather than rousing. Also the accessible option |
+| Scan something | An NFC tag or QR code on the bathroom door, so stopping the alarm requires standing up. Later, and only if the first two prove the idea |
+
+The constraints matter more than the forms, and each of them is a way this
+feature could turn a good alarm into a bad one:
+
+- **Stopping must always be possible.** A puzzle nobody can solve at 06:00 is a
+  phone screaming in a bedroom with no way to stop it. There is an escape: hold
+  the dismiss button for ten seconds. Deliberate enough that a sleeping hand
+  cannot do it, and always available. It is not a loophole to be closed later,
+  it is a required part of the design.
+- **The lock is on dismiss, never on silence.** If the sound cannot be stopped
+  the feature is a hazard to everyone else in the house. The volume ramp and the
+  ability to mute are untouched; what the lock guards is marking the alarm as
+  handled.
+- **It must survive its own bugs.** The ring screen runs JavaScript; the alarm is
+  native. If the screen fails to render, the notification action must still stop
+  the alarm, lock or no lock. A feature that can strand a ringing phone by
+  crashing is not shippable.
+- **The answer is stored, not hashed.** It is a convenience against your own
+  half-asleep self, not a secret, and pretending otherwise would mean a recovery
+  flow for a forgotten PIN at exactly the wrong moment. It goes in secure storage
+  because that is where the app keeps things, not because it is a credential.
+- **It never delays the alarm.** The lock is drawn after the sound starts, so a
+  slow render cannot make an alarm late.
+
+Snooze interacts with this and is currently disabled (see `APP_CONSTANTS.ALARM`).
+When snooze is designed, the same question applies: whether a snooze should be
+locked as well, or whether an unlocked snooze plus a locked dismiss is the honest
+combination. Deciding that is part of the snooze work, not this.
+
+### Choosing the theme, and leaving room for more of them
+
+Dark and light both exist and are equally cared for, because this app is looked
+at in bed and again at 06:00. What is missing is the choice: `ThemeContext`
+follows the system and has a `toggleTheme` nobody can reach, so a phone set to
+light shows a white screen to someone half asleep in a dark room, and the app has
+no answer.
+
+**Three options, not two: system, light, dark.** Following the system has to stay
+available and stay the default, because a phone that dims itself at night is
+already doing the right thing for most people. A two-way toggle would quietly
+throw that away, and there is no way back to it once it is gone.
+
+What the row needs to get right, which is more than it looks:
+
+- **Persisted through the same storage the language uses**, and applied before
+  the first paint. A theme that arrives a frame late is a white flash in a dark
+  bedroom, which is the exact moment this setting exists for.
+- **The ring screen follows it too.** That screen is the one guaranteed to be
+  read in the dark, and it currently inherits whatever the rest of the app
+  resolved to. Worth checking rather than assuming, since it is launched by a
+  full-screen intent rather than by ordinary navigation.
+- **Say what "system" means** rather than showing three unexplained words. "Match
+  my phone" is a description; "System" is a category name.
+
+**Themes beyond the two are a later idea, and the groundwork is already right.**
+Colours live in one `Colors` map keyed by theme name, and every screen reads them
+through `useThemeColor`, so a third palette is an entry in that map rather than a
+sweep through the app. What it would need before shipping:
+
+- Contrast checked per palette rather than inherited. A pretty theme that makes
+  the wake time hard to read at 06:00 is a worse alarm.
+- A stable name per theme, since it is persisted. Renaming one silently resets
+  everybody who chose it.
+- The semantic names kept honest: `danger` has to stay the colour that means
+  something is wrong in every palette, or the warnings stop reading as warnings.
+
+Not scheduled. The system, light and dark choice is worth having on its own, and
+it is the part that makes a phone in a dark room bearable.
 
 ### Alarm sound, the user's own tones on Android, bundled on iOS
 

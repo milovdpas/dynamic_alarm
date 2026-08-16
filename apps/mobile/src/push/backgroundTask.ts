@@ -1,4 +1,5 @@
 import { loadOptionalModule } from '@/utils/modules/optionalModule';
+import { isExpoGo } from '@/utils/modules/runtime';
 import { applyWakeChange, extractWakeChange } from '@/push/wakeChangePush';
 
 /**
@@ -29,7 +30,10 @@ let defined = false;
  * failing is a smaller problem than the app failing to start.
  */
 export function defineWakeChangePushTask(): void {
-    if (defined) {
+    if (defined || isExpoGo()) {
+        // Nothing can be delivered to it there, so defining it would only be a
+        // way to fail later. This runs at module scope, where a throw takes the
+        // whole app down rather than one feature.
         return;
     }
 
@@ -65,6 +69,14 @@ export function defineWakeChangePushTask(): void {
  * already registered task is a no-op, so the cheap call is the safe one.
  */
 export async function registerWakeChangePushTask(): Promise<boolean> {
+    if (isExpoGo()) {
+        // Expo Go dropped Android remote notifications in SDK 53, and
+        // `expo-notifications` still imports cleanly there: it throws at the
+        // point of registering instead. Asking first keeps that a missing
+        // feature rather than a red screen on every launch.
+        return false;
+    }
+
     defineWakeChangePushTask();
 
     const notifications = loadOptionalModule<NotificationsModule>(

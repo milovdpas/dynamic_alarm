@@ -23,6 +23,7 @@ export default class OccurrenceRoutes implements IRoute {
 
         // Before the `:id` routes: Express matches in order, so "next" would
         // otherwise be read as an occurrence id and answered with a 422.
+        router.get(API_ENDPOINTS.OCCURRENCES.LIST, deviceAuth, this.controller.list);
         router.get(API_ENDPOINTS.OCCURRENCES.NEXT, deviceAuth, this.controller.next);
 
         router.post<IdParams>(

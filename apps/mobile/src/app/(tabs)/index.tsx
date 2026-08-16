@@ -1,12 +1,13 @@
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { DateTime } from 'luxon';
-import { APP_CONSTANTS, LegType } from '@alarm/types';
+import { LegType } from '@alarm/types';
 import type { JourneyLeg, WakePlan } from '@alarm/types';
 
 import { apiErrorMessage } from '@/utils/apiErrorMessage';
+import { clock, relativeDay } from '@/utils/time';
 import { Radius, Spacing } from '@/assets/Stylesheet';
 import ActionButton from '@/components/buttons/ActionButton';
 import DetailRow from '@/components/ui/DetailRow';
@@ -29,6 +30,16 @@ import { useThemeColor } from '@/utils/hooks/useThemeColor';
  * successful call. "We asked for an alarm" and "there is an alarm" are different
  * claims, and only the second is worth showing to someone about to go to sleep.
  */
+/**
+ * Whether this launch has already sent someone to onboarding.
+ *
+ * Module scope rather than a ref, so it survives the screen remounting and
+ * resets when the app restarts. Without it, backing out of onboarding lands on
+ * this screen, which sends you straight back in: a trap with no way out but
+ * force-quitting.
+ */
+let redirectedThisLaunch = false;
+
 export default function HomeScreen() {
     const { t } = useTranslation();
     const router = useRouter();
@@ -37,20 +48,60 @@ export default function HomeScreen() {
     const { connection } = useApiConnection();
     const { next, busy, refresh } = useNextAlarm();
 
-    const connected = connection?.state === 'connected';
+    const unreachable =
+        connection?.state === 'unreachable' || connection?.state === 'not_configured';
+
+    /**
+     * Straight into onboarding when there is nothing set up.
+     *
+     * A screen whose only content is a button that starts the only thing you can
+     * do is a screen worth skipping. The empty state stays for the way back:
+     * once this launch has redirected, it does not do it again, so leaving
+     * onboarding half way lands somewhere with a way forward rather than in a
+     * loop.
+     *
+     * Not while the API is unreachable. Onboarding ends by saving three records,
+     * and starting it against a dead server loses four screens of answers.
+     */
+    useEffect(() => {
+        if (next.state === 'none' && !unreachable && !redirectedThisLaunch) {
+            // In an effect rather than during render: navigating and marking
+            // that we have navigated are both side effects, and a render that
+            // happens twice would otherwise redirect twice.
+            redirectedThisLaunch = true;
+            router.replace('/(onboarding)/places');
+        }
+    }, [next.state, router, unreachable]);
+
+    /**
+     * One settled screen rather than three in a row.
+     *
+     * Reading the occurrence, arming it and confirming with the OS all take a
+     * moment, and rendering each stage as it arrived made the content jump under
+     * whoever was reading it. Nothing renders until there is an answer.
+     */
+    if (next.state === 'loading' && next.occurrence === null) {
+        return (
+            <ThemedView style={styles.flex}>
+                <SafeAreaView style={[styles.flex, styles.centre]} edges={['top', 'bottom']}>
+                    <ActivityIndicator size="large" />
+                    <ThemedText type="small" themeColor="textSecondary">
+                        {t('home.working')}
+                    </ThemedText>
+                </SafeAreaView>
+            </ThemedView>
+        );
+    }
 
     return (
         <ThemedView style={styles.flex}>
-            <SafeAreaView style={styles.flex} edges={['bottom']}>
+            {/*
+             * Top inset included, because a tab screen has no header above it to
+             * take it. Without this the first line sits under the clock.
+             */}
+            <SafeAreaView style={styles.flex} edges={['top', 'bottom']}>
                 <ScrollView contentContainerStyle={styles.content}>
-                    {/*
-                     * Only when there is nothing to show yet. A refresh keeps
-                     * the previous answer on screen and says it is working
-                     * below, rather than blanking what the user was reading.
-                     */}
-                    {next.occurrence === null && next.state === 'loading' && (
-                        <ThemedText type="subtitle">{t('home.working')}</ThemedText>
-                    )}
+                    <ThemedText type="title">{t('tabs.today')}</ThemedText>
 
                     {next.state === 'none' && (
                         <View style={styles.setup}>
@@ -61,10 +112,14 @@ export default function HomeScreen() {
                             <ActionButton
                                 label={t('onboarding.entry_action')}
                                 variant="primary"
+                                // Disabled only when the API is known to be
+                                // unreachable, not merely unconfirmed.
                                 // Onboarding ends by saving three records, so
-                                // starting it without a reachable API would lose
-                                // four screens of answers.
-                                disabled={!connected}
+                                // starting it against a dead API would lose four
+                                // screens of answers, but greying the one button
+                                // on an empty screen while a registration check
+                                // finishes reads as an app that does not work.
+                                disabled={unreachable}
                                 onPress={() => {
                                     router.push('/(onboarding)/places');
                                 }}
@@ -181,25 +236,6 @@ function Breakdown({ plan }: { plan: WakePlan }) {
     );
 }
 
-function clock(iso: string): string {
-    return DateTime.fromISO(iso, { setZone: true })
-        .setZone(APP_CONSTANTS.TIMEZONE)
-        .toFormat('HH:mm');
-}
-
-/**
- * "Tomorrow" beats a date. A wake time on its own cannot say whether it means
- * tonight or Monday, and that is the first thing anyone checks.
- */
-function relativeDay(t: (key: string, options?: Record<string, unknown>) => string, date: string) {
-    const day = DateTime.fromISO(date, { zone: APP_CONSTANTS.TIMEZONE }).startOf('day');
-    const days = Math.round(day.diff(DateTime.now().setZone(APP_CONSTANTS.TIMEZONE).startOf('day'), 'days').days);
-
-    if (days === 0) return t('home.today');
-    if (days === 1) return t('home.tomorrow');
-    return day.setLocale('nl').toFormat('cccc d LLLL');
-}
-
 /** Walking and cycling are the traveller's own legs, so they read differently. */
 function legLabel(t: (key: string) => string, leg: JourneyLeg): string {
     if (leg.type === LegType.WALK) return t('home.leg_walk');
@@ -217,6 +253,11 @@ const styles = StyleSheet.create({
         gap: Spacing.medium,
     },
     setup: {
+        gap: Spacing.small,
+    },
+    centre: {
+        alignItems: 'center',
+        justifyContent: 'center',
         gap: Spacing.small,
     },
     plan: {

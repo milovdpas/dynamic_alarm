@@ -1,5 +1,7 @@
 import axios, { isAxiosError, type AxiosRequestConfig } from 'axios';
-import type { ApiErrorResponse } from '@alarm/types';
+import { Platform } from 'react-native';
+import { API_ENDPOINTS, APP_CONSTANTS, DevicePlatform } from '@alarm/types';
+import type { ApiErrorResponse, RegisterDeviceResponse } from '@alarm/types';
 
 import appConfig from '@/config';
 import { loadOptionalModule } from './optionalModule';
@@ -130,9 +132,70 @@ export default class Axios {
         await store.setItemAsync(DEVICE_TOKEN_KEY, token);
     }
 
+    /**
+     * The device token, registering this device first if it has none.
+     *
+     * Every screen fetches on mount, and registration used to be a separate
+     * thing the launch happened to start first. On a fresh install those raced:
+     * the first screens sent their requests with no token, got a 401 each, and
+     * showed "this device is no longer recognised" on an app that had simply not
+     * finished introducing itself. Clearing the app's data reproduced it every
+     * time.
+     *
+     * Doing it here means no authenticated request can go out before there is
+     * something to authenticate with, whichever screen asks first.
+     *
+     * Concurrent callers share one attempt. Half a dozen requests on launch
+     * would otherwise create half a dozen devices, and the user would keep the
+     * last one to finish writing its token.
+     */
+    static async ensureToken(): Promise<string | null> {
+        const existing = await Axios.getToken();
+        if (existing !== null) {
+            return existing;
+        }
+
+        Axios.registering ??= Axios.register().finally(() => {
+            Axios.registering = null;
+        });
+        return Axios.registering;
+    }
+
+    /**
+     * Registers this device, with a bare request rather than the usual client.
+     *
+     * `Axios.post` would call `config()`, which calls this, so it goes direct.
+     * Nothing is lost: registration is the one call that cannot be
+     * authenticated, so it needs none of what the wrapper adds.
+     *
+     * Returns null rather than throwing when the API cannot be reached. The
+     * caller is a request that is about to fail anyway, and it will fail with
+     * its own error rather than one about registration.
+     */
+    private static async register(): Promise<string | null> {
+        try {
+            const response = await axios.post<RegisterDeviceResponse>(
+                `${appConfig.apiUrl ?? ''}${API_ENDPOINTS.DEVICES.REGISTER}`,
+                {
+                    platform: Platform.OS === 'ios' ? DevicePlatform.IOS : DevicePlatform.ANDROID,
+                    timezone: APP_CONSTANTS.TIMEZONE,
+                    appVersion: appConfig.appVersion,
+                },
+                { timeout: 15000 },
+            );
+            await Axios.setToken(response.data.token);
+            return response.data.token;
+        } catch {
+            return null;
+        }
+    }
+
     static async clearToken(): Promise<void> {
         await getSecureStore()?.deleteItemAsync(DEVICE_TOKEN_KEY);
     }
+
+    /** In flight registration, so concurrent callers share one attempt. */
+    private static registering: Promise<string | null> | null = null;
 
     private static async config(): Promise<AxiosRequestConfig> {
         if (appConfig.apiUrl === null) {
@@ -147,7 +210,7 @@ export default class Axios {
             );
         }
 
-        const token = await Axios.getToken();
+        const token = await Axios.ensureToken();
         return {
             baseURL: appConfig.apiUrl,
             /**

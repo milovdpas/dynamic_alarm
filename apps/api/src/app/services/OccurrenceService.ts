@@ -95,6 +95,55 @@ export class OccurrenceService {
         });
     }
 
+    /**
+     * Every armed morning for this device, soonest first.
+     *
+     * A different question from `findNext`, and the schedules list needs this
+     * one: a row saying a schedule is active without saying when it will wake
+     * you is half an answer. Also a pure read, so opening the tab costs one
+     * query rather than a provider call per schedule.
+     */
+    async findArmed(deviceId: string): Promise<ScheduleOccurrence[]> {
+        return ScheduleOccurrence.find({
+            where: { deviceId, state: OccurrenceState.ARMED },
+            order: { currentWakeAt: 'ASC' },
+        });
+    }
+
+    /**
+     * Discards upcoming armed mornings for a schedule, because they describe a
+     * plan that no longer exists.
+     *
+     * Editing a deadline, a routine or a chosen departure invalidates everything
+     * already computed from the old answer. Leaving those rows is the bug it
+     * looked like from outside: the schedule says 09:00, the list says you are
+     * being woken at 05:43, and both report honestly.
+     *
+     * Deleted rather than recomputed. Recomputing would spend a provider call on
+     * every small edit, and it would have to decide what happens to the anchor,
+     * which is written once precisely so that nothing can quietly move it. A user
+     * changing their own schedule is not a dropped push: the old anchor now
+     * guarantees a morning nobody is having, so the honest thing is to let the
+     * next arming compute a fresh one.
+     *
+     * Only future mornings. A past occurrence records an alarm that already rang,
+     * and rewriting that is a different mistake.
+     */
+    async discardUpcoming(scheduleId: string): Promise<number> {
+        const today = DateTime.now().toISODate() ?? '';
+
+        const result = await ScheduleOccurrence.createQueryBuilder()
+            .delete()
+            .where('schedule_id = :scheduleId', { scheduleId })
+            .andWhere('date >= :today', { today })
+            .andWhere('state IN (:...states)', {
+                states: [OccurrenceState.PENDING, OccurrenceState.ARMED],
+            })
+            .execute();
+
+        return result.affected ?? 0;
+    }
+
     async findOwned(deviceId: string, id: string): Promise<ScheduleOccurrence | null> {
         return ScheduleOccurrence.findOneBy({ id, deviceId });
     }

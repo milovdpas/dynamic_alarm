@@ -504,12 +504,20 @@ Decided 2026-08-14 after the first real morning. The alarm rang correctly; the
 app around it could not show what was armed, which train it had chosen, or let a
 schedule be changed. See the information architecture section in PLAN.md.
 
-- [ ] Tab shell: Today, Schedules, Settings
-- [ ] Schedules tab: list with each schedule's next armed time
-- [ ] Schedule editor: add, edit, delete, pause, reusing the onboarding steps
-- [ ] Arm every active schedule rather than only the first, and cancel OS alarms
+- [x] Tab shell: Today, Schedules, Settings
+- [x] Schedules tab: list with each schedule's next armed time
+- [x] Schedule editor: name, deadline, days and the morning routine, then a
+      recalculate that shows the departures those edits produce and lets one be
+      chosen before saving. Pause and delete live on the list
+- [x] Changing where a schedule travels, its travel mode, and how the station is
+      reached at either end
+- [x] The editor lives at `/schedules/[id]/overview`, not `/schedule/[id]`. Route
+      groups are invisible in URLs, so onboarding's schedule step already owned
+      `/schedule`, and expo-router does not strip `/index` from a pushed href.
+      Both surfaced only on the device, as an unmatched route. See CONVENTIONS.md
+- [x] Arm every active schedule rather than only the first, and cancel OS alarms
       for occurrences that no longer exist
-- [ ] `GET /api/v1/occurrences` for this device's armed occurrences
+- [x] `GET /api/v1/occurrences` for this device's armed occurrences
 - [ ] Journey detail: leg-by-leg timeline, buffer breakdown, and the event trail
       that already exists in the database and has never been shown
 - [ ] Simulated delay and cancellation, so the interesting path can be tested on
@@ -520,6 +528,38 @@ schedule be changed. See the information architecture section in PLAN.md.
 - [ ] `TomTomProvider`: `arriveAt`
 - [ ] Predictive → live traffic switch inside the departure window
 - [ ] Continuous risk buffer
+
+### Two things a cleared cache found
+
+Both fixed 2026-08-17, both invisible with an app that had already registered.
+
+- **Onboarding never appeared on a fresh install.** Screens fetch on mount and
+  registration was racing them, so the first requests went out unauthenticated
+  and Today showed a 401 banner where the setup prompt belongs. Registration
+  moved into the request layer, so the launch order stops mattering. See
+  CONVENTIONS.md.
+- **Settings was a heading with nothing under it.** The disruption switches are
+  chosen by how the user's schedules travel, and a device with no schedules has
+  none to show. It now says so.
+
+## Agreed, not yet scheduled
+
+Both decided 2026-08-16, both written up in PLAN.md.
+
+- [ ] Cache every API read so the app stays readable when the backend does not
+      answer, with cached answers labelled and dated. Writes are refused rather
+      than queued: a queued edit to an alarm lands while its owner is asleep.
+      Shares a store with the M1 offline mirror, so they are worth doing together
+- [ ] Theme choice in settings: system, light or dark, with system staying the
+      default. `ThemeContext` already follows the system and has a toggle nothing
+      can reach; what is missing is the row, the persistence and applying it
+      before the first paint. Extra palettes are a later idea the `Colors` map
+      already allows
+- [ ] Optional lock on stopping the alarm: arithmetic, or a typed word or PIN,
+      opt in and off by default. The hard part is the constraint list, not the
+      puzzle: stopping must always be possible through a ten second hold, the
+      lock guards dismiss rather than silence, and it must survive the ring
+      screen failing to render
 
 ## M4: iOS
 

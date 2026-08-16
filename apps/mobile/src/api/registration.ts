@@ -1,6 +1,4 @@
-import { APP_CONSTANTS } from '@alarm/types';
-
-import { getDevice, registerDevice, updateDevice } from './devices';
+import { getDevice, updateDevice } from './devices';
 import appConfig from '@/config';
 import Axios, { ApiRequestError, CLIENT_ERROR_CODES } from '@/utils/modules/Axios';
 import Storage from '@/utils/modules/Storage';
@@ -98,7 +96,10 @@ export async function ensureDeviceRegistered(): Promise<ApiConnection> {
         };
     }
 
-    const existing = await Axios.getToken();
+    // Registers if there is no token yet, and shares the attempt with any
+    // screen that got there first. This hook is now a reporter: the token is
+    // guaranteed by the request layer rather than by launch order.
+    const existing = await Axios.ensureToken();
     if (existing !== null) {
         // Registered on a previous launch. The device id is not stored beside
         // the token, and nothing needs it yet, so this does not spend a request
@@ -113,15 +114,15 @@ export async function ensureDeviceRegistered(): Promise<ApiConnection> {
         };
     }
 
+    // No token, and registration could not get one. Reported by asking the
+    // server who we are, which produces the real reason (unreachable, wrong
+    // address, refused) rather than a guess.
     try {
-        const result = await registerDevice({
-            timezone: APP_CONSTANTS.TIMEZONE,
-            appVersion: appConfig.appVersion,
-        });
+        const device = await getDevice();
         return {
             ...base,
             state: 'connected',
-            deviceId: result.deviceId,
+            deviceId: device.deviceId,
             errorCode: null,
             errorDetail: null,
             pushToken: await syncPushToken(),

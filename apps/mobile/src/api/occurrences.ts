@@ -1,5 +1,9 @@
 import { API_ENDPOINTS } from '@alarm/types';
-import type { ListAlarmEventsResponse, OccurrenceResponse } from '@alarm/types';
+import type {
+    ListAlarmEventsResponse,
+    ListOccurrencesResponse,
+    OccurrenceResponse,
+} from '@alarm/types';
 
 import Axios, { ApiRequestError } from '@/utils/modules/Axios';
 
@@ -22,6 +26,17 @@ export async function nextOccurrence(): Promise<OccurrenceResponse | null> {
         }
         throw error;
     }
+}
+
+/**
+ * Every armed morning, soonest first.
+ *
+ * What the schedules list is built from: each schedule shows the time it will
+ * actually wake you rather than only that it is active. Free, like the other
+ * reads, because the plans were stored when the occurrences were armed.
+ */
+export async function listOccurrences(): Promise<ListOccurrencesResponse> {
+    return Axios.get<ListOccurrencesResponse>(API_ENDPOINTS.OCCURRENCES.LIST);
 }
 
 /**

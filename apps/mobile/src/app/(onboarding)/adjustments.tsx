@@ -46,7 +46,7 @@ export default function AdjustmentsStep() {
             .then(() => {
                 // replace, not push: the answers are saved, and going back into
                 // a finished flow would let someone create the whole thing twice.
-                router.replace('/');
+                router.replace('/(tabs)');
             })
             .catch((error: unknown) => {
                 setErrorCode(ApiRequestError.from(error).code);

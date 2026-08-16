@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { OccurrenceResponse } from '@alarm/types';
 
-import { ackOccurrence, armSchedule, listSchedules, nextOccurrence } from '@/api';
+import { ackOccurrence, armSchedule, listOccurrences, listSchedules } from '@/api';
 import { canGuaranteeAlarm, getAlarmScheduler } from '@/alarm';
 import i18n from '@/i18n/i18n';
 import { rememberHeldAlarm } from '@/push/heldAlarm';
@@ -61,26 +61,48 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
      */
     const load = useCallback(async (force: boolean): Promise<NextAlarm> => {
         try {
-            // A refresh skips the read on purpose: the stored plan is exactly
+            // A refresh skips the read on purpose: the stored plans are exactly
             // what the user is asking to have recomputed.
-            const existing = force ? null : await nextOccurrence();
-            const occurrence = existing ?? (await armNextSchedule());
+            const existing = force ? [] : await listOccurrences();
+            const occurrences = existing.length > 0 ? existing : await armActiveSchedules();
 
-            if (occurrence === null) {
+            // Alarms the OS still holds for mornings that no longer exist. A
+            // deleted schedule that keeps ringing is worse than one that never
+            // rang, so this runs even when there is nothing left to arm.
+            await cancelOrphans(occurrences);
+
+            if (occurrences.length === 0) {
                 return { state: 'none', occurrence: null, armed: false, errorCode: null };
             }
 
-            const armed = await arm(occurrence);
-            if (armed) {
-                // Only once the OS confirms. Reporting an intention would let
-                // the server believe a push landed when it had not, which is
-                // the one thing this endpoint exists to tell apart.
-                await ackOccurrence(occurrence.id, occurrence.currentWakeAt).catch(
-                    () => undefined,
-                );
+            // Every armed morning is held by the OS, not only the soonest. The
+            // schedules list says each one is armed, and it has to be true.
+            const armed = await Promise.all(occurrences.map((each) => arm(each)));
+
+            for (const [index, occurrence] of occurrences.entries()) {
+                if (armed[index] === true) {
+                    // Only once the OS confirms. Reporting an intention would
+                    // let the server believe a push landed when it had not,
+                    // which is the one thing that endpoint exists to tell apart.
+                    await ackOccurrence(occurrence.id, occurrence.currentWakeAt).catch(
+                        () => undefined,
+                    );
+                }
             }
 
-            return { state: 'ready', occurrence, armed, errorCode: null };
+            // The soonest is what Today shows, and the list arrives in that
+            // order, so this is the first rather than a search.
+            const soonest = occurrences[0];
+            if (soonest === undefined) {
+                return { state: 'none', occurrence: null, armed: false, errorCode: null };
+            }
+
+            return {
+                state: 'ready',
+                occurrence: soonest,
+                armed: armed[0] === true,
+                errorCode: null,
+            };
         } catch (error) {
             return {
                 state: 'failed',
@@ -126,11 +148,51 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
     return { next, busy, refresh };
 }
 
-/** Arms the first active schedule, or null when there is nothing to arm. */
-async function armNextSchedule(): Promise<OccurrenceResponse | null> {
+/**
+ * Arms every active schedule, soonest first.
+ *
+ * All of them, not the first. A schedule is a standing commitment rather than a
+ * mode: weekdays to work and a Saturday morning are both true at once, and
+ * arming only one of them silently drops the other on the day it matters.
+ *
+ * One schedule failing does not take the others down. A schedule whose place was
+ * deleted, or whose journey cannot be planned tonight, is a reason to lose that
+ * alarm and not the rest of them.
+ */
+async function armActiveSchedules(): Promise<OccurrenceResponse[]> {
     const schedules = await listSchedules();
-    const active = schedules.find((schedule) => schedule.active);
-    return active === undefined ? null : armSchedule(active.id);
+    const active = schedules.filter((schedule) => schedule.active);
+
+    const armed = await Promise.all(
+        active.map((schedule) => armSchedule(schedule.id).catch(() => null)),
+    );
+
+    return armed
+        .filter((occurrence): occurrence is OccurrenceResponse => occurrence !== null)
+        .sort((a, b) => a.currentWakeAt.localeCompare(b.currentWakeAt));
+}
+
+/**
+ * Cancels OS alarms whose occurrence is gone.
+ *
+ * A deleted or paused schedule leaves its alarm armed in the OS, and the OS does
+ * not care that the server has forgotten it: it would ring at 06:00 for a
+ * commute nobody is making. Only alarms this app owns are touched, matched by
+ * the `occurrence-` prefix, so the M0 harness alarms are left alone.
+ */
+async function cancelOrphans(occurrences: OccurrenceResponse[]): Promise<void> {
+    if (!canGuaranteeAlarm()) {
+        return;
+    }
+
+    const scheduler = getAlarmScheduler();
+    const wanted = new Set(occurrences.map((occurrence) => `occurrence-${occurrence.id}`));
+
+    for (const id of await scheduler.listScheduled()) {
+        if (id.startsWith('occurrence-') && !wanted.has(id)) {
+            await scheduler.cancel(id).catch(() => undefined);
+        }
+    }
 }
 
 /**

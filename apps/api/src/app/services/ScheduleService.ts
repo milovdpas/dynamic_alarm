@@ -4,6 +4,7 @@ import type { CreateScheduleRequest, UpdateScheduleRequest } from '@alarm/types'
 import Place from '../models/Place.entity';
 import Routine from '../models/Routine.entity';
 import Schedule from '../models/Schedule.entity';
+import { OccurrenceService } from './OccurrenceService';
 
 /**
  * Why a write was refused, when it was.
@@ -25,6 +26,8 @@ export type ScheduleWriteResult =
     | { ok: false; problem: ScheduleProblem };
 
 export class ScheduleService {
+    private readonly occurrences = new OccurrenceService();
+
     async list(deviceId: string): Promise<Schedule[]> {
         return Schedule.find({ where: { deviceId }, order: { createdAt: 'ASC' } });
     }
@@ -98,7 +101,17 @@ export class ScheduleService {
             return { ok: false, problem: 'MISSING_FIXED_TRAVEL_MINUTES' };
         }
 
-        return { ok: true, schedule: await schedule.save() };
+        const saved = await schedule.save();
+
+        if (affectsPlanning(input)) {
+            // Anything already armed was computed from the old answer. Left
+            // alone it keeps waking someone at a time their schedule no longer
+            // says, which is exactly how this surfaced: an edit that appeared to
+            // save and changed nothing.
+            await this.occurrences.discardUpcoming(saved.id);
+        }
+
+        return { ok: true, schedule: saved };
     }
 
     async remove(schedule: Schedule): Promise<void> {
@@ -136,4 +149,34 @@ export class ScheduleService {
 
         return null;
     }
+}
+
+/**
+ * Whether a change alters the wake time that was already computed.
+ *
+ * `name` is not on this list, and that is the whole point of having one:
+ * renaming a schedule should not throw away an armed morning and spend a
+ * provider call to rebuild an identical plan.
+ *
+ * `active` is here because pausing must drop what is armed, and resuming must
+ * compute a fresh plan rather than restore a stale one.
+ */
+function affectsPlanning(input: UpdateScheduleRequest): boolean {
+    const planningFields: (keyof UpdateScheduleRequest)[] = [
+        'originPlaceId',
+        'destinationPlaceId',
+        'routineId',
+        'arrivalTime',
+        'daysOfWeek',
+        'mode',
+        'originAccess',
+        'destinationAccess',
+        'journeyOffset',
+        'fixedTravelMinutes',
+        'buffers',
+        'timezone',
+        'active',
+    ];
+
+    return planningFields.some((field) => input[field] !== undefined);
 }

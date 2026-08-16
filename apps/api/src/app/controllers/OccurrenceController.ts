@@ -1,10 +1,16 @@
 import type { Response } from 'express';
-import type { ListAlarmEventsResponse, OccurrenceResponse } from '@alarm/types';
+import { In } from 'typeorm';
+import type {
+    ListAlarmEventsResponse,
+    ListOccurrencesResponse,
+    OccurrenceResponse,
+} from '@alarm/types';
 
 import type { Handler, IdParams } from '../../interfaces/IHttp';
 import type { BodyOf } from '../middleware/ValidateRequest';
 import AlarmEvent from '../models/AlarmEvent.entity';
 import Schedule from '../models/Schedule.entity';
+import type ScheduleOccurrence from '../models/ScheduleOccurrence.entity';
 import { OccurrenceService } from '../services/OccurrenceService';
 import { ScheduleService } from '../services/ScheduleService';
 import type { SchedulePlanProblem } from '../services/SchedulePlanService';
@@ -32,6 +38,23 @@ export default class OccurrenceController {
 
         const schedule = await Schedule.findOneBy({ id: occurrence.scheduleId });
         sendSuccess<OccurrenceResponse>(res, occurrence.toDto(schedule?.name ?? ''));
+    };
+
+    /**
+     * Every armed morning for this device, soonest first.
+     *
+     * The schedule names are read in one query rather than one per occurrence.
+     * A handful of rows either way, but the alternative is a loop of queries
+     * that grows with the number of schedules for no reason.
+     */
+    list: Handler = async (req, res) => {
+        const occurrences = await this.occurrences.findArmed(req.device.id);
+        const names = await this.scheduleNames(occurrences);
+
+        sendSuccess<ListOccurrencesResponse>(
+            res,
+            occurrences.map((occurrence) => occurrence.toDto(names.get(occurrence.scheduleId) ?? '')),
+        );
     };
 
     /**
@@ -96,6 +119,16 @@ export default class OccurrenceController {
             events.map((event) => event.toDto()),
         );
     };
+
+    private async scheduleNames(occurrences: ScheduleOccurrence[]): Promise<Map<string, string>> {
+        const ids = [...new Set(occurrences.map((occurrence) => occurrence.scheduleId))];
+        if (ids.length === 0) {
+            return new Map();
+        }
+
+        const schedules = await Schedule.findBy({ id: In(ids) });
+        return new Map(schedules.map((schedule) => [schedule.id, schedule.name]));
+    }
 
     private sendProblem(res: Response, problem: SchedulePlanProblem): void {
         switch (problem) {

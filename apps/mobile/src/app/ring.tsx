@@ -52,7 +52,7 @@ export default function RingScreen() {
      * already running). `replace` leaves this route whatever the history is.
      */
     const leaveRingScreen = useCallback(async () => {
-        router.replace('/');
+        router.replace('/(tabs)');
         if (isTakeover) {
             await moveAppToBackground();
         }

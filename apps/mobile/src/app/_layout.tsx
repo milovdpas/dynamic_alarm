@@ -31,7 +31,11 @@ function RootNavigator() {
     return (
         <NavigationTheme value={theme === 'dark' ? DarkTheme : DefaultTheme}>
             <Stack>
-                <Stack.Screen name="index" options={{ title: 'Dynamic Alarm' }} />
+                {/*
+                 * The tab group draws its own tab bar, and each tab draws its
+                 * own header. Without this the stack adds a second one above it.
+                 */}
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 {/*
                  * The group runs its own Stack, which draws its own header with
                  * its own back arrow. Without this the two nest and the screen
@@ -39,12 +43,42 @@ function RootNavigator() {
                  * flow entirely.
                  */}
                 <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
-                <Stack.Screen name="settings" options={{ title: t('settings.title') }} />
                 {/*
                  * Reachable only from settings, after ten taps on the version
                  * and a password. Still a real route: the gate is about not
                  * being stumbled into, not about being unreachable.
                  */}
+                {/*
+                 * Two naming decisions here, both learned by hitting them.
+                 *
+                 * `/schedules/...` rather than `/schedule/...` because
+                 * onboarding's schedule step already owns `/schedule`, and route
+                 * groups do not appear in URLs. Two nodes claiming one segment
+                 * resolves to nothing, reported as an unmatched route.
+                 *
+                 * `overview` rather than `index` because `resolveHref` does not
+                 * strip a trailing `/index` from a pushed pathname, so an index
+                 * file inside a dynamic folder is reachable by the router and not
+                 * by any href that typed routes will accept. Naming the segment
+                 * makes the route and the link agree.
+                 */}
+                <Stack.Screen name="schedules/[id]/overview" options={{ title: t('schedules.edit') }} />
+                <Stack.Screen
+                    name="schedules/[id]/deadline"
+                    options={{ title: t('schedules.section_deadline') }}
+                />
+                <Stack.Screen
+                    name="schedules/[id]/travel"
+                    options={{ title: t('schedules.section_travel') }}
+                />
+                <Stack.Screen
+                    name="schedules/[id]/routine"
+                    options={{ title: t('schedules.section_routine') }}
+                />
+                <Stack.Screen
+                    name="settings/disruptions"
+                    options={{ title: t('settings.disruptions') }}
+                />
                 <Stack.Screen name="debug" options={{ title: t('settings.debug_title') }} />
                 <Stack.Screen
                     name="ring"

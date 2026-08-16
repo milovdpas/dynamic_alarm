@@ -10,6 +10,8 @@ import { DisruptionSweepService } from '../src/app/services/DisruptionSweepServi
 import { MonitorService } from '../src/app/services/MonitorService';
 import { PushDeliveryService } from '../src/app/services/PushDeliveryService';
 import { PushService } from '../src/app/services/PushService';
+import { RoutineService } from '../src/app/services/RoutineService';
+import { ScheduleService } from '../src/app/services/ScheduleService';
 import type { PushOutcome } from '../src/app/services/PushService';
 import { StubNsModule, disruption, stationlessDisruption } from './support/disruptions';
 import { seedCommute, seedOccurrence, seedSchedule } from './support/factories';
@@ -357,3 +359,65 @@ describe('push delivery', () => {
         expect(push.sent).toHaveLength(0);
     });
 });
+
+describe('editing a schedule discards what it already armed', () => {
+    /**
+     * The failure this prevents was reported from a real morning: the schedule
+     * said 09:00, the list said the alarm was 05:43, and both were telling the
+     * truth. Nothing errored, so only an assertion catches it coming back.
+     */
+    it('drops an upcoming occurrence when the deadline moves', async () => {
+        const { device, home, work, routine } = await seedCommute();
+        const schedule = await seedSchedule(device, { origin: home, destination: work, routine });
+        const occurrence = await seedOccurrence(schedule, { date: futureDate(4) });
+
+        await new ScheduleService().update(schedule, { arrivalTime: '09:00' });
+
+        expect(await ScheduleOccurrence.findOneBy({ id: occurrence.id })).toBeNull();
+    });
+
+    it('drops it when the routine behind it changes', async () => {
+        // The routine is the other half of the arithmetic: the journey says when
+        // to leave, the routine says how long before that to wake.
+        const { device, home, work, routine } = await seedCommute();
+        const schedule = await seedSchedule(device, { origin: home, destination: work, routine });
+        const occurrence = await seedOccurrence(schedule, { date: futureDate(4) });
+
+        await new RoutineService().update(routine, {
+            steps: [{ label: 'Shower', minutes: 40, enabled: true }],
+        });
+
+        expect(await ScheduleOccurrence.findOneBy({ id: occurrence.id })).toBeNull();
+    });
+
+    it('keeps it when only the name changes', async () => {
+        // Renaming must not throw away an armed morning and spend a provider
+        // call rebuilding an identical plan.
+        const { device, home, work, routine } = await seedCommute();
+        const schedule = await seedSchedule(device, { origin: home, destination: work, routine });
+        const occurrence = await seedOccurrence(schedule, { date: futureDate(4) });
+
+        await new ScheduleService().update(schedule, { name: 'Mornings' });
+
+        expect(await ScheduleOccurrence.findOneBy({ id: occurrence.id })).not.toBeNull();
+    });
+
+    it('leaves a morning that has already happened alone', async () => {
+        // A past occurrence records an alarm that rang. Rewriting that is a
+        // different mistake.
+        const { device, home, work, routine } = await seedCommute();
+        const schedule = await seedSchedule(device, { origin: home, destination: work, routine });
+        const occurrence = await seedOccurrence(schedule, { date: futureDate(-3) });
+
+        await new ScheduleService().update(schedule, { arrivalTime: '09:00' });
+
+        expect(await ScheduleOccurrence.findOneBy({ id: occurrence.id })).not.toBeNull();
+    });
+});
+
+/** An ISO date some days from today, for occurrences that are not about time of day. */
+function futureDate(days: number): string {
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+    return date.toISOString().slice(0, 10);
+}

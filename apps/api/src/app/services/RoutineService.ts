@@ -2,9 +2,12 @@ import type { CreateRoutineRequest, UpdateRoutineRequest } from '@alarm/types';
 
 import Routine from '../models/Routine.entity';
 import RoutineStep from '../models/RoutineStep.entity';
+import { OccurrenceService } from './OccurrenceService';
 import Schedule from '../models/Schedule.entity';
 
 export class RoutineService {
+    private readonly occurrences = new OccurrenceService();
+
     async list(deviceId: string): Promise<Routine[]> {
         return Routine.find({ where: { deviceId }, order: { createdAt: 'ASC' } });
     }
@@ -46,7 +49,21 @@ export class RoutineService {
             routine.steps = input.steps.map((step, index) => buildStep(step, index));
         }
 
-        return routine.save();
+        const saved = await routine.save();
+
+        if (input.steps !== undefined) {
+            // The routine is half the arithmetic: the journey says when to leave,
+            // the routine says how long before that to wake. Changing it while an
+            // alarm is armed leaves that alarm computed from a morning that no
+            // longer exists, so everything built on it is discarded and the next
+            // arming works it out again.
+            const schedules = await Schedule.findBy({ routineId: saved.id });
+            for (const schedule of schedules) {
+                await this.occurrences.discardUpcoming(schedule.id);
+            }
+        }
+
+        return saved;
     }
 
     /**

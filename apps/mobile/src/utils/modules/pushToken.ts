@@ -2,6 +2,7 @@ import Constants from 'expo-constants';
 
 import { requestNotificationPermission } from '@/alarm/notificationPermission';
 import { loadOptionalModule } from '@/utils/modules/optionalModule';
+import { isExpoGo } from '@/utils/modules/runtime';
 
 /**
  * Why a push token could not be obtained. Reported rather than thrown, because
@@ -34,6 +35,12 @@ type NotificationsModule = typeof import('expo-notifications');
  * failure here is a named result rather than an exception.
  */
 export async function getPushToken(): Promise<PushTokenResult> {
+    if (isExpoGo()) {
+        // Importable there, and refuses when used. Reported rather than thrown,
+        // like every other reason a token can be missing.
+        return { problem: 'UNSUPPORTED_RUNTIME' };
+    }
+
     const notifications = loadOptionalModule<NotificationsModule>(
         () => require('expo-notifications') as NotificationsModule,
     );

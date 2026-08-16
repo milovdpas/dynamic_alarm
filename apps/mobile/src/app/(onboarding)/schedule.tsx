@@ -1,34 +1,23 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { DateTime } from 'luxon';
-import { APP_CONSTANTS, DEFAULT_BUFFERS, Weekday } from '@alarm/types';
+import { APP_CONSTANTS, DEFAULT_BUFFERS } from '@alarm/types';
 import type { WakePlan } from '@alarm/types';
 
 import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { planOptions } from '@/api';
 import { Radius, Spacing } from '@/assets/Stylesheet';
 import ActionButton from '@/components/buttons/ActionButton';
-import DetailRow from '@/components/ui/DetailRow';
+import JourneyOptions from '@/components/ui/JourneyOptions';
 import TimeField from '@/components/ui/TimeField';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import WarningBanner from '@/components/ui/WarningBanner';
+import WeekdayPicker from '@/components/ui/WeekdayPicker';
 import { useOnboarding } from '@/utils/contexts/OnboardingContext';
-import { useThemeColor } from '@/utils/hooks/useThemeColor';
 import { ApiRequestError } from '@/utils/modules/Axios';
-
-const ALL_DAYS = [
-    Weekday.MONDAY,
-    Weekday.TUESDAY,
-    Weekday.WEDNESDAY,
-    Weekday.THURSDAY,
-    Weekday.FRIDAY,
-    Weekday.SATURDAY,
-    Weekday.SUNDAY,
-];
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -44,9 +33,6 @@ export default function ScheduleStep() {
     const router = useRouter();
     const { draft, update, routineMinutes } = useOnboarding();
 
-    const border = useThemeColor({}, 'border');
-    const selectedBackground = useThemeColor({}, 'backgroundSelected');
-    const primary = useThemeColor({}, 'primary');
 
     const [options, setOptions] = useState<WakePlan[] | null>(null);
     const [busy, setBusy] = useState(false);
@@ -54,15 +40,6 @@ export default function ScheduleStep() {
 
     const timeValid = TIME_PATTERN.test(draft.arrivalTime);
     const ready = timeValid && draft.daysOfWeek.length > 0;
-
-    const toggleDay = (day: Weekday) => {
-        const has = draft.daysOfWeek.includes(day);
-        update({
-            daysOfWeek: has
-                ? draft.daysOfWeek.filter((each) => each !== day)
-                : [...draft.daysOfWeek, day].sort((a, b) => a - b),
-        });
-    };
 
     const preview = () => {
         if (draft.home === null || draft.work === null) {
@@ -126,33 +103,12 @@ export default function ScheduleStep() {
                         error={timeValid ? undefined : t('schedule.arrival_time_invalid')}
                     />
 
-                    <View style={styles.days}>
-                        {ALL_DAYS.map((day) => {
-                            const on = draft.daysOfWeek.includes(day);
-                            return (
-                                <Pressable
-                                    key={day}
-                                    onPress={() => {
-                                        toggleDay(day);
-                                    }}
-                                    style={[
-                                        styles.day,
-                                        { borderColor: border },
-                                        on && { backgroundColor: selectedBackground },
-                                    ]}
-                                    accessibilityRole="checkbox"
-                                    accessibilityState={{ checked: on }}
-                                >
-                                    <ThemedText
-                                        type="smallBold"
-                                        themeColor={on ? 'text' : 'textSecondary'}
-                                    >
-                                        {t(`schedule.day_short.${String(day)}`)}
-                                    </ThemedText>
-                                </Pressable>
-                            );
-                        })}
-                    </View>
+                    <WeekdayPicker
+                        value={draft.daysOfWeek}
+                        onChange={(daysOfWeek) => {
+                            update({ daysOfWeek });
+                        }}
+                    />
 
                     <ActionButton
                         label={busy ? t('schedule.working') : t('schedule.preview')}
@@ -168,86 +124,21 @@ export default function ScheduleStep() {
                     )}
 
                     {options !== null && (
-                        <View style={styles.options}>
-                            <ThemedText type="subtitle">{t('schedule.options_title')}</ThemedText>
-                            <ThemedText type="small" themeColor="textSecondary">
-                                {t('schedule.options_help')}
-                            </ThemedText>
-
-                            {options.map((option, index) => {
-                                const chosen = index === draft.journeyOffset;
-                                return (
-                                    <Pressable
-                                        key={option.journey?.id ?? String(index)}
-                                        onPress={() => {
-                                            update({ journeyOffset: index });
-                                        }}
-                                        style={[
-                                            styles.option,
-                                            { borderColor: chosen ? primary : border },
-                                            chosen && { backgroundColor: selectedBackground },
-                                        ]}
-                                        accessibilityRole="radio"
-                                        accessibilityState={{ selected: chosen }}
-                                    >
-                                        <View style={styles.optionHeader}>
-                                            <ThemedText type="small" themeColor="textSecondary">
-                                                {t('common.wake_up')}
-                                            </ThemedText>
-                                            <ThemedText
-                                                type="subtitle"
-                                                themeColor={chosen ? 'primary' : 'text'}
-                                            >
-                                                {clock(option.wakeUpAt)}
-                                            </ThemedText>
-                                        </View>
-
-                                        <DetailRow
-                                            label={t('common.leave_home')}
-                                            value={clock(option.departHomeAt)}
-                                        />
-                                        {option.journey !== null && (
-                                            <DetailRow
-                                                label={t('schedule.arrives')}
-                                                value={clock(option.journey.arrivalAt)}
-                                            />
-                                        )}
-                                        <DetailRow
-                                            label={t('plan.travel')}
-                                            value={t('common.minutes_short', {
-                                                count: option.breakdown.travelMinutes,
-                                            })}
-                                        />
-                                        {option.journey !== null && (
-                                            <DetailRow
-                                                label={t('schedule.changes')}
-                                                value={
-                                                    option.journey.transferCount === 0
-                                                        ? t('schedule.direct')
-                                                        : String(option.journey.transferCount)
-                                                }
-                                            />
-                                        )}
-
-                                        {!option.feasible && (
-                                            <WarningBanner
-                                                title={t('plan.infeasible', {
-                                                    minutes: option.shortfallMinutes ?? 0,
-                                                })}
-                                                message={t('schedule.infeasible_help')}
-                                            />
-                                        )}
-                                    </Pressable>
-                                );
-                            })}
-
+                        <>
+                            <JourneyOptions
+                                options={options}
+                                selected={draft.journeyOffset}
+                                onSelect={(journeyOffset) => {
+                                    update({ journeyOffset });
+                                }}
+                            />
                             <ActionButton
                                 label={t('common.next')}
                                 variant="primary"
                                 onPress={next}
                                 disabled={busy}
                             />
-                        </View>
+                        </>
                     )}
 
                 </ScrollView>
@@ -256,12 +147,6 @@ export default function ScheduleStep() {
     );
 }
 
-/** Local wall-clock time, which is the only form of an instant a user reads. */
-function clock(iso: string): string {
-    return DateTime.fromISO(iso, { setZone: true })
-        .setZone(APP_CONSTANTS.TIMEZONE)
-        .toFormat('HH:mm');
-}
 
 
 const styles = StyleSheet.create({
@@ -282,19 +167,5 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderRadius: Radius.small,
         paddingVertical: Spacing.small,
-    },
-    options: {
-        gap: Spacing.small,
-    },
-    option: {
-        borderWidth: 1,
-        borderRadius: Radius.medium,
-        padding: Spacing.medium,
-        gap: Spacing.extraSmall,
-    },
-    optionHeader: {
-        flexDirection: 'row',
-        alignItems: 'baseline',
-        justifyContent: 'space-between',
     },
 });

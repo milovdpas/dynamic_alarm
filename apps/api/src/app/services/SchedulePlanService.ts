@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon';
 import { nextOccurrenceDate, routineDurationMinutes } from '@alarm/core';
-import type { SchedulePlanResponse } from '@alarm/types';
+import type { PlanPreviewRequest, SchedulePlanResponse } from '@alarm/types';
 
 import Place from '../models/Place.entity';
 import Routine from '../models/Routine.entity';
@@ -41,6 +41,38 @@ export class SchedulePlanService {
     private readonly plans = new PlanService();
 
     async forSchedule(schedule: Schedule): Promise<SchedulePlanResult> {
+        const request = await this.requestFor(schedule);
+        if (!request.ok) {
+            return { ok: false, problem: request.problem };
+        }
+
+        const plan = await this.plans.preview(request.input);
+
+        return {
+            ok: true,
+            response: {
+                scheduleId: schedule.id,
+                scheduleName: schedule.name,
+                date: request.date,
+                plan,
+            },
+        };
+    }
+
+
+    /**
+     * Turns a saved schedule into a plan request, or says why it cannot.
+     *
+     * Shared by both callers above, because they differ only in what they ask
+     * the planner for. Two copies would eventually disagree about which day is
+     * next, and the disagreement would show up as an option list for a different
+     * morning than the plan beside it.
+     */
+    private async requestFor(
+        schedule: Schedule,
+    ): Promise<
+        { ok: true; input: PlanPreviewRequest; date: string } | { ok: false; problem: SchedulePlanProblem }
+    > {
         if (!schedule.active) {
             return { ok: false, problem: 'SCHEDULE_INACTIVE' };
         }
@@ -73,7 +105,7 @@ export class SchedulePlanService {
             return { ok: false, problem: 'NO_UPCOMING_OCCURRENCE' };
         }
 
-        const plan = await this.plans.preview({
+        const input: PlanPreviewRequest = {
             origin: { lat: origin.lat, lng: origin.lng },
             destination: { lat: destination.lat, lng: destination.lng },
             arrivalTime: schedule.arrivalTime.slice(0, 5),
@@ -88,16 +120,8 @@ export class SchedulePlanService {
             routineMinutes: routineDurationMinutes(routine),
             buffers: schedule.buffers,
             timezone: schedule.timezone,
-        });
-
-        return {
-            ok: true,
-            response: {
-                scheduleId: schedule.id,
-                scheduleName: schedule.name,
-                date,
-                plan,
-            },
         };
+
+        return { ok: true, input, date };
     }
 }

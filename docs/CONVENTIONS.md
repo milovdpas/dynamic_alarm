@@ -303,3 +303,55 @@ duplicated on each side.
 ### 3. No `reset-project` script, and web is not a target
 
 `platforms` is `["android", "ios"]`.
+
+## expo-router: the generated types are not a route map
+
+`.expo/types/router.d.ts` is written by Metro, not by `tsc`, so it describes the
+app as it was the last time a dev server ran. Move a route file and TypeScript
+will keep enforcing the old shape, which is worse than no types at all: it
+rejects the href that works and suggests one that does not.
+
+The failure it caused surfaced as "Unmatched Route" on the device rather than as
+an error anywhere a build would catch:
+
+**`resolveHref` does not strip a trailing `/index`.** An index file inside a
+dynamic folder is reachable by the router at `/schedules/[id]`, but pushing
+`{ pathname: '/schedules/[id]/index' }` builds `/schedules/<id>/index`, which
+matches nothing, while pushing `/schedules/[id]` is what the stale types reject.
+Naming the segment (`overview.tsx`) makes the route and the link agree, with no
+cast and nothing to remember.
+
+A file and a directory **can** share a segment, contrary to what this document
+said for a day: `(tabs)/settings.tsx` serves `/settings` while
+`settings/disruptions.tsx` serves `/settings/disruptions`, and the same holds for
+`/schedules`. The editor sits at `/schedules/[id]/...` rather than
+`/schedule/[id]/...` for readability, not because the shorter path was refused.
+
+**After moving or renaming any route, regenerate the types before trusting a
+compile error.** Starting the dev server on a spare port for a few seconds is
+enough:
+
+```bash
+npx expo start --port 8099    # then stop it
+```
+
+## Registration is the request layer's job, not the launch order's
+
+Every screen fetches on mount. Registration used to be a separate thing the
+launch happened to start first, and on a fresh install those raced: the first
+screens sent their requests with no token, each got a 401, and the app said "this
+device is no longer recognised" about a device that had simply not finished
+introducing itself. Clearing the app's data reproduced it every time, which is
+also how anyone testing onboarding will meet it.
+
+`Axios.ensureToken()` now registers on demand, and `config()` awaits it, so no
+authenticated request can leave before there is something to authenticate with,
+whichever screen asks first. Concurrent callers share one in-flight attempt:
+without that, six requests on launch create six devices and the user keeps
+whichever wrote its token last.
+
+The rule that follows: **a hook that reports connectivity must never also be the
+thing that establishes it.** `useApiConnection` is a reporter now. Anything that
+gates UI on it should gate on a known failure (`unreachable`, `not_configured`)
+rather than on not-yet-confirmed success, or the one button on an empty screen is
+greyed out while a check nobody can see finishes.

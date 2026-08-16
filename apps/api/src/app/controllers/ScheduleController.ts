@@ -84,6 +84,7 @@ export default class ScheduleController {
         sendSuccess<SchedulePlanResponse>(res, result.response);
     };
 
+
     /**
      * A schedule that cannot be planned is not a server fault, so none of these
      * are 500s. Exhaustive on purpose: a new problem fails to compile here

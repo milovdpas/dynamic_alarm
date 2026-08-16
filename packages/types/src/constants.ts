@@ -29,6 +29,15 @@ export const API_ENDPOINTS = {
         ARM: (id: string) => `/api/v1/schedules/${id}/arm`,
     },
     OCCURRENCES: {
+        /**
+         * Every armed morning for this device, soonest first.
+         *
+         * Distinct from `NEXT`, which answers "what is the alarm", while this
+         * answers "what is armed". The schedules list needs the second: a row
+         * saying a schedule is active without saying when it will wake you is
+         * the half of the answer nobody wants.
+         */
+        LIST: '/api/v1/occurrences',
         NEXT: '/api/v1/occurrences/next',
         DETAIL: (id: string) => `/api/v1/occurrences/${id}`,
         ACK: (id: string) => `/api/v1/occurrences/${id}/ack`,
