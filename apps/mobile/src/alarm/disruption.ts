@@ -76,43 +76,88 @@ function worstDelay(journey: Journey): { minutes: number; service: string | null
 const KEY = 'lastDisruption';
 
 /**
- * The last known disruption, kept on the device for the ring screen.
+ * Mornings kept at once. Every active schedule arms its own occurrence, so more
+ * than one alarm can be waiting, and each of them may have news of its own.
+ */
+const REMEMBERED = 5;
+
+/** Occurrence id to what is wrong with it, oldest entry first. */
+type RememberedNotes = Record<string, Disruption>;
+
+/**
+ * What the app last knew about each armed morning, kept on the device.
  *
  * The alarm screen is the one place in this app that must work with no network:
  * it is drawn over a lock screen by a native service, and a request that has to
  * finish before anything can be read would leave it blank in a tunnel, in
  * flight mode, or on a phone whose radio has not woken up yet.
  *
- * So whatever the app last learned is written here, and the ring screen reads it
- * instantly. It also refreshes in the background when it can, because a stored
- * note is by definition from the last time the app was awake.
+ * So whatever the app learns is written here, by all three of the things that
+ * learn anything: the push that arrives overnight, the Today screen when it
+ * refreshes, and the ring screen itself once it is up.
  *
- * Keyed by occurrence so a note cannot outlive the morning it belongs to and
- * appear on the next one.
+ * **A note per occurrence, not one note.** This held a single entry until
+ * 2026-08-17, which quietly lost news whenever two mornings were armed at once:
+ * a cancellation pushed for Thursday was erased the moment Today refreshed and
+ * found Wednesday running normally, because clearing was unconditional. The
+ * alarm then rang on Thursday with nothing on screen, which is the exact failure
+ * this file exists to prevent.
+ *
+ * Capped rather than swept, since there is no way to list keys through the
+ * storage wrapper and an alarm app should not accumulate rows forever.
  */
 export async function rememberDisruption(
     occurrenceId: string,
     disruption: Disruption | null,
 ): Promise<void> {
-    if (disruption === null) {
+    const notes = await readNotes();
+
+    // Deleted first in both branches: re-inserting moves this morning to the end
+    // of the object, which is what makes the cap below drop the least recently
+    // touched one rather than an arbitrary entry.
+    delete notes[occurrenceId];
+
+    if (disruption !== null) {
+        notes[occurrenceId] = disruption;
+    }
+
+    const ids = Object.keys(notes);
+    for (const stale of ids.slice(0, Math.max(0, ids.length - REMEMBERED))) {
+        delete notes[stale];
+    }
+
+    if (Object.keys(notes).length === 0) {
         await Storage.removeItem(KEY);
         return;
     }
-    await Storage.setItem(KEY, JSON.stringify({ occurrenceId, ...disruption }));
+    await Storage.setItem(KEY, JSON.stringify(notes));
 }
 
 export async function readRememberedDisruption(occurrenceId: string): Promise<Disruption | null> {
+    // A note about a different morning is worse than none: it would explain this
+    // alarm with last week's cancellation.
+    return (await readNotes())[occurrenceId] ?? null;
+}
+
+async function readNotes(): Promise<RememberedNotes> {
     const raw = await Storage.getItem(KEY);
     if (raw === null) {
-        return null;
+        return {};
     }
 
     try {
-        const parsed = JSON.parse(raw) as Disruption & { occurrenceId?: string };
-        // A note about a different morning is worse than none: it would explain
-        // this alarm with last week's cancellation.
-        return parsed.occurrenceId === occurrenceId ? parsed : null;
+        const parsed = JSON.parse(raw) as RememberedNotes | (Disruption & { occurrenceId?: string });
+
+        // The shape this key held before it became a map. Read rather than
+        // discarded, because a phone updating overnight would otherwise lose the
+        // note for a morning that is already armed.
+        if (typeof parsed.kind === 'string') {
+            const legacy = parsed as Disruption & { occurrenceId?: string };
+            return legacy.occurrenceId === undefined ? {} : { [legacy.occurrenceId]: legacy };
+        }
+
+        return parsed as RememberedNotes;
     } catch {
-        return null;
+        return {};
     }
 }

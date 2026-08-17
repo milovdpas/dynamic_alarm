@@ -13,6 +13,7 @@ import SettingsRow from '@/components/settings/SettingsRow';
 import TextField from '@/components/ui/TextField';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
+import { useTheme } from '@/utils/contexts/ThemeContext';
 import { useThemeColor } from '@/utils/hooks/useThemeColor';
 
 /** Taps on the version before the diagnostics gate appears. */
@@ -33,6 +34,7 @@ const TAPS_TO_REVEAL = 10;
 export default function SettingsScreen() {
     const { t, i18n } = useTranslation();
     const router = useRouter();
+    const { preference } = useTheme();
     const border = useThemeColor({}, 'border');
 
     const [taps, setTaps] = useState(0);
@@ -115,6 +117,15 @@ export default function SettingsScreen() {
                             }
                             onPress={() => {
                                 router.push('/settings/language');
+                            }}
+                        />
+
+                        <SettingsRow
+                            icon="theme-light-dark"
+                            label={t('theme.title')}
+                            value={t(`theme.${preference}`)}
+                            onPress={() => {
+                                router.push('/settings/theme');
                             }}
                         />
 

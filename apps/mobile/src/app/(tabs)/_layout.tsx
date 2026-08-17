@@ -18,8 +18,12 @@ import { useThemeColor } from '@/utils/hooks/useThemeColor';
 export default function TabsLayout() {
     const { t } = useTranslation();
     const active = useThemeColor({}, 'primary');
-    const inactive = useThemeColor({}, 'textSecondary');
-    const background = useThemeColor({}, 'background');
+    // Both read from the chrome pair rather than from the page's colours: the
+    // tab bar is not the page, and a palette that paints it differently needs
+    // its labels checked against that surface, not against the background
+    // behind the content.
+    const inactive = useThemeColor({}, 'chromeSecondary');
+    const background = useThemeColor({}, 'chrome');
     const border = useThemeColor({}, 'border');
 
     return (

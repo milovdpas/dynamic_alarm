@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider as NavigationTheme } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 
@@ -5,7 +6,9 @@ import '@/i18n/i18n';
 import { useAlarmRouting } from '@/alarm/useAlarmRouting';
 import { defineWakeChangePushTask } from '@/push/backgroundTask';
 import { usePushRescheduling } from '@/push/usePushRescheduling';
-import { ThemeProvider, useTheme } from '@/utils/contexts/ThemeContext';
+import { Colors } from '@/assets/Stylesheet';
+import { type Theme, ThemeProvider, useTheme } from '@/utils/contexts/ThemeContext';
+import { hideSplash, preventSplashAutoHide } from '@/utils/modules/Splash';
 
 /**
  * At module scope on purpose, and this is the one place that is correct.
@@ -19,8 +22,47 @@ import { ThemeProvider, useTheme } from '@/utils/contexts/ThemeContext';
  */
 defineWakeChangePushTask();
 
+/**
+ * Also module scope, and for the same class of reason.
+ *
+ * Expo hides the splash as soon as the first view mounts, so asking it to wait
+ * from inside a component is asking too late. Held here, released the moment the
+ * stored theme is known, which is what stops the launch flashing white on a
+ * phone set to light by someone who chose dark.
+ */
+preventSplashAutoHide();
+
+/**
+ * The palette the navigation chrome paints with: headers, tab bar, back arrows.
+ *
+ * It has to be told separately, because React Navigation keeps its own theme and
+ * knows nothing about `Colors`. Leaving a third palette out of this is what makes
+ * an app look half-finished: the screen turns NS blue and the header above it
+ * stays the stock one.
+ */
+function navigationTheme(theme: Theme) {
+    const palette = Colors[theme];
+    // Spread rather than built, so anything React Navigation adds to its theme
+    // (fonts arrived this way) keeps coming with a sensible default.
+    const base = theme === 'dark' ? DarkTheme : DefaultTheme;
+
+    return {
+        ...base,
+        colors: {
+            ...base.colors,
+            primary: palette.primary,
+            background: palette.background,
+            // The header, which is the one surface a palette can use to say
+            // whose app this is.
+            card: palette.chrome,
+            text: palette.text,
+            border: palette.border,
+        },
+    };
+}
+
 function RootNavigator() {
-    const { theme } = useTheme();
+    const { theme, ready } = useTheme();
     const { t } = useTranslation();
 
     // Sends the app to the ring screen when a full-screen intent wakes it.
@@ -28,8 +70,23 @@ function RootNavigator() {
     // Registers this device for the pushes that move an armed alarm.
     usePushRescheduling();
 
+    useEffect(() => {
+        if (ready) {
+            hideSplash();
+        }
+    }, [ready]);
+
+    /*
+     * One frame of nothing, behind a splash screen that is still up. Reading the
+     * stored theme is a single storage read, so this is imperceptible, and it is
+     * the alternative to painting the wrong colour first.
+     */
+    if (!ready) {
+        return null;
+    }
+
     return (
-        <NavigationTheme value={theme === 'dark' ? DarkTheme : DefaultTheme}>
+        <NavigationTheme value={navigationTheme(theme)}>
             <Stack>
                 {/*
                  * The tab group draws its own tab bar, and each tab draws its
@@ -80,6 +137,7 @@ function RootNavigator() {
                     name="settings/language"
                     options={{ title: t('language.title') }}
                 />
+                <Stack.Screen name="settings/theme" options={{ title: t('theme.title') }} />
                 <Stack.Screen
                     name="settings/disruptions"
                     options={{ title: t('settings.disruptions') }}

@@ -29,6 +29,16 @@ export const CLIENT_ERROR_CODES = {
      * nothing happened would be a guess.
      */
     REQUEST_TIMED_OUT: 'REQUEST_TIMED_OUT',
+    /**
+     * Something threw that was not an HTTP failure at all.
+     *
+     * Everything unrecognised used to be reported as `NETWORK_UNREACHABLE`,
+     * which meant a bug in this app told the user to check their wifi. That
+     * sent a real morning's debugging at the router and the server, both of
+     * which were fine. An error we cannot classify is worth saying plainly:
+     * the alternative is confident advice about the wrong thing.
+     */
+    UNEXPECTED_FAILURE: 'UNEXPECTED_FAILURE',
 } as const;
 
 /**
@@ -81,7 +91,7 @@ export class ApiRequestError extends Error {
             );
         }
         return new ApiRequestError(
-            CLIENT_ERROR_CODES.NETWORK_UNREACHABLE,
+            CLIENT_ERROR_CODES.UNEXPECTED_FAILURE,
             null,
             error instanceof Error ? error.message : String(error),
         );
@@ -194,10 +204,31 @@ export default class Axios {
         await getSecureStore()?.deleteItemAsync(DEVICE_TOKEN_KEY);
     }
 
+    /**
+     * Throws away a token the server has just rejected, and only that one.
+     *
+     * The comparison is the point. Several screens fetch at once, so a token the
+     * API no longer knows produces a burst of 401s together. Clearing
+     * unconditionally would let the second one delete the token the first had
+     * already replaced it with, and the app would register a new device per
+     * screen until one of them happened to finish last.
+     */
+    private static async discardRejectedToken(rejected: string): Promise<void> {
+        if ((await Axios.getToken()) !== rejected) {
+            return;
+        }
+        try {
+            await Axios.clearToken();
+        } catch {
+            // Nothing else to try. The retry below will see the same token and
+            // give up, which is the same outcome as before this existed.
+        }
+    }
+
     /** In flight registration, so concurrent callers share one attempt. */
     private static registering: Promise<string | null> | null = null;
 
-    private static async config(): Promise<AxiosRequestConfig> {
+    private static async config(): Promise<{ requestConfig: AxiosRequestConfig; token: string | null }> {
         if (appConfig.apiUrl === null) {
             // Refused rather than sent at a guessed address. A relative request
             // would fail as a network error and send whoever debugs it looking
@@ -211,7 +242,7 @@ export default class Axios {
         }
 
         const token = await Axios.ensureToken();
-        return {
+        const requestConfig: AxiosRequestConfig = {
             baseURL: appConfig.apiUrl,
             /**
              * Generous, because the slow endpoints are slow for a real reason.
@@ -222,6 +253,7 @@ export default class Axios {
             timeout: 40000,
             headers: token ? { Authorization: `Bearer ${token}` } : {},
         };
+        return { requestConfig, token };
     }
 
     /**
@@ -230,13 +262,47 @@ export default class Axios {
      * Without it each caller sees a raw `AxiosError` and has to know where the
      * server put its error code, which is how translated messages turn into
      * `error.response.data.error.message` scattered across screens.
+     *
+     * It is also the one place a rejected device token can be recovered from,
+     * which is why the retry lives here rather than in any screen.
      */
     private static async request<T>(send: (config: AxiosRequestConfig) => Promise<{ data: T }>) {
+        const { requestConfig, token } = await Axios.config();
+
         try {
-            const response = await send(await Axios.config());
+            const response = await send(requestConfig);
             return response.data;
         } catch (error) {
-            throw ApiRequestError.from(error);
+            const failure = ApiRequestError.from(error);
+            if (failure.status !== 401 || token === null) {
+                throw failure;
+            }
+
+            /*
+             * The token is real and the server does not know it. That happens
+             * whenever the app is pointed at a different API than the one that
+             * issued it: a phone that ran a development build against the laptop
+             * keeps its token when a preview build replaces it, because the
+             * package id is the same and secure storage survives the install.
+             *
+             * Before this, the only cure was clearing the app's data by hand,
+             * and the copy on screen said "it will register again" while nothing
+             * in the app did. `clearToken` existed and had no callers.
+             */
+            await Axios.discardRejectedToken(token);
+            const replacement = await Axios.ensureToken();
+            if (replacement === null || replacement === token) {
+                throw failure;
+            }
+
+            try {
+                const retry = await send((await Axios.config()).requestConfig);
+                return retry.data;
+            } catch (retryError) {
+                // Not retried again. Two 401s with two different tokens is the
+                // server refusing this device, not a stale credential.
+                throw ApiRequestError.from(retryError);
+            }
         }
     }
 

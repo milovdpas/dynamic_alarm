@@ -556,6 +556,59 @@ notification history: once a re-check finds the journey normal again the message
 goes, and the trail keeps the record. A stale "your train is cancelled" on a
 morning that is running fine is worse than no banner at all.
 
+### Asking for the permissions the alarm needs
+
+**The app has never asked anybody for anything.** `requestPermissions()` exists,
+works, and is called from exactly one place: the debug panel, behind ten taps on
+the version number and a password. A normal install therefore walks through
+onboarding, saves a schedule, arms a morning, and may hold an alarm the OS will
+never ring, without a single dialog appearing.
+
+The copy on the home screen admits it: "this device could not arm an alarm for
+it. Check permissions in the debug panel." That sentence is the bug. It tells the
+user their alarm will not go off and then sends them to a screen they have no way
+of knowing exists.
+
+Two permissions decide whether this app works at all, and they fail differently:
+
+| | Without it | Can we detect it |
+|---|---|---|
+| `POST_NOTIFICATIONS` (Android 13+) | The alarm still plays, because the tone comes from a foreground service, but the full-screen ring screen never appears, so there is nothing to press to stop it | Yes, `PermissionsAndroid.check` |
+| `SCHEDULE_EXACT_ALARM` | The OS may defer the alarm by minutes, which for an alarm clock means it did not work | Yes, via the native module |
+| Full-screen intent (Android 14+) | The ring screen does not cover the lock screen | **No.** Neither the platform nor any library exposes the state. Only watching a real alarm fire tells you |
+
+**Asked during onboarding, at the step that earns it.** Not on first launch,
+where a dialog arrives before the app has said what it is for and gets refused by
+reflex, and not at arming time, which happens in the background. The right moment
+is immediately after the first schedule is saved, when the user has just
+described the morning they want to be woken for and the request explains itself.
+
+What it has to get right:
+
+- **Explain before requesting.** Android gives one chance at the system dialog;
+  a refusal is close to permanent and the second attempt has to be a trip to
+  system settings. A screen of our own that says what the permission is for, then
+  the system dialog, converts far better than the dialog alone.
+- **Refusal is a state, not a dead end.** Someone who says no keeps a working app
+  that cannot ring, and it must say exactly that, permanently, wherever the alarm
+  is shown. Never a nag on every launch.
+- **`Linking.openSettings()` for the second attempt**, since the system dialog
+  will not appear again.
+- **Exact alarms are a settings screen, not a dialog.** `SCHEDULE_EXACT_ALARM`
+  sends the user to a system page and returns them with no result, so the app has
+  to re-check on foreground rather than await an answer.
+- **Re-checked whenever the app comes forward.** Permissions are revocable from
+  system settings at any time, and an alarm app that trusts a grant it was given
+  three weeks ago is exactly the failure this project refuses elsewhere.
+- **The full-screen intent stays unverifiable**, so it is never claimed as
+  granted. The only honest statement is what happened the last time an alarm
+  actually fired.
+
+This is the last thing standing between the app and someone else installing it,
+and it is a bigger hole than any feature currently on the list: everything the
+app does is worthless if the alarm cannot ring, and today whether it can is
+decided by a screen the user is not supposed to find.
+
 ### Language selector in settings
 
 Dutch and English are both maintained and the app already picks one: a stored
@@ -679,29 +732,65 @@ combination. Deciding that is part of the snooze work, not this.
 ### Choosing the theme, and leaving room for more of them
 
 Dark and light both exist and are equally cared for, because this app is looked
-at in bed and again at 06:00. What is missing is the choice: `ThemeContext`
-follows the system and has a `toggleTheme` nobody can reach, so a phone set to
-light shows a white screen to someone half asleep in a dark room, and the app has
-no answer.
+at in bed and again at 06:00. **Built.** `ThemeContext` now stores a preference
+rather than a colour, and settings has the row.
 
 **Three options, not two: system, light, dark.** Following the system has to stay
 available and stay the default, because a phone that dims itself at night is
 already doing the right thing for most people. A two-way toggle would quietly
 throw that away, and there is no way back to it once it is gone.
 
-What the row needs to get right, which is more than it looks:
+What the row had to get right, which was more than it looked:
 
 - **Persisted through the same storage the language uses**, and applied before
   the first paint. A theme that arrives a frame late is a white flash in a dark
-  bedroom, which is the exact moment this setting exists for.
-- **The ring screen follows it too.** That screen is the one guaranteed to be
-  read in the dark, and it currently inherits whatever the rest of the app
-  resolved to. Worth checking rather than assuming, since it is launched by a
-  full-screen intent rather than by ordinary navigation.
+  bedroom, which is the exact moment this setting exists for. Done by holding the
+  native splash screen until the stored value has been read, which is why
+  `expo-splash-screen` is now used rather than merely installed. The hold is
+  released in a `finally`, so a storage failure cannot strand the app on a splash
+  it never returns from.
+- **The ring screen follows it too.** Checked rather than assumed, and the answer
+  is that it correctly does not: it is pinned to `Color.night` with every text
+  colour stated explicitly, so it is dark in both themes. A light ring screen at
+  06:00 would be the wrong outcome, and this is the one screen where the app
+  should overrule the preference.
 - **Say what "system" means** rather than showing three unexplained words. "Match
-  my phone" is a description; "System" is a category name.
+  your phone", with a line underneath about following a phone that darkens itself
+  in the evening.
 
-**Themes beyond the two are a later idea, and the groundwork is already right.**
+**A third palette exists: NS house style.** NS blauw `#003082` and NS geel
+`#FFC917`, added because the journey this app is built around is an NS journey.
+Two rules made it legible rather than merely faithful, and they are the rules any
+further palette inherits:
+
+- **Yellow is a surface, never a foreground.** As text on white it measures
+  1.5:1 and fails everything; *behind* NS blue it measures 7.8:1 and passes
+  comfortably. So it fills the chrome, the selected rows and the input surfaces,
+  and never draws a glyph.
+- **A house style lives on the large surfaces.** The first attempt gave yellow
+  one job, a pale tint behind a chosen row, and produced an app that looked
+  plain blue. The tab bar and the headers are what make it recognisable from a
+  metre away, which is why `chrome` and `chromeSecondary` are now tokens of
+  their own: a palette may want the frame of the app to differ from the page
+  inside it. Light and dark set them to their own background and are unchanged.
+- **`danger` stays red and `warning` stays amber**, but not the same red and
+  amber. The meaning may not change; the hex was never the point. On this
+  palette's warm surfaces the shared amber measured **2.69:1** and the shared
+  red **4.23:1**, both against the pale yellow the warning banner is drawn on.
+  Darkened until they passed: 6.3:1 and 6.7:1, and both clear 4.4:1 even on full
+  NS yellow.
+
+**Contrast is measured, not eyeballed.** Both failures above look perfectly fine
+in a screenshot, which is exactly why looking is not a check. Every foreground
+and surface pair in a palette gets a WCAG ratio before it ships, including the
+combinations that get rejected: `textSecondary` on NS yellow reaches only 3.5:1,
+so the inactive tab label is a darker blue that reaches 5:1.
+
+It is worth being clear that this is NS's registered house style. Fine for a
+personal build; shipping it publicly would need their say-so, and that is a
+question to settle before a Play listing rather than after one.
+
+**Further themes stay a later idea, and the groundwork is already right.**
 Colours live in one `Colors` map keyed by theme name, and every screen reads them
 through `useThemeColor`, so a third palette is an entry in that map rather than a
 sweep through the app. What it would need before shipping:
@@ -713,8 +802,8 @@ sweep through the app. What it would need before shipping:
 - The semantic names kept honest: `danger` has to stay the colour that means
   something is wrong in every palette, or the warnings stop reading as warnings.
 
-Not scheduled. The system, light and dark choice is worth having on its own, and
-it is the part that makes a phone in a dark room bearable.
+Extra palettes remain a later idea. The system, light and dark choice was the
+part that makes a phone in a dark room bearable, and it is done.
 
 ### Choosing the alarm sound, from settings rather than from diagnostics
 

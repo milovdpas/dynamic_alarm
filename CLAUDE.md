@@ -74,6 +74,7 @@ npx expo lint                            # in apps/mobile
 
 npx eas build --profile development --platform android   # day-to-day iteration
 npx eas build --profile preview --platform android       # verification
+npx eas update --branch preview --environment preview  # JS only, no build needed
 ```
 
 **Iterate on `development`, verify on `preview`.** A development build loads its

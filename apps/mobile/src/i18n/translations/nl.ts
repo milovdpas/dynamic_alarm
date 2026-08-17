@@ -124,7 +124,9 @@ export default {
                 'Er antwoordde niets op dat adres. Draait de API, zit de telefoon op dezelfde wifi, en is het adres het LAN-IP van die machine in plaats van localhost?',
             REQUEST_TIMED_OUT:
                 'De server deed er te lang over. Je reis wordt uitgerekend met live gegevens van NS, en dat duurt soms te lang. Probeer het opnieuw.',
-            UNAUTHORIZED: 'Dit toestel wordt niet meer herkend. Het registreert zich opnieuw.',
+            UNAUTHORIZED: 'Dit toestel werd niet meer herkend en heeft zich opnieuw aangemeld. Probeer het nog een keer.',
+            UNEXPECTED_FAILURE:
+                'Er ging iets mis in de app voordat het verzoek verstuurd werd. De details staan in het debugscherm.',
             TRANSPORT_RATE_LIMITED: 'Reisinformatie is nu druk. Het probeert het zo opnieuw.',
             unknown: 'Er ging iets mis bij het bereiken van de API.',
         },
@@ -132,6 +134,14 @@ export default {
     language: {
         title: 'Taal',
         not_persistent: 'Deze keuze geldt tot je de app afsluit. Bouw de development client opnieuw om hem te bewaren.',
+    },
+    theme: {
+        title: 'Weergave',
+        system: 'Zoals je telefoon',
+        light: 'Licht',
+        dark: 'Donker',
+        ns: 'NS-huisstijl',
+        system_hint: 'Volgt de instelling van je telefoon, dus ook een donker thema dat vanzelf aangaat.',
     },
     tabs: {
         today: 'Vandaag',

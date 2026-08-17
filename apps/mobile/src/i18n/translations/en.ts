@@ -124,7 +124,9 @@ export default {
                 'Nothing answered at that address. Check the API is running, that the phone is on the same wifi, and that the address is the LAN IP of that machine rather than localhost.',
             REQUEST_TIMED_OUT:
                 'The server took too long. Your journey is worked out from live NS data, which is sometimes slower than it should be. Try again.',
-            UNAUTHORIZED: 'This device is no longer recognised. It will register again.',
+            UNAUTHORIZED: 'This device is no longer recognised, so it registered again. Try once more.',
+            UNEXPECTED_FAILURE:
+                'Something went wrong inside the app before the request was sent. The debug panel has the details.',
             TRANSPORT_RATE_LIMITED: 'Travel information is busy right now. It will retry shortly.',
             unknown: 'Something went wrong reaching the API.',
         },
@@ -132,6 +134,14 @@ export default {
     language: {
         title: 'Language',
         not_persistent: 'This choice lasts until you close the app. Rebuild the development client to keep it.',
+    },
+    theme: {
+        title: 'Appearance',
+        system: 'Match your phone',
+        light: 'Light',
+        dark: 'Dark',
+        ns: 'NS house style',
+        system_hint: 'Follows your phone’s setting, including a dark theme that switches itself on.',
     },
     tabs: {
         today: 'Today',
