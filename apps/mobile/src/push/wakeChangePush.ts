@@ -157,8 +157,13 @@ async function apply(push: WakeChangedPush): Promise<PushApplyOutcome> {
             kind:
                 push.reason === WakeChangeReason.CANCELLATION ? 'CANCELLATION' : 'DELAY',
             minutes: 0,
-            service: null,
+            // Both from the payload rather than from a request. This runs with
+            // the phone asleep, and the screen that shows them has to work at
+            // 06:00 with no network, so what the server knew has to travel with
+            // the message that woke the task.
+            service: push.cancelledService ?? null,
             simulated: push.message.startsWith('SIMULATED'),
+            replacement: push.replacement ?? null,
         }).catch(() => undefined);
         // Only after the read-back. This is the message that stops the server
         // retrying, so sending it on an intention would end the retries that are

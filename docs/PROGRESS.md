@@ -894,11 +894,37 @@ Both decided 2026-08-16, both written up in PLAN.md.
       exact alarms) is kept separate from recommended (full-screen intent,
       battery), since one means the alarm is broken and the other means it is
       imperfect. No native code: every call already existed
-- [ ] Optional lock on stopping the alarm: arithmetic, or a typed word or PIN,
-      opt in and off by default. The hard part is the constraint list, not the
-      puzzle: stopping must always be possible through a ten second hold, the
-      lock guards dismiss rather than silence, and it must survive the ring
-      screen failing to render
+- [x] Optional lock on stopping the alarm: a sum at three difficulties, or a
+      six character code copied off the screen. Off by default. A PIN was
+      considered and dropped: it is memorised, so it is friction without any
+      waking. **No escape hatch on the screen, and none is needed**, which was
+      the design question that decided the shape of this. The notification's
+      Dismiss action is native, stays unlocked, and is the way out if this screen
+      never appears, so the settings copy says outright that the lock guards the
+      alarm screen rather than pretending to be a cage. A wrong answer costs
+      nothing but time: no lockouts, no penalties, no harder sum next go, since
+      the alarm is still ringing and that is the entire pressure. Snooze does not
+      come into it, being switched off in `APP_CONSTANTS`. Thirteen tests,
+      including one that checks 600 generated sums each equal their own stated
+      answer, because a puzzle with a wrong answer is an alarm nobody can stop
+- [x] The alarm screen says something different depending on whether moving the
+      alarm for a cancellation is switched on. Off: the train is gone and the
+      wake time has not changed, which is all there is to say. On: the same news
+      plus the train to take instead, with its time and the station it leaves
+      from. Reading it needed `replacedJourney`, since after a re-plan the
+      occurrence's own journey **is** the replacement and looks like an ordinary
+      morning: the cancelled one moves aside, and anything reading only `journey`
+      finds nothing wrong at all. The push carries both now, so a phone that
+      slept through the whole thing still knows at 06:00 with no network
+- [x] The alarm screen can be looked at on demand, from the debug panel: an
+      ordinary morning, a delay, a cancellation with the alarm left where it was,
+      the same cancellation with a replacement named, a cancellation with nothing
+      else running, and a simulated notice. It is the hardest screen in the app to see
+      deliberately, since it appears over a lock screen at an hour nobody chooses
+      in states that need a train to be cancelled. The preview opens the real
+      component with an invented disruption, rings nothing and dismisses nothing,
+      and still applies the lock, which is the only way to find out whether a sum
+      is solvable at 06:00 without waiting for one
 
 ## M4: iOS
 

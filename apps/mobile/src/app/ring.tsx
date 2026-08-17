@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 
@@ -8,12 +8,19 @@ import { moveAppToBackground } from '@modules/alarm-sound';
 
 import { dismissAlarm, snoozeAlarm } from '@/alarm/alarmActions';
 import {
+    generateChallenge,
+    isCorrect,
+    readLockSetting,
+    type Challenge,
+} from '@/alarm/alarmLock';
+import {
     readDisruption,
     readRememberedDisruption,
     rememberDisruption,
 } from '@/alarm/disruption';
 import type { Disruption } from '@/alarm/disruption';
 import { listOccurrences } from '@/api';
+import { clock } from '@/utils/time';
 import { Color, FontSize, Radius, Spacing } from '@/assets/Stylesheet';
 import { ThemedText } from '@/components/ui/ThemedText';
 
@@ -32,13 +39,43 @@ import { ThemedText } from '@/components/ui/ThemedText';
 export default function RingScreen() {
     const { t } = useTranslation();
     const router = useRouter();
-    const params = useLocalSearchParams<{ alarmId?: string; takeover?: string }>();
+    const params = useLocalSearchParams<{
+        alarmId?: string;
+        takeover?: string;
+        preview?: string;
+    }>();
 
     // The alarm interrupted the lock screen rather than being opened by hand.
     const isTakeover = params.takeover === 'true';
 
+    /**
+     * A rehearsal, opened from the debug panel.
+     *
+     * This screen is the hardest thing in the app to look at on purpose: it
+     * appears over a lock screen, at an hour nobody chooses, in states that
+     * depend on a train being cancelled. Waiting for a real 06:00 to find out
+     * that a cancellation pushes the buttons off the bottom of the screen is a
+     * bad way to work.
+     *
+     * A preview shows the same component with an invented disruption. It touches
+     * no alarm and stops no service, because there is nothing ringing: leaving
+     * the screen is all that Dismiss can honestly do here.
+     */
+    const preview = params.preview ?? null;
+
     const [now, setNow] = useState(() => new Date());
     const [actionError, setActionError] = useState<string | null>(null);
+
+    /**
+     * The puzzle standing between this alarm and being switched off.
+     *
+     * Generated once, when the screen appears, rather than per attempt. A new
+     * sum on every wrong answer would punish somebody for having nearly got it,
+     * which is the opposite of what this is for.
+     */
+    const [challenge, setChallenge] = useState<Challenge | null>(null);
+    const [attempt, setAttempt] = useState('');
+    const [wrong, setWrong] = useState(false);
 
     /**
      * Whether the journey behind this alarm is disrupted.
@@ -56,10 +93,24 @@ export default function RingScreen() {
         : null;
 
     useEffect(() => {
-        if (occurrenceId === null) {
-            return;
-        }
         let cancelled = false;
+
+        if (preview !== null) {
+            // Deferred a tick, like every other state update in this file, so
+            // nothing is set inside the render pass that scheduled the effect.
+            const state = previewDisruption(preview);
+            void Promise.resolve().then(() => {
+                if (!cancelled) {
+                    setDisruption(state);
+                }
+            });
+            return () => {
+                cancelled = true;
+            };
+        }
+        if (occurrenceId === null) {
+            return undefined;
+        }
 
         // What the app last knew, read from the device. No request, so it is on
         // screen immediately and it works in flight mode, in a tunnel, and
@@ -89,11 +140,23 @@ export default function RingScreen() {
         return () => {
             cancelled = true;
         };
-    }, [occurrenceId]);
+    }, [occurrenceId, preview]);
 
     useEffect(() => {
         const timer = setInterval(() => setNow(new Date()), 1000);
         return () => clearInterval(timer);
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        void readLockSetting().then((setting) => {
+            if (!cancelled) {
+                setChallenge(generateChallenge(setting));
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     /**
@@ -140,11 +203,38 @@ export default function RingScreen() {
         [params.alarmId, leaveRingScreen],
     );
 
-    const dismiss = useCallback(() => void runAlarmAction(dismissAlarm), [runAlarmAction]);
+    /**
+     * Dismisses, or refuses and says so.
+     *
+     * Refusing costs nothing but time: no lockout, no penalty, no harder sum
+     * next go. The alarm is still ringing, which is the entire pressure, and it
+     * keeps ringing regardless of what happens here because the sound belongs to
+     * the native service rather than to this screen.
+     */
+    const dismiss = useCallback(() => {
+        if (challenge !== null && !isCorrect(challenge, attempt)) {
+            setWrong(true);
+            return;
+        }
+        if (preview !== null) {
+            // Nothing is ringing, so there is nothing to stop. Asking the native
+            // service to stop an alarm that does not exist would be a lie the
+            // logs would carry.
+            router.back();
+            return;
+        }
+        void runAlarmAction(dismissAlarm);
+    }, [attempt, challenge, preview, router, runAlarmAction]);
     const snooze = useCallback(() => void runAlarmAction(snoozeAlarm), [runAlarmAction]);
 
     return (
-        <View style={styles.container}>
+        /*
+         * The input is focused the moment this screen appears, so the keyboard
+         * comes up over a screen whose actions sit at the bottom. Android no
+         * longer resizes the window under edge-to-edge, which is why this is
+         * needed on both platforms rather than being an iOS habit.
+         */
+        <KeyboardAvoidingView style={styles.container} behavior="padding">
             <ThemedText type="small" style={styles.label}>
                 {t('alarm.ringing_title')}
             </ThemedText>
@@ -171,6 +261,23 @@ export default function RingScreen() {
                                     minutes: disruption.minutes,
                                 })}
                     </ThemedText>
+                    {/*
+                     * Which train to catch instead, and only when the alarm was
+                     * actually allowed to move for it. With that switch off the
+                     * wake time has not changed, so naming a replacement would
+                     * be describing a journey nobody has been woken for.
+                     */}
+                    {disruption.replacement != null && (
+                        <ThemedText style={styles.replacement}>
+                            {t('ring.take_instead', {
+                                time: clock(disruption.replacement.departureAt),
+                                service:
+                                    disruption.replacement.service ?? t('ring.the_next_service'),
+                                from: disruption.replacement.fromName,
+                            })}
+                        </ThemedText>
+                    )}
+
                     {disruption.simulated && (
                         <ThemedText type="small" style={styles.disruptionText}>
                             {t('ring.simulated')}
@@ -183,6 +290,50 @@ export default function RingScreen() {
                 <ThemedText type="small" style={styles.error}>
                     {actionError}
                 </ThemedText>
+            )}
+
+            {/*
+             * The puzzle sits directly above the button it guards, so the order
+             * on screen matches the order of the actions: read this, then that.
+             *
+             * Its own colours like everything else here, because this screen is
+             * pinned dark and read in a dark room. A themed input would be the
+             * one white rectangle at 06:00.
+             */}
+            {challenge !== null && (
+                <View style={styles.challenge}>
+                    <ThemedText type="small" style={styles.label}>
+                        {t(challenge.kind === 'MATHS' ? 'lock.solve' : 'lock.type_code')}
+                    </ThemedText>
+                    <ThemedText type="display" style={styles.prompt}>
+                        {challenge.prompt}
+                    </ThemedText>
+                    <TextInput
+                        value={attempt}
+                        onChangeText={(value) => {
+                            setAttempt(value);
+                            setWrong(false);
+                        }}
+                        // A number pad for a sum, letters for a code. The wrong
+                        // keyboard is a puzzle about the keyboard.
+                        keyboardType={challenge.kind === 'MATHS' ? 'number-pad' : 'default'}
+                        autoCapitalize="characters"
+                        autoCorrect={false}
+                        autoFocus
+                        style={[styles.input, wrong && styles.inputWrong]}
+                        placeholder={t('lock.answer')}
+                        placeholderTextColor="#5A6B8C"
+                        // Enter submits, so a correct answer needs one gesture
+                        // rather than a reach for a button in the dark.
+                        onSubmitEditing={dismiss}
+                        returnKeyType="done"
+                    />
+                    {wrong && (
+                        <ThemedText type="small" style={styles.error}>
+                            {t('lock.wrong')}
+                        </ThemedText>
+                    )}
+                </View>
             )}
 
             <View style={styles.actions}>
@@ -200,8 +351,54 @@ export default function RingScreen() {
                     <ThemedText style={styles.dismissText}>{t('common.dismiss')}</ThemedText>
                 </Pressable>
             </View>
-        </View>
+        </KeyboardAvoidingView>
     );
+}
+
+/**
+ * The disruption a preview pretends to have found.
+ *
+ * Built here rather than in the debug panel so the states live next to the
+ * screen that renders them: adding one to the panel and forgetting to handle it
+ * would produce a preview of nothing at all.
+ */
+function previewDisruption(kind: string): Disruption | null {
+    switch (kind) {
+        case 'DELAY':
+            return { kind: 'DELAY', minutes: 14, service: 'Intercity 3052', simulated: false };
+        case 'CANCELLATION':
+            // Moving the alarm switched off: the train is gone and the wake time
+            // has not changed, so there is nothing else to name.
+            return {
+                kind: 'CANCELLATION',
+                minutes: 0,
+                service: 'Sprinter 4428',
+                simulated: false,
+                replacement: null,
+            };
+        case 'CANCELLATION_REPLACED':
+            // Moving switched on: the same cancellation, plus the train that was
+            // chosen instead and the time the alarm was moved for.
+            return {
+                kind: 'CANCELLATION',
+                minutes: 0,
+                service: 'Sprinter 4428',
+                simulated: false,
+                replacement: {
+                    service: 'Intercity 3052',
+                    departureAt: '2026-08-18T05:12:00.000Z',
+                    fromName: 'Utrecht Centraal',
+                },
+            };
+        case 'NO_REPLACEMENT':
+            return { kind: 'NO_REPLACEMENT', minutes: 0, service: null, simulated: false };
+        case 'SIMULATED':
+            return { kind: 'DELAY', minutes: 20, service: 'Intercity 3052', simulated: true };
+        default:
+            // A plain morning, which is the state everybody actually sees and
+            // the easiest one to forget to look at.
+            return null;
+    }
 }
 
 const styles = StyleSheet.create({
@@ -239,6 +436,35 @@ const styles = StyleSheet.create({
     disruptionText: {
         color: '#F0A85C',
         textAlign: 'center',
+    },
+    // Brighter than the warning it sits under: the cancellation is the news,
+    // this is the instruction, and the instruction is what somebody half awake
+    // needs to leave the screen with.
+    replacement: {
+        color: Color.white,
+        textAlign: 'center',
+    },
+    challenge: {
+        alignItems: 'center',
+        gap: Spacing.small,
+    },
+    prompt: {
+        color: Color.white,
+        letterSpacing: 2,
+    },
+    input: {
+        minWidth: 200,
+        borderWidth: 1,
+        borderColor: '#8FA0C0',
+        borderRadius: Radius.small,
+        paddingVertical: Spacing.small,
+        paddingHorizontal: Spacing.medium,
+        color: Color.white,
+        fontSize: FontSize.medium,
+        textAlign: 'center',
+    },
+    inputWrong: {
+        borderColor: '#FF8A8A',
     },
     actions: {
         marginTop: Spacing.extraLarge,

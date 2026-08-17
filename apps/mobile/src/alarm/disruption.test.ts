@@ -55,7 +55,7 @@ function occurrence(legs: JourneyLeg[], overrides: Partial<OccurrenceResponse> =
         source: 'NS',
         watchedStationCodes: ['UT', 'ASD'],
     };
-    return { journey, simulated: null, ...overrides } as OccurrenceResponse;
+    return { journey, replacedJourney: null, simulated: null, ...overrides } as OccurrenceResponse;
 }
 
 describe('what counts as a disruption', () => {
@@ -121,6 +121,63 @@ describe('what counts as a disruption', () => {
 
     it('says nothing for a morning with no journey, rather than throwing', () => {
         expect(readDisruption(occurrence([], { journey: null }))).toBeNull();
+    });
+
+    it('survives an occurrence whose replacement field is simply absent', () => {
+        // Not the same as null, and this project has paid for that twice. A DTO
+        // that omits the field must not send the branch below down a path that
+        // reads legs off nothing.
+        const bare = occurrence([leg()]);
+        delete (bare as Partial<OccurrenceResponse>).replacedJourney;
+
+        expect(readDisruption(bare)).toBeNull();
+    });
+});
+
+describe('a cancellation the alarm was allowed to act on', () => {
+    /** The train that is gone, kept on the occurrence after the re-plan. */
+    const replaced = {
+        id: 'journey-0',
+        ctxRecon: null,
+        status: JourneyStatus.CANCELLED,
+        legs: [leg({ cancelled: true, name: 'Sprinter 4428' })],
+        departureAt: '2026-08-18T06:10:00.000Z',
+        arrivalAt: '2026-08-18T06:38:00.000Z',
+        transferCount: 0,
+        source: 'NS',
+        watchedStationCodes: [],
+    };
+
+    it('names the train that is gone and the one to take instead', () => {
+        const result = readDisruption(
+            occurrence(
+                [
+                    leg({ type: LegType.WALK, name: undefined, fromName: 'Home' }),
+                    leg({ name: 'Intercity 3052', fromName: 'Utrecht Centraal' }),
+                ],
+                { replacedJourney: replaced as never },
+            ),
+        );
+
+        expect(result?.kind).toBe('CANCELLATION');
+        expect(result?.service).toBe('Sprinter 4428');
+        // The walk to the station is skipped: what somebody needs at 06:00 is
+        // the train, and the time it actually leaves.
+        expect(result?.replacement).toEqual({
+            service: 'Intercity 3052',
+            departureAt: '2026-08-18T06:10:00.000Z',
+            fromName: 'Utrecht Centraal',
+        });
+    });
+
+    it('offers no replacement when the alarm was left where it was', () => {
+        // The switch is off, so the journey still carries its cancelled leg and
+        // nothing was re-planned. Naming a train nobody is being woken for
+        // would be worse than saying nothing.
+        const result = readDisruption(occurrence([leg({ cancelled: true, name: 'Sprinter' })]));
+
+        expect(result?.kind).toBe('CANCELLATION');
+        expect(result?.replacement).toBeNull();
     });
 });
 

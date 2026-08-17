@@ -86,6 +86,7 @@ export class PushDeliveryService {
                 // Earlier than what the phone holds, so the device applies it
                 // only because the server says not moving is worse.
                 emergency: held !== null && wakeAt.getTime() < held.getTime(),
+                ...replacementFor(occurrence),
             },
             // Worthless once the alarm has rung, so Expo drops it rather than
             // the app having to reject a message about a past morning.
@@ -222,6 +223,47 @@ export class PushDeliveryService {
         });
         return event === null ? null : { reason: event.reason, message: event.message };
     }
+}
+
+/**
+ * What was lost and what was chosen instead, for a re-planned cancellation.
+ *
+ * Empty for everything else. A delay has no replacement, and neither does a
+ * cancellation the device declined to act on: there the alarm has not moved, and
+ * naming a train nobody is being woken for would be worse than saying nothing.
+ *
+ * Sent with the push rather than looked up on the phone, because this arrives
+ * while its owner is asleep and the screen that shows it has to work at 06:00
+ * with no network.
+ */
+function replacementFor(occurrence: ScheduleOccurrence): {
+    cancelledService?: string | null;
+    replacement?: { service: string | null; departureAt: string; fromName: string } | null;
+} {
+    const replaced = occurrence.replacedJourney;
+    // The journey lives on the stored plan, which is the one the wake time was
+    // computed from, so this always names the train the alarm was set for.
+    const journey = occurrence.planSnapshot?.journey ?? null;
+    if (replaced === null || journey === null) {
+        return {};
+    }
+
+    const gone = replaced.legs.find((leg) => leg.cancelled) ?? replaced.legs[0];
+    // The first leg that goes somewhere, skipping the walk or cycle to the
+    // station, which is the rule the engine compares departures by.
+    const service = journey.legs.find((leg) => leg.type !== 'WALK' && leg.type !== 'BIKE');
+
+    return {
+        cancelledService: gone?.name ?? gone?.fromName ?? null,
+        replacement:
+            service === undefined
+                ? null
+                : {
+                      service: service.name ?? null,
+                      departureAt: service.actualDeparture,
+                      fromName: service.fromName,
+                  },
+    };
 }
 
 /**

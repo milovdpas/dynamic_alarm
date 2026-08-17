@@ -143,6 +143,15 @@ export default function SettingsScreen() {
                         />
 
                         <SettingsRow
+                            icon="lock-outline"
+                            label={t('lock.title')}
+                            value={t('lock.summary')}
+                            onPress={() => {
+                                router.push('/settings/lock');
+                            }}
+                        />
+
+                        <SettingsRow
                             icon="theme-light-dark"
                             label={t('theme.title')}
                             value={t(`theme.${preference}`)}

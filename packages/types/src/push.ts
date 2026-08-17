@@ -53,6 +53,24 @@ export interface WakeChangedPush {
      * is merely later than it needed to be, rather than late.
      */
     emergency: boolean;
+    /**
+     * The service that is not running, and the one chosen instead.
+     *
+     * Present only for a cancellation the device opted into acting on, which is
+     * the case where the alarm has moved and the person waking up needs to be
+     * told a different train. Sent with the push rather than looked up on the
+     * phone, because this arrives while they are asleep and the screen that
+     * shows it has to work at 06:00 with no network.
+     *
+     * Optional so an older app ignores it rather than failing to parse a message
+     * that moves an alarm.
+     */
+    cancelledService?: string | null;
+    replacement?: {
+        service: string | null;
+        departureAt: IsoDateTimeString;
+        fromName: string;
+    } | null;
 }
 
 /**

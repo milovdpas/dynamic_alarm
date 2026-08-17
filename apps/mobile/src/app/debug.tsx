@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
+import { useRouter } from 'expo-router';
 import { DateTime } from 'luxon';
 import * as Clipboard from 'expo-clipboard';
 
@@ -75,6 +76,7 @@ function formatPush(entry: PushLogEntry): string {
  */
 export default function DebugScreen() {
     const { t } = useTranslation();
+    const router = useRouter();
     const [permissions, setPermissions] = useState<AlarmPermissionStatus | null>(null);
     const [volume, setVolume] = useState<AlarmVolumeInfo | null>(null);
     const [fullScreen, setFullScreen] = useState<boolean | null>(null);
@@ -508,6 +510,47 @@ export default function DebugScreen() {
                      * disruption moves a real alarm, and nobody should meet that
                      * by accident.
                      */}
+                    {/*
+                     * The alarm screen, on demand. It normally appears over a
+                     * lock screen at an hour nobody chooses, in states that
+                     * depend on a train being cancelled, which makes it the
+                     * hardest screen in the app to look at deliberately.
+                     *
+                     * These open the real component with an invented disruption.
+                     * Nothing rings and nothing is dismissed, so the lock is
+                     * exercised too: whichever puzzle is set in settings has to
+                     * be solved to leave, which is the only way to find out
+                     * whether it is solvable at 06:00 without waiting for one.
+                     */}
+                    <Section title={t('ring_preview.title')}>
+                        <ThemedText type="small" themeColor="textSecondary">
+                            {t('ring_preview.help')}
+                        </ThemedText>
+                        {(
+                            [
+                                'NONE',
+                                'DELAY',
+                                'CANCELLATION',
+                                'CANCELLATION_REPLACED',
+                                'NO_REPLACEMENT',
+                                'SIMULATED',
+                            ] as const
+                        ).map(
+                            (state) => (
+                                <ActionButton
+                                    key={state}
+                                    label={t(`ring_preview.${state}`)}
+                                    onPress={() => {
+                                        router.push({
+                                            pathname: '/ring',
+                                            params: { preview: state },
+                                        });
+                                    }}
+                                />
+                            ),
+                        )}
+                    </Section>
+
                     <Section title={t('simulate.title')}>
                         <ThemedText type="small" themeColor="textSecondary">
                             {t('simulate.help')}

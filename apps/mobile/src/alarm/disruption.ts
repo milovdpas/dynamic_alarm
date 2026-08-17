@@ -23,6 +23,19 @@ export interface Disruption {
     service: string | null;
     /** True when this came from a staged test rather than from NS. */
     simulated: boolean;
+    /**
+     * The service to take instead, when the alarm was allowed to move.
+     *
+     * Only present for a cancellation the user opted into acting on. Without the
+     * opt-in the alarm stays put, there is no replacement to name, and telling
+     * somebody about a train they are not being woken for would be worse than
+     * saying nothing.
+     */
+    replacement?: {
+        service: string | null;
+        departureAt: string;
+        fromName: string;
+    } | null;
 }
 
 /**
@@ -40,12 +53,41 @@ export function readDisruption(occurrence: OccurrenceResponse): Disruption | nul
     const simulated = occurrence.simulated !== null;
     const cancelledLeg = journey.legs.find((leg) => leg.cancelled);
 
+    /*
+     * A cancellation that was acted on. The journey now on the occurrence is the
+     * replacement, and the train that is not running has moved to
+     * `replacedJourney`, so reading only `journey` would find an ordinary
+     * morning and say nothing at all.
+     *
+     * This is the difference the user's own setting makes, and it should be the
+     * difference on screen too: with moving switched off they are told their
+     * train is gone, and with it switched on they are told which one to take.
+     */
+    // `?? null` rather than a plain read, and this project has paid for that
+    // lesson twice already: a field that is absent is not a field that is null,
+    // and `undefined !== null` is true, so the branch below would run on a
+    // morning that has no replacement and read `legs` off nothing.
+    const replaced = occurrence.replacedJourney ?? null;
+    if (replaced !== null) {
+        const goneLeg = replaced.legs.find((leg) => leg.cancelled) ?? replaced.legs[0];
+        return {
+            kind: 'CANCELLATION',
+            minutes: 0,
+            service: goneLeg?.name ?? goneLeg?.fromName ?? null,
+            simulated,
+            replacement: firstService(journey),
+        };
+    }
+
     if (cancelledLeg !== undefined || journey.status === JourneyStatus.CANCELLED) {
         return {
             kind: 'CANCELLATION',
             minutes: 0,
             service: cancelledLeg?.name ?? cancelledLeg?.fromName ?? null,
             simulated,
+            // Nothing was re-planned, so there is nothing to catch instead. The
+            // alarm is staying where it is.
+            replacement: null,
         };
     }
 
@@ -55,6 +97,23 @@ export function readDisruption(occurrence: OccurrenceResponse): Disruption | nul
     }
 
     return { kind: 'DELAY', minutes: worst.minutes, service: worst.service, simulated };
+}
+
+/**
+ * The first leg that actually goes somewhere, skipping the walk or cycle to the
+ * station. The same rule the engine uses when it compares departures, so the
+ * time on the alarm screen is the time the replacement was chosen by.
+ */
+function firstService(journey: Journey): Disruption['replacement'] {
+    const leg = journey.legs.find((each) => each.type !== 'WALK' && each.type !== 'BIKE');
+    if (leg === undefined) {
+        return null;
+    }
+    return {
+        service: leg.name ?? null,
+        departureAt: leg.actualDeparture,
+        fromName: leg.fromName,
+    };
 }
 
 /** The leg running latest, since that is the one that shapes the morning. */
