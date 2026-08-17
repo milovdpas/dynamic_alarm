@@ -21,6 +21,16 @@ export interface PlanRequest {
     originAccess?: AccessMode;
     destinationAccess?: AccessMode;
     timezone: TimeZone;
+    /**
+     * The instant to plan from. Defaults to the real clock.
+     *
+     * Only the car provider reads it, and it needs to: how far away the drive is
+     * decides whether TomTom can answer with live traffic or only with a
+     * forecast. Passing it in rather than reading the clock keeps that decision
+     * testable, which matters for a branch that is otherwise only exercised in
+     * the last hour before somebody leaves the house.
+     */
+    now?: IsoDateTimeString;
 }
 
 export interface TransportProvider {

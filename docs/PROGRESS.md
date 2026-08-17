@@ -635,9 +635,33 @@ schedule be changed. See the information architecture section in PLAN.md.
 
 ## M3: car
 
-- [ ] `TomTomProvider`: `arriveAt`
-- [ ] Predictive → live traffic switch inside the departure window
-- [ ] Continuous risk buffer
+- [x] `TomTomProvider`: `arriveAt`, through `CarJourneyService`, which expresses
+      a drive as a one-leg `Journey` so the engine cannot tell the modes apart
+- [x] Predictive → live traffic switch inside the departure window. TomTom
+      answers any *future* departure with historic and predictive data, and live
+      conditions only for a departure of now, so an alarm armed at 22:00 is
+      running on what that road usually does and would never learn about the
+      lorry that jackknifed at 06:20. The forecast is planned first, because it
+      is the only way to learn when departure actually is; if that lands inside
+      the window the route is asked again as a departure of now and the live
+      duration wins. Two TomTom calls, only ever in the last hour before leaving
+- [x] The live request is deliberately sent with **no** `departAt` at all. A
+      literal timestamp of now is a future departure to TomTom and silently
+      falls back to predictive data, which would look identical in the response
+      and be wrong in exactly the case the switch exists for
+- [x] Departure stays where the plan put it and only the duration is taken from
+      the live answer. Adopting the live route's own departure would move the
+      whole morning by however long the request happened to take
+- [x] A failed or empty live request keeps the forecast. Worse than live
+      conditions, far better than nothing, and it keeps the alarm working through
+      a TomTom outage
+- [x] Continuous risk buffer, `max(5m, 0.15 x travelTime)`, relaxed by a quarter
+      once inside the same window. The engine and the provider now agree about
+      when the estimate stops being a forecast, which they have to: relaxing the
+      padding while still planning on historic data would be the one combination
+      that loses a morning
+- [x] Nine tests, with TomTom stubbed, since "an hour before departure" and "a
+      provider outage" cannot be arranged on demand against a live API
 
 ### Two things a cleared cache found
 

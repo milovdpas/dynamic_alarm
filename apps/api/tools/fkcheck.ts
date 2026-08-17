@@ -42,13 +42,13 @@ async function main(): Promise<void> {
             // deletes cleanly whatever the constraints say, so it proves
             // nothing: the failing case was a device with schedules pointing at
             // places, and that is the one worth exercising.
-            const target = await trx('devices')
+            const target = (await trx('devices')
                 .select('devices.id')
                 .count({ owned: 'schedules.id' })
                 .leftJoin('schedules', 'schedules.device_id', 'devices.id')
                 .groupBy('devices.id')
                 .orderBy('owned', 'desc')
-                .first();
+                .first()) as { id: string } | undefined;
 
             if (target === undefined) {
                 console.log('No devices in this database to test with.');

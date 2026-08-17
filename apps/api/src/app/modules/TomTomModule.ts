@@ -28,13 +28,36 @@ export interface RouteResult {
  * buffer accordingly, and the monitor re-queries as departure approaches.
  */
 export class TomTomModule {
-    /** Driving, arriving no later than `arriveBy`. */
+    /**
+     * Driving, arriving no later than `arriveBy`. A **forecast**.
+     *
+     * TomTom ignores live traffic for any future time, so this is historic and
+     * predictive data: what that road usually does on that day at that hour. It
+     * is the right question the night before and the wrong one at 06:40, when
+     * the road either has an accident on it or does not.
+     */
     async driveArrivingBy(
         origin: GeoPoint,
         destination: GeoPoint,
         arriveBy: string,
     ): Promise<RouteResult | null> {
         return this.route(origin, destination, { arriveAt: arriveBy, travelMode: 'car' });
+    }
+
+    /**
+     * Driving, leaving now. The road **as it is**.
+     *
+     * Live traffic applies only to a departure of now, which is why this exists
+     * separately rather than as a flag: the two are different questions and only
+     * one of them can see the queue that formed twenty minutes ago.
+     *
+     * `departAt` is left off entirely rather than set to a timestamp of now. A
+     * literal time, even one second in the future, is a future departure to
+     * TomTom and silently drops back to predictive data, which would look
+     * identical in the response and be wrong in exactly the case this is for.
+     */
+    async driveLeavingNow(origin: GeoPoint, destination: GeoPoint): Promise<RouteResult | null> {
+        return this.route(origin, destination, { travelMode: 'car', liveTraffic: true });
     }
 
     /**
@@ -62,7 +85,12 @@ export class TomTomModule {
     private async route(
         origin: GeoPoint,
         destination: GeoPoint,
-        options: { arriveAt?: string; travelMode: 'car' | 'pedestrian' | 'bicycle' },
+        options: {
+            arriveAt?: string;
+            travelMode: 'car' | 'pedestrian' | 'bicycle';
+            /** Depart now, which is the only departure live traffic applies to. */
+            liveTraffic?: boolean;
+        },
     ): Promise<RouteResult | null> {
         const locations = `${origin.lat},${origin.lng}:${destination.lat},${destination.lng}`;
         const params = new URLSearchParams({
@@ -73,6 +101,10 @@ export class TomTomModule {
 
         if (options.arriveAt !== undefined) {
             params.set('arriveAt', options.arriveAt);
+            params.set('traffic', 'true');
+        } else if (options.liveTraffic === true) {
+            // No departAt at all. That is what "now" means here, and it is the
+            // only form that gets live conditions.
             params.set('traffic', 'true');
         } else {
             // Pedestrian and bicycle routing reject traffic-aware options, and
