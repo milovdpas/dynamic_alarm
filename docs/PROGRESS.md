@@ -758,11 +758,23 @@ Both decided 2026-08-16, both written up in PLAN.md.
       that was just refused. Writes are refused rather than queued, with their
       own `OFFLINE_WRITE` code and sentence, since a queued edit to an alarm
       lands while its owner is asleep
-- [~] `useApiQuery` puts the cached copy on screen first and corrects it when the
+- [x] `useApiQuery` puts the cached copy on screen first and corrects it when the
       server answers, rather than waiting. Schedules uses it, which also stopped
-      the list blanking every time somebody returns from the editor. Today
-      (`useNextAlarm`) is next and wants doing deliberately, since that hook also
-      arms alarms
+      the list blanking every time somebody returns from the editor
+- [x] Today too, under the rule that separates it from every other screen:
+      **render the cached morning, act only on live data.** `useNextAlarm` does
+      not just read, it arms alarms and cancels orphans, and doing that from a
+      stored list would re-arm a schedule deleted since or cancel an alarm the OS
+      rightly holds because yesterday's list did not mention it. So the read that
+      feeds arming passes `{ live: true }` and fails rather than falling back,
+      while the preview comes from a direct peek and touches nothing. Whether it
+      is armed is read from the OS, a local question with a local answer, so a
+      cached morning does not claim to be unarmed
+- [x] `apps/mobile` has tests. Ten of them, on the cache, and they exist because
+      that feature produced three bugs in an afternoon that both the type checker
+      and the linter passed. Mutation tested: making `peekCache` mark the app
+      stale, and making a rewritten key keep its old position in the eviction
+      queue, each fails exactly the test written for it
 - [ ] The M1 offline mirror still wants doing, and should reuse this store rather
       than start a second one. What is missing is recomputing a wake time on the
       device from cached schedules and routines, which is what would let the app

@@ -9,8 +9,11 @@ import type {
 
 import Axios from '@/utils/modules/Axios';
 
-export async function listSchedules(): Promise<ListSchedulesResponse> {
-    return Axios.get<ListSchedulesResponse>(API_ENDPOINTS.SCHEDULES.LIST);
+export async function listSchedules(options?: {
+    /** Fail rather than answer from the cache. See `Axios.get`. */
+    live?: boolean;
+}): Promise<ListSchedulesResponse> {
+    return Axios.get<ListSchedulesResponse>(API_ENDPOINTS.SCHEDULES.LIST, undefined, options);
 }
 
 export async function createSchedule(input: CreateScheduleRequest): Promise<ScheduleResponse> {

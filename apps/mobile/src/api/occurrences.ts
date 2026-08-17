@@ -37,9 +37,15 @@ export async function nextOccurrence(): Promise<OccurrenceResponse | null> {
  * actually wake you rather than only that it is active. Free, like the other
  * reads, because the plans were stored when the occurrences were armed.
  */
-export async function listOccurrences(): Promise<ListOccurrencesResponse> {
-    return Axios.get<ListOccurrencesResponse>(API_ENDPOINTS.OCCURRENCES.LIST);
+export async function listOccurrences(options?: {
+    /** Fail rather than answer from the cache. See `Axios.get`. */
+    live?: boolean;
+}): Promise<ListOccurrencesResponse> {
+    return Axios.get<ListOccurrencesResponse>(API_ENDPOINTS.OCCURRENCES.LIST, undefined, options);
 }
+
+/** The cache key this read is stored under, for a screen that wants to peek. */
+export const OCCURRENCES_CACHE_KEY = API_ENDPOINTS.OCCURRENCES.LIST;
 
 /**
  * Arms the next morning for a schedule and returns what the device should hold.

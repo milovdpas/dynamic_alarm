@@ -358,7 +358,23 @@ export default class Axios {
      * Only reads. `post`, `patch` and `delete` below are untouched and still
      * fail: offline this app is readable, not editable.
      */
-    static async get<T>(endpoint: string, params?: Record<string, unknown>): Promise<T> {
+    static async get<T>(
+        endpoint: string,
+        params?: Record<string, unknown>,
+        options?: {
+            /**
+             * Refuse the cache and fail instead.
+             *
+             * For a read whose answer is about to be **acted on** rather than
+             * displayed. Today arms alarms from what it reads, and arming from a
+             * stored copy would let a deleted schedule be re-armed, or an alarm
+             * the OS legitimately holds be cancelled as an orphan because the
+             * stale list did not mention it. Showing yesterday is fine; acting on
+             * yesterday is not.
+             */
+            live?: boolean;
+        },
+    ): Promise<T> {
         const key = params === undefined ? endpoint : `${endpoint}?${JSON.stringify(params)}`;
 
         try {
@@ -369,7 +385,7 @@ export default class Axios {
             return body;
         } catch (error) {
             const failure = ApiRequestError.from(error);
-            if (!servableFromCache(failure)) {
+            if (options?.live === true || !servableFromCache(failure)) {
                 throw failure;
             }
 

@@ -152,7 +152,13 @@ export default function HomeScreen() {
                         </View>
                     )}
 
-                    {next.state === 'failed' && (
+                    {/*
+                     * Only when there is nothing to show. Once a morning is on
+                     * screen, cached or live, a failed refresh is a footnote:
+                     * the time is still the one the OS will ring at, and
+                     * StaleNotice already says it could not be checked.
+                     */}
+                    {next.state === 'failed' && next.occurrence === null && (
                         <WarningBanner
                             title={t('home.failed_title')}
                             message={apiErrorMessage(t, next.errorCode)}
@@ -184,7 +190,7 @@ export default function HomeScreen() {
                              * checked since, which is a caveat rather than a
                              * warning.
                              */}
-                            <StaleNotice />
+                            <StaleNotice cachedAt={next.cachedAt} />
 
                             {!next.armed && (
                                 <WarningBanner
@@ -265,6 +271,18 @@ export default function HomeScreen() {
                                 onPress={refresh}
                                 disabled={busy}
                             />
+
+                            {/*
+                             * A refresh that failed while a morning is on
+                             * screen. Quiet, because nothing is broken and the
+                             * alarm is still armed, but never silent: somebody
+                             * pressed a button and it did not do what it said.
+                             */}
+                            {next.state === 'ready' && next.errorCode !== null && !busy && (
+                                <ThemedText type="small" themeColor="warning">
+                                    {apiErrorMessage(t, next.errorCode)}
+                                </ThemedText>
+                            )}
                         </View>
                     )}
 

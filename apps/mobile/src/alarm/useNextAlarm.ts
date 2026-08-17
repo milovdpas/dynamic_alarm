@@ -2,11 +2,18 @@ import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import type { OccurrenceResponse } from '@alarm/types';
 
-import { ackOccurrence, armSchedule, listOccurrences, listSchedules } from '@/api';
+import {
+    ackOccurrence,
+    armSchedule,
+    listOccurrences,
+    listSchedules,
+    OCCURRENCES_CACHE_KEY,
+} from '@/api';
 import { canGuaranteeAlarm, getAlarmScheduler } from '@/alarm';
 import { readDisruption, rememberDisruption } from '@/alarm/disruption';
 import i18n from '@/i18n/i18n';
 import { rememberHeldAlarm } from '@/push/heldAlarm';
+import { peekCache } from '@/utils/modules/ApiCache';
 import { ApiRequestError } from '@/utils/modules/Axios';
 
 /** What the home screen knows about the next morning. */
@@ -23,6 +30,12 @@ export interface NextAlarm {
     armed: boolean;
     /** Error code for the UI to translate. Never shown raw. */
     errorCode: string | null;
+    /**
+     * Set when this is the stored copy rather than an answer from the server.
+     *
+     * Rendered, never acted on. See the note on the read below.
+     */
+    cachedAt: string | null;
 }
 
 const LOADING: NextAlarm = {
@@ -30,6 +43,7 @@ const LOADING: NextAlarm = {
     occurrence: null,
     armed: false,
     errorCode: null,
+    cachedAt: null,
 };
 
 /**
@@ -65,7 +79,7 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
         try {
             // A refresh skips the read on purpose: the stored plans are exactly
             // what the user is asking to have recomputed.
-            const existing = force ? [] : await listOccurrences();
+            const existing = force ? [] : await listOccurrences({ live: true });
             const occurrences = existing.length > 0 ? existing : await armActiveSchedules();
 
             // Alarms the OS still holds for mornings that no longer exist. A
@@ -74,7 +88,13 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
             await cancelOrphans(occurrences);
 
             if (occurrences.length === 0) {
-                return { state: 'none', occurrence: null, armed: false, errorCode: null };
+                return {
+                    state: 'none',
+                    occurrence: null,
+                    armed: false,
+                    errorCode: null,
+                    cachedAt: null,
+                };
             }
 
             // Every armed morning is held by the OS, not only the soonest. The
@@ -105,7 +125,13 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
                 );
             }
             if (soonest === undefined) {
-                return { state: 'none', occurrence: null, armed: false, errorCode: null };
+                return {
+                    state: 'none',
+                    occurrence: null,
+                    armed: false,
+                    errorCode: null,
+                    cachedAt: null,
+                };
             }
 
             return {
@@ -113,6 +139,7 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
                 occurrence: soonest,
                 armed: armed[0] === true,
                 errorCode: null,
+                cachedAt: null,
             };
         } catch (error) {
             return {
@@ -120,6 +147,7 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
                 occurrence: null,
                 armed: false,
                 errorCode: ApiRequestError.from(error).code,
+                cachedAt: null,
             };
         }
         // No dependencies, and that matters more than it looks. Loading can
@@ -145,11 +173,57 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
         useCallback(() => {
             let cancelled = false;
 
-            void load(attempt > 0).then((result) => {
-                if (!cancelled) {
-                    setNext(result);
-                    setBusy(false);
+            /*
+             * The stored copy first, so the wake time is on screen before the
+             * network is consulted. **Rendered and nothing else.** Arming from a
+             * stored list would let a schedule deleted since be re-armed, and
+             * would let `cancelOrphans` cancel an alarm the OS rightly holds
+             * because yesterday's list did not mention it. So this sets state
+             * and stops; `load` below does the acting, and its read refuses the
+             * cache outright.
+             *
+             * Whether it is armed is read from the OS rather than assumed. That
+             * is a local question, answerable with no network, and guessing
+             * `false` would put "the alarm is not set" over an alarm that is.
+             */
+            void peekCache<OccurrenceResponse[]>(OCCURRENCES_CACHE_KEY).then(async (entry) => {
+                const soonest = entry?.body[0];
+                if (cancelled || entry === null || soonest === undefined) {
+                    return;
                 }
+                const held = await heldByOs(soonest.id);
+                if (!cancelled) {
+                    setNext((current) =>
+                        current.state === 'ready' || current.state === 'none'
+                            ? current
+                            : {
+                                  state: 'ready',
+                                  occurrence: soonest,
+                                  armed: held,
+                                  errorCode: null,
+                                  cachedAt: entry.at,
+                              },
+                    );
+                }
+            });
+
+            void load(attempt > 0).then((result) => {
+                if (cancelled) {
+                    return;
+                }
+                setNext((current) =>
+                    /*
+                     * A failed refresh keeps what is already on screen. The
+                     * cached morning is still the one this phone will ring at,
+                     * since the OS is holding it, so replacing it with an error
+                     * would throw away the true answer to show a problem the
+                     * user cannot act on.
+                     */
+                    result.state === 'failed' && current.occurrence !== null
+                        ? { ...current, errorCode: result.errorCode }
+                        : result,
+                );
+                setBusy(false);
             });
 
             // Guards against a result landing after the screen is gone, and
@@ -172,6 +246,23 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
     }, []);
 
     return { next, busy, refresh };
+}
+
+/**
+ * Whether the OS is holding an alarm for this morning.
+ *
+ * A local question with a local answer, which is what makes it usable beside a
+ * cached occurrence: no network, no server, just what the platform says it has.
+ */
+async function heldByOs(occurrenceId: string): Promise<boolean> {
+    if (!canGuaranteeAlarm()) {
+        return false;
+    }
+    try {
+        return (await getAlarmScheduler().listScheduled()).includes(`occurrence-${occurrenceId}`);
+    } catch {
+        return false;
+    }
 }
 
 /**
