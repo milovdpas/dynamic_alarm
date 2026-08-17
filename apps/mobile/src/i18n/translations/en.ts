@@ -144,6 +144,7 @@ export default {
             REQUEST_FAILED: 'Could not be fetched',
         },
         retry: 'Try again',
+        local_plan: 'This time was worked out on your phone, without live travel information. It allows extra margin, so it may be earlier than you need.',
         stale: 'No connection. This is what we last knew, at {{when}}.',
         stale_unknown: 'No connection. This is what we last knew.',
         error: {

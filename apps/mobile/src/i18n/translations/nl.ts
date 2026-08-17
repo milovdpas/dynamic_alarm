@@ -144,6 +144,7 @@ export default {
             REQUEST_FAILED: 'Kon niet worden opgehaald',
         },
         retry: 'Opnieuw proberen',
+        local_plan: 'Deze tijd is op je telefoon uitgerekend, zonder actuele reisinformatie. Hij staat met marge, dus mogelijk wat vroeger dan nodig.',
         stale: 'Geen verbinding. Dit is wat we het laatst wisten, om {{when}}.',
         stale_unknown: 'Geen verbinding. Dit is wat we het laatst wisten.',
         error: {

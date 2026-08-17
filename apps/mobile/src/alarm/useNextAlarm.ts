@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
-import type { OccurrenceResponse } from '@alarm/types';
+import { API_ENDPOINTS, OccurrenceState } from '@alarm/types';
+import type { OccurrenceResponse, Routine, Schedule } from '@alarm/types';
 
 import {
     ackOccurrence,
@@ -13,6 +14,7 @@ import { canGuaranteeAlarm, getAlarmScheduler } from '@/alarm';
 import { readDisruption, rememberDisruption } from '@/alarm/disruption';
 import i18n from '@/i18n/i18n';
 import { rememberHeldAlarm } from '@/push/heldAlarm';
+import { computeLocalPlans } from '@/alarm/localPlan';
 import { peekCache } from '@/utils/modules/ApiCache';
 import { ApiRequestError } from '@/utils/modules/Axios';
 
@@ -36,6 +38,15 @@ export interface NextAlarm {
      * Rendered, never acted on. See the note on the read below.
      */
     cachedAt: string | null;
+    /**
+     * True when this phone worked the time out itself, with no server involved.
+     *
+     * Always shown, never hidden. A wake time computed from a live journey and
+     * one computed from "what this took last time, plus ten minutes" are worth
+     * different amounts of trust, and only the person being woken can judge
+     * that.
+     */
+    computedLocally: boolean;
 }
 
 const LOADING: NextAlarm = {
@@ -44,6 +55,7 @@ const LOADING: NextAlarm = {
     armed: false,
     errorCode: null,
     cachedAt: null,
+    computedLocally: false,
 };
 
 /**
@@ -94,6 +106,7 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
                     armed: false,
                     errorCode: null,
                     cachedAt: null,
+                    computedLocally: false,
                 };
             }
 
@@ -131,6 +144,7 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
                     armed: false,
                     errorCode: null,
                     cachedAt: null,
+                    computedLocally: false,
                 };
             }
 
@@ -140,6 +154,7 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
                 armed: armed[0] === true,
                 errorCode: null,
                 cachedAt: null,
+                computedLocally: false,
             };
         } catch (error) {
             return {
@@ -148,6 +163,7 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
                 armed: false,
                 errorCode: ApiRequestError.from(error).code,
                 cachedAt: null,
+                computedLocally: false,
             };
         }
         // No dependencies, and that matters more than it looks. Loading can
@@ -202,15 +218,39 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
                                   armed: held,
                                   errorCode: null,
                                   cachedAt: entry.at,
+                                  computedLocally: false,
                               },
                     );
                 }
             });
 
-            void load(attempt > 0).then((result) => {
+            void load(attempt > 0).then(async (result) => {
                 if (cancelled) {
                     return;
                 }
+
+                /*
+                 * Nothing armed and nobody to ask. This is the case the shared
+                 * engine was always meant for: the phone has the schedule and
+                 * the routine cached, it knows what the journey took last time,
+                 * and it can work out a safe wake time on its own rather than
+                 * leaving somebody unwoken because a server was unreachable.
+                 *
+                 * Only when the server actually failed. A server that answered
+                 * "nothing is armed" is an answer, and computing over the top of
+                 * it would arm a morning for a schedule somebody has paused.
+                 */
+                const gap = result.state === 'failed' && result.occurrence === null;
+                const local = gap ? await armLocally() : null;
+                if (cancelled) {
+                    return;
+                }
+                if (local !== null) {
+                    setNext(local);
+                    setBusy(false);
+                    return;
+                }
+
                 setNext((current) =>
                     /*
                      * A failed refresh keeps what is already on screen. The
@@ -246,6 +286,76 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
     }, []);
 
     return { next, busy, refresh };
+}
+
+/**
+ * Works out the next morning on this device, and arms it.
+ *
+ * Everything it needs is already cached: the schedules, the routines, and the
+ * occurrences whose travel times it borrows. Returns null when any of that is
+ * missing, because guessing at somebody's morning is worse than admitting the
+ * alarm could not be worked out.
+ *
+ * The alarm it arms is real and it is pessimistic, which is the same bargain the
+ * anchor has always made: a time computed with no live data should sit on the
+ * safe side, since being woken early costs a few minutes and being woken late
+ * costs the morning.
+ */
+async function armLocally(): Promise<NextAlarm | null> {
+    const [schedules, routines, occurrences] = await Promise.all([
+        peekCache<Schedule[]>(API_ENDPOINTS.SCHEDULES.LIST),
+        peekCache<Routine[]>(API_ENDPOINTS.ROUTINES.LIST),
+        peekCache<OccurrenceResponse[]>(OCCURRENCES_CACHE_KEY),
+    ]);
+
+    if (schedules === null || routines === null || occurrences === null) {
+        return null;
+    }
+
+    const [soonest] = computeLocalPlans({
+        schedules: schedules.body,
+        routines: routines.body,
+        knownOccurrences: occurrences.body,
+        now: new Date().toISOString(),
+    });
+
+    if (soonest === undefined) {
+        return null;
+    }
+
+    /*
+     * Shaped as an occurrence so every screen below reads it the same way. It
+     * carries no journey, which is honest: nothing planned one. The id is the
+     * schedule's rather than an invented one, so that when the server comes back
+     * and arms the real morning, `cancelOrphans` cancels this in the ordinary
+     * way instead of leaving two alarms for one Thursday.
+     */
+    const occurrence: OccurrenceResponse = {
+        id: `local-${soonest.scheduleId}`,
+        scheduleId: soonest.scheduleId,
+        scheduleName: soonest.scheduleName,
+        date: soonest.date,
+        state: OccurrenceState.ARMED,
+        anchorWakeAt: soonest.plan.wakeUpAt,
+        currentWakeAt: soonest.plan.wakeUpAt,
+        departHomeAt: soonest.plan.departHomeAt,
+        journey: null,
+        replacedJourney: null,
+        plan: soonest.plan,
+        lastCheckedAt: null,
+        simulated: null,
+    };
+
+    const armed = await arm(occurrence);
+
+    return {
+        state: 'ready',
+        occurrence,
+        armed,
+        errorCode: null,
+        cachedAt: null,
+        computedLocally: true,
+    };
 }
 
 /**

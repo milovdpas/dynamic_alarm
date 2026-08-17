@@ -373,7 +373,16 @@ against live NS and TomTom rather than a hand-entered duration.
 - [x] Routine editor
 - [x] Schedule screen: arrival time, days of week, fixed travel duration
 - [x] Engine result drives a real scheduled alarm
-- [ ] Offline mirror (expo-sqlite + drizzle)
+- [x] Offline mirror, though not with SQLite. The API cache already holds the
+      schedules, the routines and the last known occurrences, so a second store
+      would have been a second copy of the same rows. `computeLocalPlans` works
+      the next morning out on the device with `@alarm/core`, which is the claim
+      that package was created for and the last one that had never been true:
+      until now only the server ever computed a wake time. Used **only** when
+      the API cannot be reached and nothing is armed, never over the top of a
+      server plan, and always labelled on screen. Pessimistic by a flat ten
+      minutes, because the padding stands in for "nobody has checked" rather
+      than for anything about the journey. Eleven tests
 - [ ] Language selector in settings (see PLAN.md). The storage key and the language
       list already exist; what is missing is the row that writes them
 

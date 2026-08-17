@@ -192,6 +192,19 @@ export default function HomeScreen() {
                              */}
                             <StaleNotice cachedAt={next.cachedAt} />
 
+                            {/*
+                             * Never hidden. A time computed from a live journey
+                             * and one computed from "what this took last time,
+                             * plus ten minutes" are worth different amounts of
+                             * trust, and only the person being woken can judge
+                             * which they are looking at.
+                             */}
+                            {next.computedLocally && (
+                                <ThemedText type="small" themeColor="textSecondary">
+                                    {t('api.local_plan')}
+                                </ThemedText>
+                            )}
+
                             {!next.armed && (
                                 <WarningBanner
                                     title={t('home.not_armed_title')}
