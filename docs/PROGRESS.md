@@ -770,6 +770,12 @@ Both decided 2026-08-16, both written up in PLAN.md.
       while the preview comes from a direct peek and touches nothing. Whether it
       is armed is read from the OS, a local question with a local answer, so a
       cached morning does not claim to be unarmed
+- [x] Forty mobile tests now: the cache, the disruption note, the time helpers
+      and the error mapping. Writing them found a real bug on the first run.
+      Delay minutes were **rounded**, so a 31 second wobble read as "1 minute
+      late" and, at 05:00, was a push that woke a radio to report nothing. The
+      app and the server shared the logic exactly, which is the property that
+      matters, so both floor now and both still agree
 - [x] `apps/mobile` has tests. Ten of them, on the cache, and they exist because
       that feature produced three bugs in an afternoon that both the type checker
       and the linter passed. Mutation tested: making `peekCache` mark the app

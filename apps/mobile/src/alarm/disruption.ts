@@ -62,9 +62,12 @@ function worstDelay(journey: Journey): { minutes: number; service: string | null
     let worst: { minutes: number; service: string | null } | null = null;
 
     for (const leg of journey.legs) {
-        const minutes = Math.round(leg.delaySeconds / 60);
-        // Under a minute is timetable jitter rather than a delay, and the same
-        // floor the server uses before it will push anything.
+        // Floored, not rounded. Rounding made 31 seconds "1 minute late",
+        // which is not a delay, it is a timetable wobble, and at 05:00 it is a
+        // push that wakes a radio to report nothing. The server floors the same
+        // way: the phone's own reading and the pushed notice have to agree, or
+        // the ring screen contradicts the notification that woke it.
+        const minutes = Math.floor(leg.delaySeconds / 60);
         if (minutes >= 1 && (worst === null || minutes > worst.minutes)) {
             worst = { minutes, service: leg.name ?? leg.fromName };
         }

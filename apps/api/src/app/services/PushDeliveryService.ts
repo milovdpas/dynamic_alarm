@@ -251,7 +251,10 @@ function describeDisruption(
 
     let worst: { minutes: number; service: string | null } | null = null;
     for (const leg of journey.legs) {
-        const minutes = Math.round(leg.delaySeconds / 60);
+        // Floored rather than rounded, and the app floors identically. A 31
+        // second delay is not a minute late, and pushing it wakes a device to
+        // say nothing.
+        const minutes = Math.floor(leg.delaySeconds / 60);
         if (minutes >= 1 && (worst === null || minutes > worst.minutes)) {
             worst = { minutes, service: leg.name ?? leg.fromName };
         }
