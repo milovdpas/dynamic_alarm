@@ -367,3 +367,31 @@ thing that establishes it.** `useApiConnection` is a reporter now. Anything that
 gates UI on it should gate on a known failure (`unreachable`, `not_configured`)
 rather than on not-yet-confirmed success, or the one button on an empty screen is
 greyed out while a check nobody can see finishes.
+
+## Two different timezones, and only one of them is the driver's
+
+`timezone: 'Z'` on the TypeORM DataSource governs how **mysql2** converts the
+values it carries: JS `Date` in, `datetime` out. It does not touch the server's
+session zone, and `CURRENT_TIMESTAMP` uses that one.
+
+Every `created_at` and `updated_at` in this schema defaults to
+`CURRENT_TIMESTAMP(3)`, so on a database server set to Amsterdam they were
+written as local wall clock while every instant the application writes is UTC.
+The result reached the screen as an event stamped two hours in the future, and
+nothing in between looked wrong: the column was populated, the app converted it
+correctly, and the conversion was applied to a value that had already been
+converted.
+
+`connectDatabase()` now runs `SET time_zone = '+00:00'` per connection, with a
+pool hook for connections opened later. Per session rather than globally, since
+the database is shared hosting.
+
+Two consequences worth knowing:
+
+- **Rows written before this are still shifted.** They are historical test data
+  here; on a server whose zone was already UTC there is nothing to fix. Check
+  with `SELECT @@session.time_zone, NOW(), UTC_TIMESTAMP()` before assuming
+  either way.
+- **A timestamp that looks plausible is not evidence.** Both values were valid
+  times of day, which is why this survived until somebody read a log entry at
+  16:19 and saw 18:19.

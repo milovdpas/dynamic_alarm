@@ -38,6 +38,22 @@ export class OccurrenceService {
     private readonly plans = new SchedulePlanService();
 
     async arm(schedule: Schedule): Promise<ArmResult> {
+        const simulated = await this.armedWithSimulation(schedule);
+        if (simulated !== null) {
+            /**
+             * A simulation in force survives arming.
+             *
+             * Arming re-plans from live provider data, where nothing is actually
+             * delayed, so re-planning during a test erased the very thing being
+             * tested seconds after the monitor produced it. From the outside
+             * that read as the tick having done nothing at all.
+             *
+             * Bounded by the simulation's own expiry, so this cannot become a
+             * way for a morning to stop tracking reality.
+             */
+            return { ok: true, occurrence: simulated, scheduleName: schedule.name };
+        }
+
         const planned = await this.plans.forSchedule(schedule);
         if (!planned.ok) {
             return { ok: false, problem: planned.problem };
@@ -77,13 +93,40 @@ export class OccurrenceService {
         occurrence.ctxRecon = plan.journey?.ctxRecon ?? null;
         occurrence.watchedStationCodes = plan.journey?.watchedStationCodes ?? null;
         occurrence.lastCheckedAt = new Date();
-        occurrence.nextCheckAt = this.nextCheck(plan, schedule.timezone);
+        /**
+         * A staged simulation stays due now.
+         *
+         * Arming recomputes the cadence, and for a morning still beyond the
+         * monitoring window that means "look again in seven hours". Anything
+         * staged for the next check would sit there until then, which is exactly
+         * what happened: a simulation was staged, the home screen re-armed a
+         * moment later, and the tick correctly found nothing due.
+         */
+        occurrence.nextCheckAt =
+            occurrence.simulationKind === null
+                ? this.nextCheck(plan, schedule.timezone)
+                : new Date();
 
         await occurrence.save();
 
         await this.record(occurrence, previous, plan);
 
         return { ok: true, occurrence, scheduleName: planned.response.scheduleName };
+    }
+
+    /** An armed morning whose plan came from an unexpired simulation. */
+    private async armedWithSimulation(schedule: Schedule): Promise<ScheduleOccurrence | null> {
+        const armed = await ScheduleOccurrence.findOne({
+            where: { scheduleId: schedule.id, state: OccurrenceState.ARMED },
+            order: { date: 'ASC' },
+        });
+
+        if (armed === null || armed.simulationKind === null) {
+            return null;
+        }
+
+        const expiresAt = armed.simulationExpiresAt;
+        return expiresAt !== null && expiresAt.getTime() > Date.now() ? armed : null;
     }
 
     /**
@@ -177,6 +220,11 @@ export class OccurrenceService {
      * live in `@alarm/core` beside the test that asserts the per-night call
      * count, so changing them cannot quietly multiply the API bill.
      *
+     * Public, and used by the monitor as well as by arming. It had a second
+     * implementation there which omitted the fallback below, so an occurrence
+     * checked while still more than eight hours out was stored with no next
+     * check at all and never looked at again.
+     *
      * `computeNextCheckAt` returns null in two different situations, and they
      * need opposite answers. Past the wake time there is nothing left to decide,
      * so the row stops being claimed. Beyond the arming window there is plenty
@@ -184,8 +232,8 @@ export class OccurrenceService {
      * window opens. That keeps the monitor to a single claim query instead of
      * needing a second pass to notice occurrences becoming eligible.
      */
-    private nextCheck(plan: WakePlan, timezone: string): Date | null {
-        const now = DateTime.now().setZone(timezone);
+    nextCheck(plan: WakePlan, timezone: string, from: Date = new Date()): Date | null {
+        const now = DateTime.fromJSDate(from).setZone(timezone);
         const wakeAt = DateTime.fromISO(plan.wakeUpAt, { setZone: true }).setZone(timezone);
 
         const next = computeNextCheckAt({

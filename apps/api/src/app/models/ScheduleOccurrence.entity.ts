@@ -153,6 +153,17 @@ export default class ScheduleOccurrence extends BaseEntity {
     simulationExpiresAt!: Date | null;
 
     /**
+     * When it was applied, which is not the same as when it stops mattering.
+     *
+     * Set once, so a check cannot apply the same pretend disruption twice, while
+     * the record itself stays until it expires. That is what stops arming
+     * re-planning the invention away seconds after the tick produced it, and it
+     * keeps the wire honest: the plan in force is simulated, and the app says so.
+     */
+    @Column({ name: 'simulation_applied_at', type: 'datetime', precision: 3, nullable: true })
+    simulationAppliedAt!: Date | null;
+
+    /**
      * The disruption state the device has already been told about.
      *
      * `CANCELLATION`, or `DELAY:12`. Near the alarm the monitor re-checks every

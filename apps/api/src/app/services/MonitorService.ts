@@ -10,7 +10,6 @@ import {
 } from '@alarm/types';
 import type { Journey, WakePlan } from '@alarm/types';
 import {
-    computeNextCheckAt,
     computeWakePlan,
     routineDurationMinutes,
     shouldPushWakeChange,
@@ -207,9 +206,10 @@ export class MonitorService {
         const simulated = this.simulation.apply(occurrence, live, now);
         const refreshed = simulated === undefined ? live : simulated;
         if (simulated !== undefined) {
-            // Consumed here, saved with the plan it produced, so it cannot be
-            // applied to a second check.
-            this.simulation.clear(occurrence);
+            // Marked used, and saved with the plan it produced, so a second
+            // check plans against reality again. The record stays until it
+            // expires, which is what keeps arming from undoing this.
+            this.simulation.consume(occurrence, now);
             console.warn(`Occurrence ${occurrence.id} checked against a SIMULATED disruption.`);
         }
 
@@ -244,7 +244,7 @@ export class MonitorService {
         });
 
         occurrence.lastCheckedAt = now;
-        occurrence.nextCheckAt = this.nextCheck(plan, schedule.timezone, now);
+        occurrence.nextCheckAt = this.occurrences.nextCheck(plan, schedule.timezone, now);
 
         const reason = this.reasonFor(previousPlan.journey, refreshed, schedule.mode);
         const held = occurrence.currentWakeAt ?? occurrence.anchorWakeAt ?? now;
@@ -452,15 +452,6 @@ export class MonitorService {
             return device.allowLaterWakeOnCancellation;
         }
         return device.allowLaterWakeOnDelay;
-    }
-
-    private nextCheck(plan: WakePlan, timezone: string, now: Date): Date | null {
-        const next = computeNextCheckAt({
-            wakeAt: plan.wakeUpAt,
-            now: DateTime.fromJSDate(now).setZone(timezone).toISO() ?? '',
-            timezone,
-        });
-        return next === null ? null : DateTime.fromISO(next, { setZone: true }).toJSDate();
     }
 
     /**

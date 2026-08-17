@@ -496,7 +496,7 @@ describe('simulated disruptions', () => {
         expect(simulations.apply(occurrence, sampleJourney(), new Date())).toBeUndefined();
     });
 
-    it('is consumed by the check that applies it', async () => {
+    it('is applied once, and stays on the row until it expires', async () => {
         const occurrence = await armedMorning({
             simulationKind: SimulationKind.DELAY,
             simulationMinutes: 20,
@@ -507,8 +507,22 @@ describe('simulated disruptions', () => {
         await new MonitorService(sweeper([])).tick();
 
         const after = await ScheduleOccurrence.findOneBy({ id: occurrence.id });
-        expect(after?.simulationKind).toBeNull();
-        expect(after?.simulationExpiresAt).toBeNull();
+        // Marked used rather than forgotten. Clearing it erased the only sign
+        // that the plan was invented, and arming then re-planned the invention
+        // away seconds later, which read as the tick doing nothing.
+        expect(after?.simulationAppliedAt).not.toBeNull();
+        expect(after?.simulationKind).toBe(SimulationKind.DELAY);
+    });
+
+    it('is not applied twice', () => {
+        const occurrence = ScheduleOccurrence.create({
+            simulationKind: SimulationKind.DELAY,
+            simulationMinutes: 20,
+            simulationExpiresAt: new Date(Date.now() + 30 * MINUTE),
+            simulationAppliedAt: new Date(),
+        });
+
+        expect(simulations.apply(occurrence, sampleJourney(), new Date())).toBeUndefined();
     });
 });
 

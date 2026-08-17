@@ -558,8 +558,11 @@ schedule be changed. See the information architecture section in PLAN.md.
       travel window per schedule, falling back to the other direction inside the
       window and then to leaving the alarm alone with a notice saying why. See
       PLAN.md
-- [ ] Still to do: the same message on Today, with the minutes gained, and the
-      case where a setting being off is why the alarm did not move
+- [x] Today says what happened: the delay or cancellation, the minutes gained
+      rather than only a new time, and, when nothing moved, whether that was a
+      switch being off or the journey's own spare time absorbing it. Measured
+      against the anchor, which is the time the morning was armed with and never
+      moves, so it is the honest baseline for "compared to what you expected"
 - [x] Reachable from the debug panel, which is how it is meant to be used on a
       phone: it targets the soonest armed morning, shows what is staged, and says
       that the next check applies it
@@ -582,6 +585,25 @@ Both fixed 2026-08-17, both invisible with an app that had already registered.
 - **Settings was a heading with nothing under it.** The disruption switches are
   chosen by how the user's schedules travel, and a device with no schedules has
   none to show. It now says so.
+
+### Three things simulating a disruption on a phone found
+
+- **Arming pushed a staged simulation out of reach.** Staging makes an occurrence
+  due now; arming recomputes the cadence, which for a morning still beyond the
+  eight hour window means "look again in seven hours". Arming now leaves a staged
+  simulation due immediately.
+- **An occurrence checked too early was never checked again.** The monitor had
+  its own copy of the next-check calculation without the arming-window fallback,
+  so anything examined more than eight hours out was stored with no next check at
+  all. One calculation now, in `OccurrenceService`.
+- **Arming erased an applied simulation seconds after the tick produced it**, by
+  re-planning against live data where nothing is actually delayed. A simulation
+  now stays on the row until it expires, marked applied rather than deleted, and
+  arming leaves the plan alone while it is in force.
+
+Plus a timezone bug behind all of it: `created_at` defaulted to the database
+server's `CURRENT_TIMESTAMP`, which is local, while everything else is UTC. See
+CONVENTIONS.md.
 
 ## Agreed, not yet scheduled
 

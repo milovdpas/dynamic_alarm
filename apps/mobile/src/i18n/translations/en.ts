@@ -137,6 +137,15 @@ export default {
         schedules: 'Schedules',
         settings: 'Settings',
     },
+    disruption: {
+        delayed: '{{service}} is {{minutes}} minutes late.',
+        cancelled: '{{service}} is not running.',
+        sleep_longer: 'You can sleep {{minutes}} minutes longer.',
+        moved_earlier: 'Your alarm is {{minutes}} minutes earlier, at {{time}}.',
+        not_moved_delay_off: 'Your alarm has not moved, because sleeping longer on delays is switched off.',
+        not_moved_cancellation_off: 'Your alarm has not moved, because sleeping longer on cancellations is switched off.',
+        not_moved_absorbed: 'Your alarm has not moved: your journey had enough spare time in it.',
+    },
     home: {
         working: 'Working out your morning',
         today: 'Today',

@@ -137,6 +137,15 @@ export default {
         schedules: 'Schema\'s',
         settings: 'Instellingen',
     },
+    disruption: {
+        delayed: '{{service}} heeft {{minutes}} minuten vertraging.',
+        cancelled: '{{service}} rijdt niet.',
+        sleep_longer: 'Je kunt {{minutes}} minuten langer slapen.',
+        moved_earlier: 'Je wekker staat {{minutes}} minuten eerder, om {{time}}.',
+        not_moved_delay_off: 'Je wekker is niet verzet, want langer slapen bij vertraging staat uit.',
+        not_moved_cancellation_off: 'Je wekker is niet verzet, want langer slapen bij uitval staat uit.',
+        not_moved_absorbed: 'Je wekker is niet verzet: er zat genoeg marge in je reis.',
+    },
     home: {
         working: 'Je ochtend uitrekenen',
         today: 'Vandaag',

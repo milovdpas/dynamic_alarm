@@ -34,12 +34,35 @@ export class SimulationService {
         occurrence.simulationExpiresAt = DateTime.now()
             .plus({ minutes: APP_CONSTANTS.MONITOR.SIMULATION_TTL_MINUTES })
             .toJSDate();
+        occurrence.simulationAppliedAt = null;
     }
 
     clear(occurrence: ScheduleOccurrence): void {
         occurrence.simulationKind = null;
         occurrence.simulationMinutes = null;
         occurrence.simulationExpiresAt = null;
+        occurrence.simulationAppliedAt = null;
+    }
+
+    /**
+     * Marks one as used without forgetting it happened.
+     *
+     * Applied once, so the next check plans against reality again, but still on
+     * the row so the app can say the plan is invented and so arming leaves it
+     * alone until it expires.
+     */
+    consume(occurrence: ScheduleOccurrence, now: Date): void {
+        occurrence.simulationAppliedAt = now;
+    }
+
+    /** Whether an unexpired simulation is responsible for the current plan. */
+    inForce(occurrence: ScheduleOccurrence, now: Date): boolean {
+        const expiresAt = occurrence.simulationExpiresAt;
+        return (
+            occurrence.simulationKind !== null &&
+            expiresAt !== null &&
+            expiresAt.getTime() > now.getTime()
+        );
     }
 
     /**
@@ -56,6 +79,17 @@ export class SimulationService {
     apply(occurrence: ScheduleOccurrence, journey: Journey | null, now: Date): Journey | null | undefined {
         const kind = occurrence.simulationKind;
         if (kind === null) {
+            return undefined;
+        }
+
+        // Coalesced, not compared to null. A row built with `create()` has never
+        // been through the database, so TypeORM leaves unset columns `undefined`
+        // even where the type says `Date | null`, and a strict comparison here
+        // treats a never-applied simulation as already used. Same trap that once
+        // crashed the first arming of a morning.
+        if ((occurrence.simulationAppliedAt ?? null) !== null) {
+            // Already used. It stays on the row until it expires so the app can
+            // keep saying the plan is a test, but it is not applied again.
             return undefined;
         }
 

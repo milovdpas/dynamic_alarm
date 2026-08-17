@@ -1,11 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { LegType } from '@alarm/types';
-import type { Journey } from '@alarm/types';
+import type { DeviceResponse, Journey } from '@alarm/types';
 
+import { getDevice } from '@/api';
+import DisruptionBanner from '@/components/home/DisruptionBanner';
 import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { clock, relativeDay } from '@/utils/time';
 import { Radius, Spacing } from '@/assets/Stylesheet';
@@ -47,6 +49,27 @@ export default function HomeScreen() {
 
     const { connection } = useApiConnection();
     const { next, busy, refresh } = useNextAlarm();
+
+    /**
+     * The disruption switches, read once, so the banner can say which one would
+     * have let the alarm move. Cheap and cached by the server, and a failure
+     * costs the explanation rather than the screen.
+     */
+    const [device, setDevice] = useState<DeviceResponse | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        void getDevice()
+            .then((result) => {
+                if (!cancelled) {
+                    setDevice(result);
+                }
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const unreachable =
         connection?.state === 'unreachable' || connection?.state === 'not_configured';
@@ -149,6 +172,13 @@ export default function HomeScreen() {
                                     message={t('home.not_armed_body')}
                                 />
                             )}
+
+                            {/*
+                             * Above the detail and below the time: it is the
+                             * reason the time is what it is, which is the first
+                             * question anyone has when it changes.
+                             */}
+                            <DisruptionBanner occurrence={next.occurrence} device={device} />
 
                             <View style={[styles.card, { borderColor: border }]}>
                                 <DetailRow
