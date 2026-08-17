@@ -203,7 +203,47 @@ development build afterwards to go back to hot reload.
 For the record, the debug-only manifest additions (`SYSTEM_ALERT_WINDOW`,
 `usesCleartextTraffic`) live in `android/app/src/debug/AndroidManifest.xml` and
 never reach a release build. That closes an earlier open question about stray
-permissions before a Play submission.
+permissions before a Play submission. One consequence worth knowing when a
+preview build cannot reach the API: **a release build cannot talk to `http://`
+at all**, so a LAN address baked into one fails instantly, with a message that
+blames the network.
+
+### JavaScript changes do not need a build. `eas update` ships them
+
+Found on 2026-08-17, when the free plan's Android build allowance ran out with
+the push path still unverified. It cost nothing, because none of it needed a
+build.
+
+`expo-updates` is installed and configured: `runtimeVersion` follows the app
+version, and each profile publishes to a channel of its own name. So an installed
+preview build can be given new JavaScript over the air, unlimited and free, for
+as long as its **native** code still matches:
+
+```bash
+npx eas update --branch preview --message "what changed"
+```
+
+The line that decides whether this is allowed is in the git history, not in a
+config file: **no native dependency has changed since `c1f50d8` (2026-08-13)**,
+the commit that added `expo-task-manager`. Everything since is JavaScript. Check
+before assuming:
+
+```bash
+git log -p <last-build-commit>..HEAD -- apps/mobile/package.json | grep "^[+-].*\"expo\|^[+-].*react-native"
+```
+
+Empty output means an update is enough. Any line at all means a build, and a
+build the store of installed apps will not accept as an update until it exists.
+
+Two things an update carries that are easy to forget it carries:
+
+- **`EXPO_PUBLIC_*` values are inlined into the bundle**, so an update can fix a
+  wrong API address in an already-installed build. Pass `--environment preview`
+  so it takes them from EAS rather than from the local `.env`, which holds a LAN
+  address a release build cannot use.
+- **Nothing native.** New permissions, new Kotlin, a new Expo module: none of it
+  travels this way, and an update that assumes otherwise produces a JavaScript
+  error on a phone rather than a build failure on a machine.
 
 ### Device verification (each is a separate pass/fail, do not collapse)
 - [x] **Makes a sound** (verified on LineageOS, system alarm tone via the picker)
@@ -463,11 +503,25 @@ row's push token is cleared, so a stale token stops costing a request per tick; 
 device with no token is a recorded outcome rather than an exception; the retry
 window suppresses a second push of the same time.
 
+**Registration works, confirmed 2026-08-17 from the `devices` table.** Two
+Android rows carry an `ExponentPushToken`, the older since 2026-08-13, both on
+`0.1.0` and both seen the same afternoon. This paragraph previously said no
+device had ever registered one, which was true when it was written and had
+quietly stopped being true; a claim about production state is only worth what its
+date is worth. The server therefore has somewhere to push, and the last unproven
+step is delivery rather than registration.
+
 **Not verified, and it needs the phone:**
 
-- No device has ever registered a push token. Every row in `devices` has
-  `push_token` null, including the real phone, so nothing has been delivered
-  end to end yet. The debug panel's push token row says why.
+- No push has been seen to arrive and move an alarm on a locked device. That is
+  now testable with what is already installed: stage a simulation from the debug
+  panel, run a tick, and watch the time change without touching the phone.
+- The same phone appears twice, because clearing the app's data registers a new
+  device rather than reclaiming the old one. The older row still holds a token
+  and still owns its schedules, so its occurrences are still monitored and still
+  pushed to. Expo answers `DeviceNotRegistered` for a token that install no
+  longer holds and the row is cleared, which is the designed outcome, but a
+  tidier answer is worth having before anyone else installs this.
 - `expo-task-manager` was added for background delivery, which **desynchronises
   every installed build until it is rebuilt**. The harness banner names it.
 - The exact shape Android hands the background task is documented loosely, so
@@ -598,6 +652,80 @@ Both fixed 2026-08-17, both invisible with an app that had already registered.
   chosen by how the user's schedules travel, and a device with no schedules has
   none to show. It now says so.
 
+### Deleting a device used to be impossible
+
+2026-08-17. A device owns its places, routines and schedules, and all three
+cascade from `devices`, but `schedules` pointed at places and routines with
+`RESTRICT`. So deleting a device asked MySQL to remove a place while a schedule
+still referenced it, and the statement failed:
+
+```
+Cannot delete or update a parent row: a foreign key constraint fails
+(`schedules`, CONSTRAINT `schedules_destination_place_id_foreign`)
+```
+
+No order of operations fixes that, since MySQL does not promise to cascade the
+schedules before it tries the places. The three keys are `CASCADE` now.
+
+**The guard moved rather than disappeared.** `RESTRICT` was there so that
+deleting a place a schedule still needs would fail loudly instead of silently
+breaking tomorrow's alarm. `PlaceService.remove` already refused first and
+returned the names of the schedules in the way, which is a sentence rather than a
+driver error, and that check is now the only guard. It has to stay.
+
+Verified against a real MySQL, not just read off the migration: the constraints
+report `CASCADE` on all ten foreign keys, and deleting the busiest device removes
+its 2 places, 1 routine, 1 step, 1 schedule and 1 occurrence in one statement.
+`tools/fkcheck.ts` runs that inside a transaction it always rolls back, so the
+check can be repeated without destroying anything.
+
+### A third, from the first preview build on a phone
+
+2026-08-17. The app showed "could not reach the server" against an API that was
+demonstrably up: healthy from three networks, valid certificate, correct address
+in the build's own diagnostics. Clearing the app's data fixed it, and the cause
+was never proven. What the hunt did prove is that the app cannot report this
+class of failure honestly, which is why it took a morning:
+
+- **Every unrecognised error was reported as a network failure.** The fallback in
+  `ApiRequestError.from` turned anything that was not an `AxiosError` into
+  `NETWORK_UNREACHABLE`, so a bug inside the app told the user to check their
+  wifi and sent the search to the router, the DNS and the certificate chain.
+  Unclassified failures now say they are unclassified.
+- **Nothing ever recovered from a rejected token.** `clearToken()` existed with
+  no callers, and the copy on screen said "it will register again" while nothing
+  did. A phone that ran a development build against the laptop keeps that token
+  when a preview build replaces it, since the package id is the same and secure
+  storage survives the install, and the production API has never heard of it. The
+  only cure was clearing app data by hand. A 401 now discards that token,
+  registers again and retries once, comparing before it clears so a burst of
+  simultaneous 401s cannot each delete the replacement the last one just wrote.
+
+### The ring screen keeps a note per morning, not one note
+
+Checked on 2026-08-17, because "does the alarm actually say the train is
+cancelled" is the question the whole disruption path exists to answer.
+
+It does, and it does not need the network to: the note is written by all three
+things that learn anything, the overnight push, the Today screen and the ring
+screen itself, and read from the device before any request is made. It is shown
+whatever the disruption settings say, since those decide whether the alarm may
+move and were never meant to decide whether somebody is told.
+
+The check found one real hole. The note was a **single** stored entry, and every
+active schedule arms an occurrence of its own, so two armed mornings shared one
+slot. A cancellation pushed for Thursday was erased the moment Today refreshed
+and found Wednesday running normally, because clearing was unconditional and
+keyed on nothing. Thursday's alarm then rang with an empty screen, which is the
+exact failure the note exists to prevent. It is now a map keyed by occurrence,
+capped at five, and clearing one morning cannot touch another. The old shape is
+still read, so a phone that updates overnight keeps the note it already had.
+
+**Still true until a push token registers:** with no push, the only writers left
+are the app being opened and the ring screen's own request at 06:00. A
+cancellation that happens after the last time the app was opened is therefore
+only shown if the network answers while the alarm is ringing.
+
 ### Three things simulating a disruption on a phone found
 
 - **Arming pushed a staged simulation out of reach.** Staging makes an occurrence
@@ -630,11 +758,34 @@ Both decided 2026-08-16, both written up in PLAN.md.
       app storage rather than referenced, because a document picker's URI does
       not survive a reboot and the alarm is played hours later by a native
       service. See PLAN.md
-- [ ] Theme choice in settings: system, light or dark, with system staying the
-      default. `ThemeContext` already follows the system and has a toggle nothing
-      can reach; what is missing is the row, the persistence and applying it
-      before the first paint. Extra palettes are a later idea the `Colors` map
-      already allows
+- [x] Theme choice in settings: system, light or dark, with system staying the
+      default. The context stores the preference rather than the resolved colour,
+      because resolving `system` at the moment it is picked would freeze the app
+      at whatever the phone was doing that evening. Applied before the first
+      paint by holding the native splash until the stored value is read, so a
+      light-phone user who chose dark no longer gets a white flash on every
+      launch. The ring screen deliberately does not follow it: it is pinned dark
+      with every text colour stated, which is the right answer for 06:00
+- [x] A third palette: NS house style. Yellow fills the tab bar, the headers,
+      the selected rows and the input surfaces, and never draws text: it is 1.5:1
+      as a foreground on white and 7.8:1 as a surface under NS blue. The first
+      attempt used it only as a pale tint behind a chosen row and the result
+      looked plain blue, which is the lesson: a house style lives on the large
+      surfaces. Contrast was measured rather than eyeballed, and caught two
+      failures that looked fine, the shared amber at 2.69:1 and the shared red at
+      4.23:1 on this palette's warm banner surface; both are darker here and
+      every pair now passes AA. Adding it turned the theme types into keys of the `Colors`
+      map, so a fourth is an entry there plus a label, and React Navigation's own
+      theme is now derived rather than picked from its two stock ones. `danger`
+      and `warning` keep their meanings in every palette
+- [ ] **Ask for the alarm's permissions outside the debug panel.** The largest
+      hole in the app: `requestPermissions()` is called from exactly one place,
+      behind ten taps on the version and a password. A normal install can arm a
+      morning the OS will never ring, and the home screen's own copy tells the
+      user to "check permissions in the debug panel", a screen they cannot know
+      exists. Design is in PLAN.md: asked after the first schedule is saved,
+      explained before the system dialog, re-checked on every foreground, and a
+      refusal stated permanently rather than nagged
 - [ ] Optional lock on stopping the alarm: arithmetic, or a typed word or PIN,
       opt in and off by default. The hard part is the constraint list, not the
       puzzle: stopping must always be possible through a ten second hold, the

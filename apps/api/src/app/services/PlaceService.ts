@@ -66,9 +66,11 @@ export class PlaceService {
      * Work mornings" tells the user what to do next and "cannot delete" does
      * not.
      *
-     * The foreign key is `RESTRICT`, so the database would refuse this anyway,
-     * but as a driver error it surfaces as "something went wrong". Checking
-     * first is what turns it into a sentence.
+     * **This check is the only guard.** The foreign key used to be `RESTRICT`
+     * and would have refused independently, but that blocked deleting a device,
+     * whose whole tree is meant to cascade, so it is `CASCADE` now. Without the
+     * lookup below, deleting a place would quietly take tomorrow's alarm with
+     * it. See the migration that changed it.
      */
     async remove(place: Place): Promise<string[]> {
         const blocking = await Schedule.find({

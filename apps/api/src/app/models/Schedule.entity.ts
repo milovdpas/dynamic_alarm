@@ -43,21 +43,21 @@ export default class Schedule extends BaseEntity {
     @Column({ name: 'origin_place_id', type: 'uuid' })
     originPlaceId!: string;
 
-    @ManyToOne(() => Place, { onDelete: 'RESTRICT' })
+    @ManyToOne(() => Place, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'origin_place_id' })
     originPlace!: Place;
 
     @Column({ name: 'destination_place_id', type: 'uuid' })
     destinationPlaceId!: string;
 
-    @ManyToOne(() => Place, { onDelete: 'RESTRICT' })
+    @ManyToOne(() => Place, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'destination_place_id' })
     destinationPlace!: Place;
 
     @Column({ name: 'routine_id', type: 'uuid' })
     routineId!: string;
 
-    @ManyToOne(() => Routine, { onDelete: 'RESTRICT' })
+    @ManyToOne(() => Routine, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'routine_id' })
     routine!: Routine;
 
