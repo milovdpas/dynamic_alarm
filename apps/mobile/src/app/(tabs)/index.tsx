@@ -8,6 +8,7 @@ import type { DeviceResponse, Journey } from '@alarm/types';
 
 import { getDevice } from '@/api';
 import DisruptionBanner from '@/components/home/DisruptionBanner';
+import PermissionBanner from '@/components/home/PermissionBanner';
 import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { clock, relativeDay } from '@/utils/time';
 import { Radius, Spacing } from '@/assets/Stylesheet';
@@ -165,6 +166,14 @@ export default function HomeScreen() {
                             <ThemedText type="display">
                                 {clock(next.occurrence.currentWakeAt)}
                             </ThemedText>
+
+                            {/*
+                             * Why this phone will not ring, if it will not, with
+                             * the fix attached. Above everything else on the
+                             * screen: a wake time nothing is holding is worse
+                             * than no wake time, because it looks the same.
+                             */}
+                            <PermissionBanner />
 
                             {!next.armed && (
                                 <WarningBanner

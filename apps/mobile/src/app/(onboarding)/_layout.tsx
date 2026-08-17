@@ -23,6 +23,17 @@ export default function OnboardingLayout() {
                     name="adjustments"
                     options={{ title: t('onboarding.adjustments_title') }}
                 />
+                <Stack.Screen
+                    name="permissions"
+                    options={{
+                        title: t('permissions.title'),
+                        // No way back. The schedule is already saved by the time
+                        // this shows, so returning to the previous step would
+                        // offer to save it a second time.
+                        headerBackVisible: false,
+                        gestureEnabled: false,
+                    }}
+                />
             </Stack>
         </OnboardingProvider>
     );

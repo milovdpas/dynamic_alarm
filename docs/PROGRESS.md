@@ -778,14 +778,19 @@ Both decided 2026-08-16, both written up in PLAN.md.
       map, so a fourth is an entry there plus a label, and React Navigation's own
       theme is now derived rather than picked from its two stock ones. `danger`
       and `warning` keep their meanings in every palette
-- [ ] **Ask for the alarm's permissions outside the debug panel.** The largest
-      hole in the app: `requestPermissions()` is called from exactly one place,
-      behind ten taps on the version and a password. A normal install can arm a
-      morning the OS will never ring, and the home screen's own copy tells the
-      user to "check permissions in the debug panel", a screen they cannot know
-      exists. Design is in PLAN.md: asked after the first schedule is saved,
-      explained before the system dialog, re-checked on every foreground, and a
-      refusal stated permanently rather than nagged
+- [x] **Ask for the alarm's permissions outside the debug panel.** Was the
+      largest hole in the app: `requestPermissions()` was called from exactly one
+      place, behind ten taps on the version and a password, so a normal install
+      could arm a morning the OS would never ring while the home screen told its
+      owner to "check permissions in the debug panel". Now a final onboarding
+      step, after the schedule is saved, which is the moment the request explains
+      itself. `useAlarmPermissions` re-reads on every foreground, because two of
+      the four are granted on a system screen that returns no result and all four
+      can be revoked at any time. A refusal is a permanent honest banner on
+      Today with the fix attached, never a nag, and required (notifications,
+      exact alarms) is kept separate from recommended (full-screen intent,
+      battery), since one means the alarm is broken and the other means it is
+      imperfect. No native code: every call already existed
 - [ ] Optional lock on stopping the alarm: arithmetic, or a typed word or PIN,
       opt in and off by default. The hard part is the constraint list, not the
       puzzle: stopping must always be possible through a ten second hold, the

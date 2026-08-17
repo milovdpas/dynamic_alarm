@@ -46,7 +46,13 @@ export default function AdjustmentsStep() {
             .then(() => {
                 // replace, not push: the answers are saved, and going back into
                 // a finished flow would let someone create the whole thing twice.
-                router.replace('/(tabs)');
+                //
+                // On to permissions rather than into the app. This is the moment
+                // the request explains itself: somebody has just described the
+                // morning they want waking for, and the next screen asks for
+                // what that takes. Asked on first launch it arrives before the
+                // app has said what it is for and gets refused by reflex.
+                router.replace('/(onboarding)/permissions');
             })
             .catch((error: unknown) => {
                 setErrorCode(ApiRequestError.from(error).code);

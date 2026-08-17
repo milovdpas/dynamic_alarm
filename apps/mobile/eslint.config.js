@@ -70,6 +70,7 @@ module.exports = defineConfig([
             'src/utils/modules/pushToken.ts',
             'src/utils/modules/Splash.ts',
             'src/utils/modules/Storage.ts',
+            'src/utils/modules/Updates.ts',
             'src/utils/modules/Axios.ts',
             'src/utils/modules/optionalModule.ts',
             'src/utils/modules/nativeDiagnostics.ts',

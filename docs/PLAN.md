@@ -575,7 +575,8 @@ Two permissions decide whether this app works at all, and they fail differently:
 |---|---|---|
 | `POST_NOTIFICATIONS` (Android 13+) | The alarm still plays, because the tone comes from a foreground service, but the full-screen ring screen never appears, so there is nothing to press to stop it | Yes, `PermissionsAndroid.check` |
 | `SCHEDULE_EXACT_ALARM` | The OS may defer the alarm by minutes, which for an alarm clock means it did not work | Yes, via the native module |
-| Full-screen intent (Android 14+) | The ring screen does not cover the lock screen | **No.** Neither the platform nor any library exposes the state. Only watching a real alarm fire tells you |
+| Full-screen intent (Android 14+) | The ring screen does not cover the lock screen | Yes, `NotificationManager.canUseFullScreenIntent()`, already wrapped as `canUseFullScreenIntent()` with `openFullScreenIntentSettings()` beside it |
+| Battery optimisation | Doze can defer the work around the alarm | Yes, `isIgnoringBatteryOptimizations()`, with a request beside it |
 
 **Asked during onboarding, at the step that earns it.** Not on first launch,
 where a dialog arrives before the app has said what it is for and gets refused by
@@ -600,9 +601,17 @@ What it has to get right:
 - **Re-checked whenever the app comes forward.** Permissions are revocable from
   system settings at any time, and an alarm app that trusts a grant it was given
   three weeks ago is exactly the failure this project refuses elsewhere.
-- **The full-screen intent stays unverifiable**, so it is never claimed as
-  granted. The only honest statement is what happened the last time an alarm
-  actually fired.
+- **Nothing native is missing.** Every call this needs already exists and is
+  already used by the debug panel: `PermissionsAndroid` for notifications, the
+  alarm module for exact alarms, the full-screen intent and battery
+  optimisation, each with a matching "open the system screen" action. This is a
+  screen and a flow, not a native change, which also means it ships to an
+  installed build through `eas update`.
+- **A granted full-screen intent still is not proof the alarm covers the lock
+  screen.** The permission can be read; whether the screen actually appears over
+  the keyguard depends on the manifest flags and the OEM, and only a real alarm
+  firing on a real locked phone settles it. Report the permission, and never
+  upgrade that into a promise about behaviour.
 
 This is the last thing standing between the app and someone else installing it,
 and it is a bigger hole than any feature currently on the list: everything the
