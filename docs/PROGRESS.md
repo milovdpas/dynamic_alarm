@@ -365,7 +365,16 @@ Where the product actually becomes itself.
 - [x] Global disruption sweep promoting affected occurrences, one NS call per tick for everyone
 - [x] Anchor vs live split, with the monotonic-later rule now where it belongs: on the device, applied to what the OS actually holds
 - [~] High-priority push → device reschedules. Written and wired both ends; unverified on a phone, see below
-- [ ] NS call-count instrumentation + loud 429 logging
+- [x] NS call-count instrumentation and loud 429 logging. Every tick reports what
+      it spent and what the process has spent in the last five minutes, and a
+      warning fires at two thirds of the budget rather than waiting for the
+      refusal. Measured: a sweep-only tick costs 1 NS call, a re-check 1, and a
+      cancellation re-plan 4 NS plus 2 TomTom
+- [x] Audited the call sites afterwards. One saving: the sweep now asks the
+      database whether anything is armed before asking NS anything, which stops
+      roughly a thousand requests a day during the hours no alarm exists. The
+      rest were already minimal, and PLAN.md records why so it is not
+      re-litigated monthly
 - [ ] The "you can sleep 12 minutes longer" moment works end to end
 
 ### What the M2 tests assert, and what they deliberately do not

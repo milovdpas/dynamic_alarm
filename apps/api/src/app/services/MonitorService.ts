@@ -27,6 +27,7 @@ import { AppDataSource } from '../../database/typeorm-db';
 import { DisruptionSweepService } from './DisruptionSweepService';
 import type { SweepResult } from './DisruptionSweepService';
 import { OccurrenceService } from './OccurrenceService';
+import { ProviderUsage } from './ProviderUsage';
 import { SchedulePlanService } from './SchedulePlanService';
 import { PushDeliveryService } from './PushDeliveryService';
 import { SimulationService } from './SimulationService';
@@ -43,6 +44,11 @@ const CLAIM_LEASE_MINUTES = 5;
 
 /** What one pass over an occurrence did, for the tick's log line. */
 export interface TickResult {
+    /** Provider calls in the rate-limit window, and in this pass alone. */
+    nsCallsInWindow: number;
+    tomtomCallsInWindow: number;
+    nsCallsThisTick: number;
+    tomtomCallsThisTick: number;
     /** Active disruptions NS reported, from the one call that covers everyone. */
     disruptions: number;
     /** Occurrences the sweep pulled forward to be checked now. */
@@ -87,6 +93,9 @@ export class MonitorService {
     }
 
     async tick(now = new Date()): Promise<TickResult> {
+        // Taken before anything runs, so the difference afterwards is what this
+        // pass cost rather than what the process has spent all night.
+        const before = ProviderUsage.snapshot();
         // Before claiming, so anything the sweep promotes is picked up by this
         // same pass rather than waiting a minute for the next one. A
         // cancellation is worth exactly that minute.
@@ -94,6 +103,10 @@ export class MonitorService {
 
         const ids = await this.claim(now);
         const result: TickResult = {
+            nsCallsInWindow: 0,
+            tomtomCallsInWindow: 0,
+            nsCallsThisTick: 0,
+            tomtomCallsThisTick: 0,
             disruptions: swept.disruptions,
             promoted: swept.promoted,
             claimed: ids.length,
@@ -116,6 +129,22 @@ export class MonitorService {
                 result.failed += 1;
                 console.error(`Monitor failed on occurrence ${id}:`, error);
             }
+        }
+
+        const after = ProviderUsage.snapshot();
+        const spent = ProviderUsage.totalsSince(before);
+        result.nsCallsInWindow = after.ns;
+        result.tomtomCallsInWindow = after.tomtom;
+        result.nsCallsThisTick = spent.ns;
+        result.tomtomCallsThisTick = spent.tomtom;
+
+        if (after.nsPressure) {
+            // Before the 429 rather than after it. By the time NS refuses, an
+            // alarm has already gone unchecked.
+            console.warn(
+                `NS budget is filling up: ${String(after.ns)} of ${String(after.nsLimit)} ` +
+                    `calls in the last ${String(after.windowMinutes)} minutes.`,
+            );
         }
 
         return result;

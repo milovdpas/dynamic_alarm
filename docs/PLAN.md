@@ -811,6 +811,50 @@ Fallback chain if no sound is picked: user's chosen URI → `Settings.System.DEF
 - ~~TomTom API key~~, **done.** M3 is unblocked.
 - Both keys go in `apps/api/.env` only (`NS_SUBSCRIPTION_KEY`, `TOMTOM_API_KEY`), never in `apps/mobile`, anything prefixed `EXPO_PUBLIC_` ships inside the bundle and is trivially extractable. `.env.example` documents the names with empty values.
 - M0 ends with a one-shot smoke script (`apps/api/tools/smoke-transport.ts`) hitting `/api/v3/trips` and TomTom `arriveAt` once each, to prove both keys work before any engine code depends on them.
-- NS publishes no rate-limit figures on the portal. Instrument call counts from day 1 of M2 and log 429s loudly, so the cadence can be tuned against a real ceiling rather than a guess.
+- ~~NS publishes no rate-limit figures on the portal~~. It does: **300 requests
+  per 5 minutes**, shared across the deployment. Call counts are now instrumented
+  (`ProviderUsage`), reported on every tick, and a 429 is logged loudly with the
+  count that preceded it. Measured against live providers:
+
+  | Operation | NS | TomTom |
+  |---|---|---|
+  | A tick with nothing due (the global sweep) | 1 | 0 |
+  | Re-checking one occurrence | 1 | 0 |
+  | A cancellation, re-planned with 8 candidates | 4 | 2 |
+
+  What that means for the ceiling: the sweep costs 5 of the 300 in any window,
+  leaving 295. In the tightest cadence band an occurrence is checked every three
+  minutes, so it spends about 1.7 calls per window, and the deployment runs out
+  somewhere around **170 alarms being monitored inside their final 45 minutes**.
+  Comfortable now, and a real number to tune against rather than a guess.
+
+  The counter is in memory and per process, so it is diagnostic rather than
+  enforcement: a second instance counts separately. NS's own 429 remains the
+  authority, which is why it is logged separately and loudly.
+
+  **The audit that followed found one real saving.** The sweep looked free
+  because it is one call however many users there are, and it was therefore
+  being spent every minute of the day, including the sixteen hours when no alarm
+  is armed at all: about a thousand NS requests a day answering a question
+  nobody had asked. It now counts armed occurrences first, which is a query the
+  database was already going to serve, and calls nothing when the answer is
+  zero. A deployment of drivers never calls it at all, since a car journey has
+  no station a rail disruption could touch.
+
+  Everything else was already minimal, and worth writing down so it is not
+  re-examined every month:
+
+  - **Refreshing an occurrence is one call**, by `ctxRecon`, which is the whole
+    reason that endpoint is used rather than re-planning.
+  - **A re-plan is one NS call regardless of how many candidates it considers**,
+    because `/trips` returns them together. Asking for eight rather than three
+    costs nothing extra.
+  - **Access legs are cached per coordinate and mode** on a provider held
+    statically, so the walk or ride to the station is asked once per address for
+    the life of the process rather than once per plan. That is why a re-plan
+    that touches eight itineraries spends two TomTom calls and not sixteen.
+  - **Autosuggest is debounced in the app** and rejected under three characters
+    by the server, which are the only two defences a keystroke-driven endpoint
+    can have.
 - One bundled fallback alarm sound (used as last resort on Android, and as the only option on iOS). Needed before M4; a placeholder tone is fine for M0-M3.
 - iOS 26 device eventually, for M4.

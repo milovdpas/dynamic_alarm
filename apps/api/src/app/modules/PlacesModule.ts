@@ -1,6 +1,7 @@
 import type { PlaceSuggestion } from '@alarm/types';
 
 import { env } from '../../config/app';
+import { ProviderUsage } from '../services/ProviderUsage';
 import { NsRateLimitError } from './NsModule';
 
 /**
@@ -34,6 +35,9 @@ export class PlacesModule {
             limit: String(limit),
         });
 
+        // Autosuggest is NS too, and it is the only route a keystroke can
+        // reach, so it belongs in the same budget as everything else.
+        ProviderUsage.record('NS');
         const response = await fetch(
             `${env.transport.nsBaseUrl}/places-api/v2/autosuggest?${params.toString()}`,
             {

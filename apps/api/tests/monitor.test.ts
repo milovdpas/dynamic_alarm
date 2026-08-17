@@ -128,12 +128,15 @@ describe('disruption sweep', () => {
         expect(result).toEqual({ disruptions: 1, promoted: 0 });
     });
 
-    it('never promotes a car journey, which has no stations to match', async () => {
+    it('never promotes a car journey, and does not even ask', async () => {
+        // It used to fetch the feed and then match nothing against it. A car
+        // journey has no station a rail disruption could touch, so the call was
+        // spent to learn something already known from the row.
         await armedMorning({ watchedStationCodes: null });
 
         const result = await sweeper([disruption(['UT'], new Date())]).sweep(new Date());
 
-        expect(result).toEqual({ disruptions: 1, promoted: 0 });
+        expect(result).toEqual({ disruptions: 0, promoted: 0 });
     });
 
     it('does not take the tick down when the feed fails', async () => {
@@ -552,3 +555,58 @@ function sampleJourney() {
         ],
     };
 }
+
+describe('what the sweep costs when nothing is armed', () => {
+    /**
+     * The feed is one call per tick whatever the user count, which made it look
+     * free. It was being spent every minute of the day, including the sixteen
+     * hours when no alarm is armed at all.
+     */
+    it('does not ask NS anything when no occurrence is watching', async () => {
+        let asked = 0;
+        const counting = new DisruptionSweepService({
+            disruptions: () => {
+                asked += 1;
+                return Promise.resolve([disruption(['UT'], new Date())]);
+            },
+        } as unknown as StubNsModule);
+
+        await counting.sweep(new Date());
+
+        expect(asked).toBe(0);
+    });
+
+    it('asks once when something is', async () => {
+        let asked = 0;
+        await armedMorning();
+
+        const counting = new DisruptionSweepService({
+            disruptions: () => {
+                asked += 1;
+                return Promise.resolve([disruption(['UT'], new Date())]);
+            },
+        } as unknown as StubNsModule);
+
+        await counting.sweep(new Date());
+
+        expect(asked).toBe(1);
+    });
+
+    it('ignores occurrences with no stations to watch', async () => {
+        // A car journey has no station a rail disruption could touch, so a
+        // deployment of drivers should never call the feed at all.
+        let asked = 0;
+        await armedMorning({ watchedStationCodes: null });
+
+        const counting = new DisruptionSweepService({
+            disruptions: () => {
+                asked += 1;
+                return Promise.resolve([]);
+            },
+        } as unknown as StubNsModule);
+
+        await counting.sweep(new Date());
+
+        expect(asked).toBe(0);
+    });
+});

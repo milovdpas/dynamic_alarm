@@ -298,6 +298,18 @@ export interface HealthResponse {
  * fits inside a minute.
  */
 export interface MonitorTickResponse {
+    /**
+     * Provider calls this process has made in the last rate-limit window.
+     *
+     * Reported on every tick because the ceiling is a rate, shared across the
+     * whole deployment, and a cadence designed on paper is worth exactly as much
+     * as the measurement that confirms it.
+     */
+    nsCallsInWindow: number;
+    tomtomCallsInWindow: number;
+    /** Calls this tick alone spent, which is what a new feature changes. */
+    nsCallsThisTick: number;
+    tomtomCallsThisTick: number;
     /** Active disruptions seen by the one sweep that covers every user. */
     disruptions: number;
     /** Occurrences the sweep pulled forward, ahead of their cadence band. */

@@ -2,6 +2,7 @@ import { AccessMode } from '@alarm/types';
 import type { GeoPoint } from '@alarm/types';
 
 import { env } from '../../config/app';
+import { ProviderUsage } from '../services/ProviderUsage';
 
 export interface RouteResult {
     departureAt: string;
@@ -80,6 +81,7 @@ export class TomTomModule {
         }
 
         const url = `${env.transport.tomtomBaseUrl}/routing/1/calculateRoute/${locations}/json?${params.toString()}`;
+        ProviderUsage.record('TOMTOM');
         const response = await fetch(url);
 
         if (response.status === 429) {

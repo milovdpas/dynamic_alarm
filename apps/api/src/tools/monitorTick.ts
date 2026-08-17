@@ -55,7 +55,11 @@ async function main(): Promise<void> {
         `Tick: ${String(result.disruptions)} disruptions, ${String(result.promoted)} promoted, ` +
             `claimed ${String(result.claimed)}, moved ${String(result.moved)}, ` +
             `unchanged ${String(result.unchanged)}, failed ${String(result.failed)} ` +
-            `in ${String(result.durationMs)}ms.`,
+            `in ${String(result.durationMs)}ms. ` +
+            // What it spent, and what the process has spent recently. The
+            // second number is the one with a ceiling.
+            `NS ${String(result.nsCallsThisTick)} (${String(result.nsCallsInWindow)}/5m), ` +
+            `TomTom ${String(result.tomtomCallsThisTick)} (${String(result.tomtomCallsInWindow)}/5m).`,
     );
 
     if (result.failed > 0) {

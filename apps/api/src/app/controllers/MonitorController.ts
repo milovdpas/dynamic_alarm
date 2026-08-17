@@ -28,6 +28,10 @@ export default class MonitorController {
 
         if (MonitorController.running) {
             sendSuccess<MonitorTickResponse>(res, {
+                nsCallsInWindow: 0,
+                tomtomCallsInWindow: 0,
+                nsCallsThisTick: 0,
+                tomtomCallsThisTick: 0,
                 disruptions: 0,
                 promoted: 0,
                 claimed: 0,

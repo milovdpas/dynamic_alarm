@@ -44,6 +44,29 @@ export class DisruptionSweepService {
     constructor(private readonly ns: NsModule = new NsModule()) {}
 
     async sweep(now: Date): Promise<SweepResult> {
+        /**
+         * Nothing armed, nothing to sweep for.
+         *
+         * The feed is one call per tick whatever the user count, which made it
+         * look free, but it was being spent every minute of the day including
+         * the sixteen hours when no alarm is armed at all. For a single user
+         * that is roughly a thousand NS requests a day answering a question
+         * nobody asked.
+         *
+         * A count against an indexed column costs a query the database was
+         * already going to serve. Occurrences without watched stations are
+         * excluded because a car journey has no station a rail disruption could
+         * touch.
+         */
+        const watching = await ScheduleOccurrence.createQueryBuilder('occurrence')
+            .where('occurrence.state = :state', { state: OccurrenceState.ARMED })
+            .andWhere('occurrence.watchedStationCodes IS NOT NULL')
+            .getCount();
+
+        if (watching === 0) {
+            return { disruptions: 0, promoted: 0 };
+        }
+
         const disruptions = await this.ns.disruptions();
         if (disruptions.length === 0) {
             return { disruptions: 0, promoted: 0 };

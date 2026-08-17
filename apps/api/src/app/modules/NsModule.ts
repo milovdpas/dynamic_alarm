@@ -2,6 +2,7 @@ import { JourneyStatus, LegType } from '@alarm/types';
 import type { GeoPoint, Journey, JourneyLeg, JourneyStop } from '@alarm/types';
 
 import { env } from '../../config/app';
+import { ProviderUsage } from '../services/ProviderUsage';
 
 /**
  * Raw NS Reisinformatie calls. Station to station only.
@@ -116,6 +117,9 @@ export class NsModule {
     }
 
     private async get<T>(path: string): Promise<T> {
+        // Counted before the call rather than after it: a request that times
+        // out still spent budget, and those are exactly the ones worth seeing.
+        ProviderUsage.record('NS');
         const response = await fetch(`${env.transport.nsBaseUrl}${path}`, { headers: this.headers });
 
         if (response.status === 429) {
@@ -123,6 +127,13 @@ export class NsModule {
             // hitting this means the monitor is spending more than it may, and
             // the ceiling is shared across every user of this deployment.
             const retryAfter = Number(response.headers.get('retry-after') ?? '0');
+            const usage = ProviderUsage.snapshot();
+            console.error(
+                `NS RATE LIMIT. This process counted ${String(usage.ns)} NS calls in the ` +
+                    `last ${String(usage.windowMinutes)} minutes against a shared ceiling of ` +
+                    `${String(usage.nsLimit)}. Retry after ${String(retryAfter)}s. ` +
+                    'Alarms are not being re-checked while this lasts.',
+            );
             throw new NsRateLimitError(retryAfter);
         }
         if (!response.ok) {
