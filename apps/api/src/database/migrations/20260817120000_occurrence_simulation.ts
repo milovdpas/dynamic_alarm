@@ -14,9 +14,12 @@ import type { Knex } from 'knex';
  */
 export async function up(knex: Knex): Promise<void> {
     await knex.schema.alterTable('schedule_occurrences', (table) => {
-        table.string('simulation_kind', 32).nullable();
-        table.integer('simulation_minutes').nullable();
-        table.datetime('simulation_expires_at', { precision: 3 }).nullable();
+        table.string('simulation_kind', 32).nullable().after('watched_station_codes');
+        table.integer('simulation_minutes').nullable().after('simulation_kind');
+        table
+            .datetime('simulation_expires_at', { precision: 3 })
+            .nullable()
+            .after('simulation_minutes');
     });
 }
 

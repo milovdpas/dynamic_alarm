@@ -86,6 +86,15 @@ export class ScheduleService {
             schedule.destinationAccess = input.destinationAccess;
         }
         if (input.journeyOffset !== undefined) schedule.journeyOffset = input.journeyOffset;
+        if (input.replacementPreference !== undefined) {
+            schedule.replacementPreference = input.replacementPreference;
+        }
+        if (input.travelWindowStart !== undefined) {
+            schedule.travelWindowStart = input.travelWindowStart;
+        }
+        if (input.travelWindowEnd !== undefined) {
+            schedule.travelWindowEnd = input.travelWindowEnd;
+        }
         if (input.buffers !== undefined) schedule.buffers = input.buffers;
         if (input.timezone !== undefined) schedule.timezone = input.timezone;
         if (input.active !== undefined) schedule.active = input.active;
@@ -172,6 +181,12 @@ function affectsPlanning(input: UpdateScheduleRequest): boolean {
         'originAccess',
         'destinationAccess',
         'journeyOffset',
+        // Not because they change today's plan, but because they change which
+        // replacement a cancellation would pick, and an armed morning carries
+        // the answer to that question.
+        'replacementPreference',
+        'travelWindowStart',
+        'travelWindowEnd',
         'fixedTravelMinutes',
         'buffers',
         'timezone',

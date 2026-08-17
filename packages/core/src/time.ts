@@ -19,9 +19,15 @@ export function toIso(dt: DateTime): IsoDateTimeString {
     return iso;
 }
 
-/** Split `"08:30"` into hour and minute. Throws on anything else. */
+/**
+ * Split `"08:30"` into hour and minute. Throws on anything else.
+ *
+ * Seconds are accepted and ignored, because MySQL returns a `time` column as
+ * `07:00:00` and the call sites that forget to trim it are the ones written
+ * later, in a hurry, against a value that looks fine in the database.
+ */
 export function parseLocalTime(time: LocalTimeString): { hour: number; minute: number } {
-    const match = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+    const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(time.trim());
     if (!match) {
         throw new Error(`Invalid local time (expected HH:mm): ${time}`);
     }

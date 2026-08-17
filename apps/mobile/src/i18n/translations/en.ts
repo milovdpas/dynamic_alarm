@@ -34,6 +34,7 @@ export default {
         volume_muted: 'Your alarm volume is muted, so you will not hear this.',
     },
     ring: {
+        no_replacement: 'Your train is not running, and there is nothing else within the hours you set.',
         your_train: 'Your train',
         delayed: '{{service}} is {{minutes}} minutes late.',
         cancelled: '{{service}} is not running.',
@@ -299,6 +300,16 @@ export default {
             '6': 'Sat',
             '7': 'Sun',
         },
+    },
+    replacement: {
+        title: 'If your train is cancelled',
+        help: 'Which train you would rather take, and the hours you are willing to travel.',
+        preference: 'Prefer',
+        earlier: 'An earlier train',
+        later: 'A later train',
+        window_start: 'Not before',
+        window_end: 'Not after',
+        window_help: 'Leave empty if any time will do. If nothing runs between these hours, your alarm stays where it is and tells you when it goes off.',
     },
     travel: {
         mode: 'How do you travel?',

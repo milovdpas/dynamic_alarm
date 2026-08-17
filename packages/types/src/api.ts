@@ -3,6 +3,7 @@ import type {
     AlarmEventType,
     DevicePlatform,
     OccurrenceState,
+    ReplacementPreference,
     SimulationKind,
     TransportMode,
     WakeChangeReason,
@@ -165,6 +166,10 @@ export interface CreateScheduleRequest {
     /** Defaults to walking at both ends when omitted. */
     originAccess?: AccessMode;
     destinationAccess?: AccessMode;
+    /** Which way to look for a replacement, and when travel is acceptable. */
+    replacementPreference?: ReplacementPreference;
+    travelWindowStart?: LocalTimeString | null;
+    travelWindowEnd?: LocalTimeString | null;
     /** Counting back from the latest on-time departure. Defaults to 0. */
     journeyOffset?: number;
     fixedTravelMinutes?: number;

@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { AccessMode, TransportMode } from '@alarm/types';
+import { AccessMode, ReplacementPreference, TransportMode } from '@alarm/types';
 import type { Place, Schedule } from '@alarm/types';
 
 import { updatePlace, updateSchedule } from '@/api';
@@ -13,6 +13,7 @@ import AddressSearch from '@/components/places/AddressSearch';
 import ChoiceRow from '@/components/ui/ChoiceRow';
 import DetailRow from '@/components/ui/DetailRow';
 import TextField from '@/components/ui/TextField';
+import TimeField from '@/components/ui/TimeField';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import WarningBanner from '@/components/ui/WarningBanner';
@@ -94,6 +95,11 @@ function TravelForm({
     const [fixedMinutes, setFixedMinutes] = useState(
         schedule.fixedTravelMinutes === null ? '' : String(schedule.fixedTravelMinutes),
     );
+    const [preference, setPreference] = useState<ReplacementPreference>(
+        schedule.replacementPreference,
+    );
+    const [windowStart, setWindowStart] = useState(schedule.travelWindowStart ?? '');
+    const [windowEnd, setWindowEnd] = useState(schedule.travelWindowEnd ?? '');
     const [newOrigin, setNewOrigin] = useState<AddressDraft | null>(null);
     const [newDestination, setNewDestination] = useState<AddressDraft | null>(null);
     const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -132,6 +138,11 @@ function TravelForm({
                 originAccess,
                 destinationAccess,
                 fixedTravelMinutes: fixed ? Number(fixedMinutes) : undefined,
+                replacementPreference: preference,
+                // Empty means no limit, which is not the same as unchanged, so
+                // it is sent as null rather than omitted.
+                travelWindowStart: windowStart === '' ? null : windowStart,
+                travelWindowEnd: windowEnd === '' ? null : windowEnd,
             });
             router.back();
         } catch (error) {
@@ -142,6 +153,9 @@ function TravelForm({
     }, [
         destination,
         destinationAccess,
+        preference,
+        windowStart,
+        windowEnd,
         fixed,
         fixedMinutes,
         id,
@@ -249,6 +263,45 @@ function TravelForm({
                     />
                 )}
             </View>
+
+            {publicTransport && (
+                <View style={styles.section}>
+                    <ThemedText type="subtitle">{t('replacement.title')}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                        {t('replacement.help')}
+                    </ThemedText>
+
+                    <ChoiceRow
+                        label={t('replacement.preference')}
+                        value={preference}
+                        onChange={setPreference}
+                        choices={[
+                            { value: ReplacementPreference.EARLIER, label: t('replacement.earlier') },
+                            { value: ReplacementPreference.LATER, label: t('replacement.later') },
+                        ]}
+                    />
+
+                    {/*
+                     * Optional on purpose. Empty means any hour is acceptable,
+                     * which is what the app did before these existed, and a
+                     * window nobody has thought about should not silently start
+                     * rejecting trains.
+                     */}
+                    <TimeField
+                        label={t('replacement.window_start')}
+                        value={windowStart}
+                        onChange={setWindowStart}
+                    />
+                    <TimeField
+                        label={t('replacement.window_end')}
+                        value={windowEnd}
+                        onChange={setWindowEnd}
+                    />
+                    <ThemedText type="small" themeColor="textSecondary">
+                        {t('replacement.window_help')}
+                    </ThemedText>
+                </View>
+            )}
 
             <ThemedText type="small" themeColor="textSecondary">
                 {t('schedules.rearm_notice')}

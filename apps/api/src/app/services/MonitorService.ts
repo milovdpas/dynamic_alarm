@@ -10,10 +10,13 @@ import {
 } from '@alarm/types';
 import type { Journey, WakePlan } from '@alarm/types';
 import {
+    chooseReplacement,
     computeWakePlan,
     routineDurationMinutes,
+    serviceDeparture,
     shouldPushWakeChange,
 } from '@alarm/core';
+import type { ReplacementResult } from '@alarm/core';
 
 import AlarmEvent from '../models/AlarmEvent.entity';
 import Device from '../models/Device.entity';
@@ -218,12 +221,28 @@ export class MonitorService {
         // the same deadline. Without this a cancellation left the occurrence
         // with no journey at all: a wake time computed from nothing, and a
         // screen showing a train that vanished with no replacement under it.
-        const replanned = await this.replan(
-            schedule,
-            occurrence.date,
-            refreshed,
-            simulated === undefined ? undefined : schedule.journeyOffset + 1,
-        );
+        const replacement = await this.replan(schedule, occurrence.date, refreshed, previousPlan);
+        const replanned = replacement.found ? replacement.plan : null;
+
+        if (!replacement.found && replacement.reason === 'OUTSIDE_WINDOW') {
+            /**
+             * A cancellation with nothing acceptable to replace it.
+             *
+             * The alarm stays exactly where it is and the user is told. Moving
+             * it to a train they have said they will not take would be worse
+             * than leaving it, and saying nothing would be worse still: they
+             * would wake at the usual time for a service that is not running.
+             */
+            occurrence.lastCheckedAt = now;
+            occurrence.nextCheckAt = this.occurrences.nextCheck(
+                previousPlan,
+                schedule.timezone,
+                now,
+            );
+            await this.delivery.notifyNoReplacement(occurrence, device, simulated !== undefined);
+            await occurrence.save();
+            return false;
+        }
 
         const routine = await Routine.findOneBy({ id: schedule.routineId });
         const plan = replanned ?? computeWakePlan({
@@ -370,22 +389,35 @@ export class MonitorService {
         schedule: Schedule,
         date: string,
         refreshed: Journey | null,
-        simulatedOffset?: number,
-    ): Promise<WakePlan | null> {
+        previousPlan: WakePlan,
+    ): Promise<ReplacementResult> {
         if (refreshed !== null || schedule.mode === TransportMode.FIXED) {
-            return null;
+            return { found: false, reason: 'NOTHING_PLANNED' };
         }
 
         try {
-            // The offset only moves for a simulation. A real cancellation is
-            // already absent from a fresh plan, because NS knows the service is
-            // gone; a simulated one is not, so re-planning would hand back the
-            // very train the test pretended to cancel.
-            const result = await this.plans.forDate(schedule, date, simulatedOffset);
-            return result.ok ? result.response.plan : null;
+            const options = await this.plans.optionsForDate(schedule, date);
+
+            /**
+             * Which candidate is acceptable is the user's decision, not ours.
+             *
+             * The rule lives in `@alarm/core` beside the rest of the engine, so
+             * the app explains the same choice the server made rather than
+             * describing it a second time and drifting. Passing the cancelled
+             * departure also stops the planner handing back the very train that
+             * is not running: without a reference, "different" has no meaning.
+             */
+            return chooseReplacement({
+                options,
+                cancelledDepartureAt: serviceDeparture(previousPlan),
+                preference: schedule.replacementPreference,
+                windowStart: schedule.travelWindowStart,
+                windowEnd: schedule.travelWindowEnd,
+                timezone: schedule.timezone,
+            });
         } catch (error) {
             console.error(`Re-plan failed for occurrence on ${date}:`, error);
-            return null;
+            return { found: false, reason: 'NOTHING_PLANNED' };
         }
     }
 

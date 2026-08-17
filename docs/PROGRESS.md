@@ -554,10 +554,13 @@ schedule be changed. See the information architecture section in PLAN.md.
       nothing implemented. A cancellation that forces an earlier start now moves
       the alarm regardless of the opt-in switches, since not moving is a
       guaranteed failure rather than a risk
-- [ ] Which replacement is acceptable: a direction (earlier or later) and a
-      travel window per schedule, falling back to the other direction inside the
-      window and then to leaving the alarm alone with a notice saying why. See
-      PLAN.md
+- [x] Which replacement is acceptable: a direction and a travel window per
+      schedule, set on the travel screen. The rule lives in `@alarm/core` with
+      eight tests, and the replacement path now asks the planner for late
+      arrivals too, since a list that by construction contains only on-time
+      departures can never satisfy "I would rather take a later train". Proven
+      against live NS: preferring later moved 08:10 to 08:24, preferring earlier
+      moved 08:24 to 08:10, and a 09:30 window left the alarm alone
 - [x] Today says what happened: the delay or cancellation, the minutes gained
       rather than only a new time, and, when nothing moved, whether that was a
       switch being off or the journey's own spare time absorbing it. Measured

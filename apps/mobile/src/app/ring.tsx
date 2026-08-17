@@ -160,14 +160,16 @@ export default function RingScreen() {
             {disruption !== null && (
                 <View style={styles.disruption}>
                     <ThemedText style={styles.disruptionText}>
-                        {disruption.kind === 'CANCELLATION'
-                            ? t('ring.cancelled', {
-                                  service: disruption.service ?? t('ring.your_train'),
-                              })
-                            : t('ring.delayed', {
-                                  service: disruption.service ?? t('ring.your_train'),
-                                  minutes: disruption.minutes,
-                              })}
+                        {disruption.kind === 'NO_REPLACEMENT'
+                            ? t('ring.no_replacement')
+                            : disruption.kind === 'CANCELLATION'
+                              ? t('ring.cancelled', {
+                                    service: disruption.service ?? t('ring.your_train'),
+                                })
+                              : t('ring.delayed', {
+                                    service: disruption.service ?? t('ring.your_train'),
+                                    minutes: disruption.minutes,
+                                })}
                     </ThemedText>
                     {disruption.simulated && (
                         <ThemedText type="small" style={styles.disruptionText}>

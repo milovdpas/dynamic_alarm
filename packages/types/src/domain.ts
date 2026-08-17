@@ -1,4 +1,11 @@
-import type { AccessMode, JourneyStatus, LegType, TransportMode, Weekday } from './enums';
+import type {
+    AccessMode,
+    JourneyStatus,
+    LegType,
+    ReplacementPreference,
+    TransportMode,
+    Weekday,
+} from './enums';
 
 /**
  * Time formats used across the wire.
@@ -98,6 +105,23 @@ export interface Schedule {
      */
     originAccess: AccessMode;
     destinationAccess: AccessMode;
+    /**
+     * Which way to look when the chosen train is cancelled, and the hours in
+     * which any replacement is acceptable at all.
+     *
+     * The window bounds the **departure of the first service leg**, because that
+     * is what somebody is actually reasoning about when they say "not before
+     * seven". It is a different constraint from `arrivalTime`: the deadline says
+     * when they must be somewhere, the window says when they are willing to
+     * travel, and a cancellation is precisely the moment those two stop
+     * agreeing.
+     *
+     * Unset means any replacement is acceptable, which is the behaviour before
+     * these existed.
+     */
+    replacementPreference: ReplacementPreference;
+    travelWindowStart: LocalTimeString | null;
+    travelWindowEnd: LocalTimeString | null;
     /**
      * Which on-time journey to take, counting back from the latest departure.
      *

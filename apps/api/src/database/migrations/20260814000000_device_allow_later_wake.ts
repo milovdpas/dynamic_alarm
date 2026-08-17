@@ -21,7 +21,7 @@ import type { Knex } from 'knex';
  */
 export async function up(knex: Knex): Promise<void> {
     await knex.schema.alterTable('devices', (table) => {
-        table.boolean('allow_later_wake').notNullable().defaultTo(true);
+        table.boolean('allow_later_wake').notNullable().defaultTo(true).after('app_version');
     });
 }
 

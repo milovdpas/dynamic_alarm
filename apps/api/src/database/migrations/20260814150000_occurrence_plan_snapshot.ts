@@ -18,7 +18,7 @@ import type { Knex } from 'knex';
  */
 export async function up(knex: Knex): Promise<void> {
     await knex.schema.alterTable('schedule_occurrences', (table) => {
-        table.json('plan_snapshot').nullable();
+        table.json('plan_snapshot').nullable().after('depart_home_at');
         table.dropColumn('trip_snapshot');
     });
 }

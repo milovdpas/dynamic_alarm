@@ -11,7 +11,12 @@ import Storage from '@/utils/modules/Storage';
  * the numbers are what the copy interpolates.
  */
 export interface Disruption {
-    kind: 'DELAY' | 'CANCELLATION';
+    /**
+     * `NO_REPLACEMENT` is a cancellation with nothing acceptable to take
+     * instead: everything left runs outside the hours its owner said they would
+     * travel. The alarm stays where it is, so this is the only warning they get.
+     */
+    kind: 'DELAY' | 'CANCELLATION' | 'NO_REPLACEMENT';
     /** Worst delay across the journey's legs. Zero for a cancellation. */
     minutes: number;
     /** The service it happened to, when there is one to name. */

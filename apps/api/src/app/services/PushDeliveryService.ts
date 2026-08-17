@@ -165,6 +165,48 @@ export class PushDeliveryService {
     }
 
     /**
+     * Tells the phone its train is cancelled and nothing acceptable exists.
+     *
+     * The alarm has not moved and will not: every remaining service falls
+     * outside the hours its owner said they would travel. That is the one case
+     * where the app has no useful answer, and the only wrong response to it is
+     * silence, since the alarm will otherwise ring on time for a journey that
+     * cannot be made.
+     */
+    async notifyNoReplacement(
+        occurrence: ScheduleOccurrence,
+        device: Device,
+        simulated: boolean,
+    ): Promise<DeliveryOutcome> {
+        const key = 'NO_REPLACEMENT';
+        if (occurrence.noticeKey === key) {
+            return 'NOT_NEEDED';
+        }
+
+        const outcome = await this.push.send(
+            device,
+            {
+                type: PUSH_MESSAGE_TYPE.DISRUPTION_NOTICE,
+                occurrenceId: occurrence.id,
+                kind: 'NO_REPLACEMENT',
+                minutes: 0,
+                service: null,
+                simulated,
+            },
+            occurrence.currentWakeAt ?? new Date(),
+        );
+
+        if (outcome !== 'SENT') {
+            console.warn(`No-replacement notice for occurrence ${occurrence.id}: ${outcome}`);
+            return 'FAILED';
+        }
+
+        occurrence.noticeKey = key;
+        occurrence.noticeSentAt = new Date();
+        return 'SENT';
+    }
+
+    /**
      * The change being retried, as it was recorded when it happened.
      *
      * Read back rather than rewritten: the delay that caused it may have

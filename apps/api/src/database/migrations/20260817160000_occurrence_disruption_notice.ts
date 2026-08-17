@@ -14,8 +14,8 @@ import type { Knex } from 'knex';
  */
 export async function up(knex: Knex): Promise<void> {
     await knex.schema.alterTable('schedule_occurrences', (table) => {
-        table.string('notice_key', 64).nullable();
-        table.datetime('notice_sent_at', { precision: 3 }).nullable();
+        table.string('notice_key', 64).nullable().after('last_pushed_at');
+        table.datetime('notice_sent_at', { precision: 3 }).nullable().after('notice_key');
     });
 }
 

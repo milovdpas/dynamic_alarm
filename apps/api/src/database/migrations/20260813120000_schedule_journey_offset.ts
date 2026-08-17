@@ -13,7 +13,7 @@ import type { Knex } from 'knex';
  */
 export async function up(knex: Knex): Promise<void> {
     await knex.schema.alterTable('schedules', (table) => {
-        table.integer('journey_offset').notNullable().defaultTo(0);
+        table.integer('journey_offset').notNullable().defaultTo(0).after('destination_access');
     });
 }
 

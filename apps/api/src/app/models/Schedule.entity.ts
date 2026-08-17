@@ -9,7 +9,7 @@ import {
     PrimaryGeneratedColumn,
     UpdateDateColumn,
 } from 'typeorm';
-import { AccessMode, TransportMode } from '@alarm/types';
+import { AccessMode, ReplacementPreference, TransportMode } from '@alarm/types';
 import type { BufferConfig, Schedule as ScheduleDto, Weekday } from '@alarm/types';
 
 import Device from './Device.entity';
@@ -99,6 +99,31 @@ export default class Schedule extends BaseEntity {
      * timetable does not hold still, so a cancellation moves the choice along
      * the list instead of invalidating it.
      */
+    /**
+     * Which way to look when the chosen train is cancelled, and the hours in
+     * which any replacement is acceptable at all.
+     *
+     * The window bounds the departure of the first service leg, which is what a
+     * traveller means by "not before seven". It is a different constraint from
+     * `arrivalTime`: that says when they must be somewhere, this says when they
+     * are willing to travel, and a cancellation is when the two stop agreeing.
+     *
+     * Null means any replacement will do, which is how this behaved before.
+     */
+    @Column({
+        name: 'replacement_preference',
+        type: 'varchar',
+        length: 16,
+        default: ReplacementPreference.EARLIER,
+    })
+    replacementPreference!: ReplacementPreference;
+
+    @Column({ name: 'travel_window_start', type: 'time', nullable: true })
+    travelWindowStart!: string | null;
+
+    @Column({ name: 'travel_window_end', type: 'time', nullable: true })
+    travelWindowEnd!: string | null;
+
     @Column({ name: 'journey_offset', type: 'int', default: 0 })
     journeyOffset!: number;
 
@@ -142,6 +167,11 @@ export default class Schedule extends BaseEntity {
             originAccess: this.originAccess,
             destinationAccess: this.destinationAccess,
             journeyOffset: this.journeyOffset,
+            replacementPreference: this.replacementPreference,
+            // Trimmed to HH:mm like the arrival time: MySQL hands back seconds
+            // that no screen shows and no comparison needs.
+            travelWindowStart: this.travelWindowStart?.slice(0, 5) ?? null,
+            travelWindowEnd: this.travelWindowEnd?.slice(0, 5) ?? null,
             fixedTravelMinutes: this.fixedTravelMinutes ?? undefined,
             buffers: this.buffers,
             timezone: this.timezone,

@@ -90,6 +90,20 @@ export enum AlarmEventType {
 }
 
 /**
+ * Which way to look for a replacement when the usual train is cancelled.
+ *
+ * `EARLIER` is the default because arriving on time is the point of the app: a
+ * train before the cancelled one still gets you there, at the cost of getting
+ * up sooner. `LATER` is the honest alternative for someone who would rather be
+ * late than early, and the engine already models arriving late rather than
+ * refusing to answer.
+ */
+export enum ReplacementPreference {
+    EARLIER = 'EARLIER',
+    LATER = 'LATER',
+}
+
+/**
  * A pretend disruption, applied to one occurrence on its next check.
  *
  * Test-only, and the one place this system deliberately lies to itself. Real

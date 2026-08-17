@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon';
 import { nextOccurrenceDate, routineDurationMinutes } from '@alarm/core';
-import type { PlanPreviewRequest, SchedulePlanResponse } from '@alarm/types';
+import type { PlanPreviewRequest, SchedulePlanResponse, WakePlan } from '@alarm/types';
 
 import Place from '../models/Place.entity';
 import Routine from '../models/Routine.entity';
@@ -92,6 +92,32 @@ export class SchedulePlanService {
                 plan: await this.plans.preview(request.input),
             },
         };
+    }
+
+    /**
+     * Every way to make one specific morning, so a choice can be made among
+     * them.
+     *
+     * The re-plan path needs candidates rather than an answer: which
+     * replacement is acceptable depends on the user's direction and travel
+     * window, and that decision belongs to the engine.
+     */
+    async optionsForDate(schedule: Schedule, date: string): Promise<WakePlan[]> {
+        const request = await this.requestFor(schedule, date);
+        if (!request.ok) {
+            return [];
+        }
+
+        /**
+         * Late arrivals included, and a wider net than the three the onboarding
+         * picker shows.
+         *
+         * The engine decides which of these is acceptable, and it cannot honour
+         * "I would rather take a later train" from a list that by construction
+         * contains none. Handing it everything and letting the rule choose is
+         * also what keeps the reason for the choice in one place.
+         */
+        return this.plans.options(request.input, { includeLate: true, limit: 8 });
     }
 
     /**

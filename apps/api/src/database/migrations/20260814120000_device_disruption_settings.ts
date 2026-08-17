@@ -29,8 +29,16 @@ export async function up(knex: Knex): Promise<void> {
     });
 
     await knex.schema.alterTable('devices', (table) => {
-        table.boolean('allow_later_wake_on_cancellation').notNullable().defaultTo(true);
-        table.boolean('allow_earlier_wake_on_traffic').notNullable().defaultTo(true);
+        table
+            .boolean('allow_later_wake_on_cancellation')
+            .notNullable()
+            .defaultTo(true)
+            .after('allow_later_wake_on_delay');
+        table
+            .boolean('allow_earlier_wake_on_traffic')
+            .notNullable()
+            .defaultTo(true)
+            .after('allow_later_wake_on_cancellation');
     });
 }
 

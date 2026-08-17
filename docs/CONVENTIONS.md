@@ -395,3 +395,31 @@ Two consequences worth knowing:
 - **A timestamp that looks plausible is not evidence.** Both values were valid
   times of day, which is why this survived until somebody read a log entry at
   16:19 and saw 18:19.
+
+## Added columns say where they go
+
+`alterTable` puts a new column at the end of the table, so a schema that grows
+ends up with `created_at` and `updated_at` buried in the middle and related
+columns scattered by the order somebody happened to add them. Reading such a
+table tells you the history of the project rather than the shape of the data.
+
+Every added column takes `.after('some_column')`, anchored on one that already
+exists at that point in the migration order:
+
+```ts
+table.datetime('pushed_wake_at', { precision: 3 }).nullable().after('device_acked_wake_at');
+table.datetime('last_pushed_at', { precision: 3 }).nullable().after('pushed_wake_at');
+```
+
+Two things to know:
+
+- **It only takes effect on a fresh run.** MySQL cannot reorder an existing
+  table, so databases that have already migrated keep the order they have. Adding
+  `.after()` to a migration that has run is safe and changes nothing there; it is
+  for the next environment that is built from zero.
+- **`.after()` is MySQL only**, which is fine here and stated in the decisions
+  log, but it is one more thing tying us to it.
+
+Verify by migrating a scratch database and reading `information_schema.columns`
+ordered by `ORDINAL_POSITION`. That also exercises the whole chain from nothing,
+which nothing else does once the first environment exists.

@@ -45,7 +45,7 @@ export default function DisruptionBanner({
     }
 
     const service = disruption.service ?? t('ring.your_train');
-    const cancelled = disruption.kind === 'CANCELLATION';
+    const cancelled = disruption.kind !== 'DELAY';
 
     /**
      * How much the alarm moved, measured against the anchor.
@@ -64,9 +64,11 @@ export default function DisruptionBanner({
     return (
         <View style={[styles.banner, { borderColor: warning }]}>
             <ThemedText type="smallBold" style={{ color: warning }}>
-                {cancelled
-                    ? t('disruption.cancelled', { service })
-                    : t('disruption.delayed', { service, minutes: disruption.minutes })}
+                {disruption.kind === 'NO_REPLACEMENT'
+                    ? t('ring.no_replacement')
+                    : cancelled
+                      ? t('disruption.cancelled', { service })
+                      : t('disruption.delayed', { service, minutes: disruption.minutes })}
             </ThemedText>
 
             <ThemedText type="small" themeColor="textSecondary">

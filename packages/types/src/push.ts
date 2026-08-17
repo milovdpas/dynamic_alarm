@@ -64,7 +64,13 @@ export interface WakeChangedPush {
 export interface DisruptionNoticePush {
     type: typeof PUSH_MESSAGE_TYPE.DISRUPTION_NOTICE;
     occurrenceId: string;
-    kind: 'DELAY' | 'CANCELLATION';
+    /**
+     * `NO_REPLACEMENT` is a cancellation with nothing acceptable to take
+     * instead: every remaining service falls outside the hours the user said
+     * they would travel. The alarm stays where it is, and this notice is the
+     * only way they would ever know.
+     */
+    kind: 'DELAY' | 'CANCELLATION' | 'NO_REPLACEMENT';
     /** Worst delay across the journey, in minutes. Zero for a cancellation. */
     minutes: number;
     /** The service it happened to, when there is one worth naming. */

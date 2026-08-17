@@ -17,8 +17,12 @@ import type { Knex } from 'knex';
  */
 export async function up(knex: Knex): Promise<void> {
     await knex.schema.alterTable('schedules', (table) => {
-        table.string('origin_access', 16).notNullable().defaultTo('WALK');
-        table.string('destination_access', 16).notNullable().defaultTo('WALK');
+        table.string('origin_access', 16).notNullable().defaultTo('WALK').after('mode');
+        table
+            .string('destination_access', 16)
+            .notNullable()
+            .defaultTo('WALK')
+            .after('origin_access');
     });
 }
 

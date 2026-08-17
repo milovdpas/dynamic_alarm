@@ -79,7 +79,10 @@ export class PlanService {
      * store. One provider call serves all of them, since NS returns several
      * itineraries for a single request.
      */
-    async options(input: PlanPreviewRequest): Promise<WakePlan[]> {
+    async options(
+        input: PlanPreviewRequest,
+        candidates: { includeLate?: boolean; limit?: number } = {},
+    ): Promise<WakePlan[]> {
         const requiredArrivalAt = this.resolveArrival(input);
         const provider = TransportProviderFactory.forMode(input.mode);
 
@@ -113,6 +116,25 @@ export class PlanService {
         });
 
         const ranked = rankJourneys(journeys, requiredArrivalAt, input.timezone);
+        const limit = candidates.limit ?? MAX_JOURNEY_OPTIONS;
+
+        if (candidates.includeLate === true) {
+            /**
+             * On-time first, then the ones that arrive late.
+             *
+             * Only the replacement path asks for these. When a train is
+             * cancelled, someone who would rather be late than get up early has
+             * no acceptable option among journeys that all arrive on time, and
+             * offering only those quietly turns their preference into its
+             * opposite. Each late plan carries `feasible: false` and the minutes
+             * it falls short, so choosing one is an informed decision rather
+             * than a surprise.
+             */
+            const late = journeys.filter((journey) => !ranked.includes(journey));
+            return [...ranked, ...late]
+                .slice(0, limit)
+                .map((journey) => computeWakePlan({ ...shared, journey }));
+        }
 
         if (ranked.length === 0) {
             // Nothing arrives on time. The least-late journey is still an
@@ -122,9 +144,7 @@ export class PlanService {
             return [computeWakePlan({ ...shared, journey })];
         }
 
-        return ranked
-            .slice(0, MAX_JOURNEY_OPTIONS)
-            .map((journey) => computeWakePlan({ ...shared, journey }));
+        return ranked.slice(0, limit).map((journey) => computeWakePlan({ ...shared, journey }));
     }
 
     /**

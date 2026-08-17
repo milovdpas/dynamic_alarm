@@ -34,6 +34,7 @@ export default {
         volume_muted: 'Je wekkervolume staat uit, dus je hoort dit niet.',
     },
     ring: {
+        no_replacement: 'Je trein rijdt niet, en er is geen andere trein binnen de tijden die je hebt ingesteld.',
         your_train: 'Je trein',
         delayed: '{{service}} heeft {{minutes}} minuten vertraging.',
         cancelled: '{{service}} rijdt niet.',
@@ -299,6 +300,16 @@ export default {
             '6': 'za',
             '7': 'zo',
         },
+    },
+    replacement: {
+        title: 'Als je trein uitvalt',
+        help: 'Welke trein je dan wilt, en tussen welke tijden je wilt reizen.',
+        preference: 'Liefst',
+        earlier: 'Een eerdere trein',
+        later: 'Een latere trein',
+        window_start: 'Niet eerder dan',
+        window_end: 'Niet later dan',
+        window_help: 'Laat leeg als elke tijd goed is. Rijdt er niets binnen deze tijden, dan blijft je wekker staan en hoor je het als hij afgaat.',
     },
     travel: {
         mode: 'Hoe reis je?',
