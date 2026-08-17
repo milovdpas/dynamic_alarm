@@ -649,6 +649,32 @@ extra is needed for them to follow.
 
 ### The app stays readable when the API does not answer
 
+**Built, in two layers that do different jobs.**
+
+`Axios.get` is the **fallback**: every successful read is stored, and a read that
+cannot reach the server is answered from the last known copy. It sits in the one
+place every read passes through, so no screen had to change, none can forget it,
+and it covers callers that are not React at all, the ring screen and the
+background push task among them.
+
+`useApiQuery` is the **head start**: the stored copy goes on screen immediately,
+the request runs anyway, and the answer replaces it when it lands. The fallback
+alone still made the phone wait for the network in the ordinary case, spinner
+and all, while holding the answer. On good wifi the difference is invisible; on a
+train it is the difference between an app that works and an app that is thinking.
+
+Its states are chosen so that a failure never removes what is on screen.
+`loading` means nothing to show and a request in flight, and is the only state
+that draws a spinner, because a spinner over readable data is a worse screen than
+the data. `data` and `error` are separate fields and can both be set, which is
+exactly the offline case. Read errors are a footnote when data exists; write
+errors are always loud, because somebody asked for something and it did not
+happen.
+
+`StaleNotice` says which it is and dates it, and treats both layers as equal: a
+query can be showing an old copy, and its request can *also* be answered from the
+cache underneath, which looks like success from above.
+
 The alarm already survives an outage: it is an OS-level exact alarm, armed on the
 device, and no request is made between arming it and it ringing. What does not
 survive is the **app**. Every screen reads from the API, so a dead backend, a
@@ -671,6 +697,24 @@ their deadline on a train with no signal, the app says "saved", and the request
 lands at 03:00 when connectivity returns, silently moving an alarm they are
 already asleep under. A refused write with the draft still on screen is worse for
 five seconds and better forever.
+
+Three decisions the implementation had to get right, none of them obvious from
+the paragraphs above:
+
+- **Only an outage is served from the cache.** A 404 is the server saying nothing
+  is armed, and answering that from yesterday would show an alarm that has since
+  been deleted. A 401 needs the token replaced and the request retried, not a
+  stale body hiding it. A 400 means the app asked wrongly and will keep asking
+  wrongly. What is served: the request never arrived, it timed out, or the server
+  failed on its side.
+- **A rejected token empties the cache.** Every cached body was fetched as the
+  device that was just rejected, so serving it to whatever this phone registers
+  as next would be worse than serving nothing.
+- **A refused write gets its own code and its own sentence.** `OFFLINE_WRITE`
+  rather than the network error a read would give, because "check your internet
+  connection" invites a retry that will silently do nothing, and the two failures
+  mean different things: a read that failed is showing you yesterday, a write
+  that failed did not happen at all.
 
 Rules that make cached data honest rather than merely present:
 

@@ -144,6 +144,8 @@ export default {
             REQUEST_FAILED: 'Could not be fetched',
         },
         retry: 'Try again',
+        stale: 'No connection. This is what we last knew, at {{when}}.',
+        stale_unknown: 'No connection. This is what we last knew.',
         error: {
             API_URL_MISSING:
                 'This build has no API address and no Metro server to guess one from. Set EXPO_PUBLIC_API_URL before building.',
@@ -156,6 +158,8 @@ export default {
             UNAUTHORIZED: 'This device is no longer recognised, so it registered again. Try once more.',
             UNEXPECTED_FAILURE:
                 'Something went wrong inside the app before the request was sent. The debug panel has the details.',
+            OFFLINE_WRITE:
+                'No connection, so this change was not saved. Changes are never held for later: an alarm that changes hours afterwards changes while you are asleep.',
             TRANSPORT_RATE_LIMITED: 'Travel information is busy right now. It will retry shortly.',
             unknown: 'Something went wrong reaching the API.',
         },
@@ -190,6 +194,7 @@ export default {
         working: 'Working out your morning',
         today: 'Today',
         tomorrow: 'Tomorrow',
+        yesterday: 'Yesterday',
         until: 'until',
         no_schedule_title: 'No alarm set up yet',
         no_schedule_body: 'Tell the app where you travel and when you need to be there, and it works out the rest.',

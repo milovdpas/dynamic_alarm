@@ -4,6 +4,7 @@ import { API_ENDPOINTS, APP_CONSTANTS, DevicePlatform } from '@alarm/types';
 import type { ApiErrorResponse, RegisterDeviceResponse } from '@alarm/types';
 
 import appConfig from '@/config';
+import { clearCache, readCache, writeCache } from './ApiCache';
 import { loadOptionalModule } from './optionalModule';
 
 const DEVICE_TOKEN_KEY = 'deviceToken';
@@ -39,6 +40,17 @@ export const CLIENT_ERROR_CODES = {
      * the alternative is confident advice about the wrong thing.
      */
     UNEXPECTED_FAILURE: 'UNEXPECTED_FAILURE',
+    /**
+     * A change that could not be sent, and was refused rather than queued.
+     *
+     * Reads survive an outage from the cache; writes deliberately do not. A
+     * queued edit to an alarm is applied at some unknown later moment, which for
+     * this app means somebody's alarm changing hours after they believed they
+     * had changed it, possibly while they sleep. Refusing is the honest answer
+     * and it needs its own sentence: "check your internet connection" invites a
+     * retry that will silently do nothing.
+     */
+    OFFLINE_WRITE: 'OFFLINE_WRITE',
 } as const;
 
 /**
@@ -96,6 +108,30 @@ export class ApiRequestError extends Error {
             error instanceof Error ? error.message : String(error),
         );
     }
+}
+
+/**
+ * Whether a failure means "we could not get an answer", as opposed to an answer
+ * we did not like.
+ *
+ * The distinction is the whole safety of the cache. A 404 is the server saying
+ * nothing is armed, and answering that from yesterday would show an alarm that
+ * has been deleted. A 401 needs the token replaced and the request retried, not
+ * a stale body that hides it. A 400 means this app asked wrongly and will keep
+ * asking wrongly. None of those are outages, and none may be papered over.
+ *
+ * What is served: the request never arrived, it timed out, or the server failed
+ * on its side.
+ */
+function servableFromCache(failure: ApiRequestError): boolean {
+    if (failure.status === null) {
+        return (
+            failure.code === CLIENT_ERROR_CODES.NETWORK_UNREACHABLE ||
+            failure.code === CLIENT_ERROR_CODES.REQUEST_TIMED_OUT ||
+            failure.code === CLIENT_ERROR_CODES.UNEXPECTED_FAILURE
+        );
+    }
+    return failure.status >= 500;
 }
 
 type SecureStoreModule = typeof import('expo-secure-store');
@@ -219,6 +255,10 @@ export default class Axios {
         }
         try {
             await Axios.clearToken();
+            // Every cached body was fetched as the device that was just
+            // rejected. Serving it to whatever this phone registers as next
+            // would be worse than serving nothing.
+            await clearCache();
         } catch {
             // Nothing else to try. The retry below will see the same token and
             // give up, which is the same outcome as before this existed.
@@ -306,19 +346,78 @@ export default class Axios {
         }
     }
 
+    /**
+     * A read, answered from the last known good copy when the server cannot be
+     * reached.
+     *
+     * The cache lives here rather than in the twelve places that call these
+     * functions, so no screen has to remember to use it and none of them change
+     * shape. What a screen does have to do is say when it is showing something
+     * old, which `useApiFreshness` reports.
+     *
+     * Only reads. `post`, `patch` and `delete` below are untouched and still
+     * fail: offline this app is readable, not editable.
+     */
     static async get<T>(endpoint: string, params?: Record<string, unknown>): Promise<T> {
-        return Axios.request<T>((config) => axios.get<T>(endpoint, { ...config, params }));
+        const key = params === undefined ? endpoint : `${endpoint}?${JSON.stringify(params)}`;
+
+        try {
+            const body = await Axios.request<T>((config) =>
+                axios.get<T>(endpoint, { ...config, params }),
+            );
+            void writeCache(key, body);
+            return body;
+        } catch (error) {
+            const failure = ApiRequestError.from(error);
+            if (!servableFromCache(failure)) {
+                throw failure;
+            }
+
+            const cached = await readCache<T>(key);
+            if (cached === null) {
+                throw failure;
+            }
+            return cached.body;
+        }
+    }
+
+    /**
+     * A change, which is never cached and never queued.
+     *
+     * The three write verbs run through here so that an outage produces
+     * `OFFLINE_WRITE` rather than the same "could not reach the server" a read
+     * would give. Same failure underneath, different thing to tell somebody:
+     * a read that failed is showing them yesterday, a write that failed did not
+     * happen at all.
+     */
+    private static async write<T>(
+        send: (config: AxiosRequestConfig) => Promise<{ data: T }>,
+    ): Promise<T> {
+        try {
+            return await Axios.request<T>(send);
+        } catch (error) {
+            const failure = ApiRequestError.from(error);
+            if (!servableFromCache(failure)) {
+                throw failure;
+            }
+            throw new ApiRequestError(
+                CLIENT_ERROR_CODES.OFFLINE_WRITE,
+                failure.status,
+                failure.message,
+                failure.details,
+            );
+        }
     }
 
     static async post<T>(endpoint: string, data?: unknown): Promise<T> {
-        return Axios.request<T>((config) => axios.post<T>(endpoint, data, config));
+        return Axios.write<T>((config) => axios.post<T>(endpoint, data, config));
     }
 
     static async patch<T>(endpoint: string, data?: unknown): Promise<T> {
-        return Axios.request<T>((config) => axios.patch<T>(endpoint, data, config));
+        return Axios.write<T>((config) => axios.patch<T>(endpoint, data, config));
     }
 
     static async delete<T>(endpoint: string): Promise<T> {
-        return Axios.request<T>((config) => axios.delete<T>(endpoint, config));
+        return Axios.write<T>((config) => axios.delete<T>(endpoint, config));
     }
 }

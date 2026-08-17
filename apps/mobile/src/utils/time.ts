@@ -25,6 +25,27 @@ export function clock(iso: string): string {
 }
 
 /**
+ * When something happened, for a timestamp the user is judging the age of.
+ *
+ * Different from {@link relativeDay}, which answers "which morning is this" for
+ * a date. This answers "how old is this", so it keeps the time of day: knowing a
+ * cached answer is from yesterday is not enough, since yesterday at 23:50 and
+ * yesterday at 07:00 are worth different amounts of trust.
+ */
+export function relativeDateTime(t: (key: string) => string, iso: string): string {
+    const moment = DateTime.fromISO(iso, { setZone: true }).setZone(APP_CONSTANTS.TIMEZONE);
+    const days = Math.round(moment.startOf('day').diff(DateTime.now().startOf('day'), 'days').days);
+
+    if (days === 0) {
+        return moment.toFormat('HH:mm');
+    }
+    if (days === -1) {
+        return `${t('home.yesterday')} ${moment.toFormat('HH:mm')}`;
+    }
+    return moment.setLocale(i18n.language).toFormat('d LLLL HH:mm');
+}
+
+/**
  * "Today", "Tomorrow", or the weekday, for a date the user is deciding about.
  *
  * The locale comes from i18n rather than from a translation key: a missing key

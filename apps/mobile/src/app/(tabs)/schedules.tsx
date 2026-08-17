@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -8,6 +8,8 @@ import type { OccurrenceResponse, Schedule } from '@alarm/types';
 import { deleteSchedule, listOccurrences, listSchedules, updateSchedule } from '@/api';
 import { Spacing } from '@/assets/Stylesheet';
 import ActionButton from '@/components/buttons/ActionButton';
+import StaleNotice from '@/components/ui/StaleNotice';
+import { useApiQuery } from '@/utils/hooks/useApiQuery';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import WarningBanner from '@/components/ui/WarningBanner';
@@ -33,44 +35,60 @@ export default function SchedulesScreen() {
     const router = useRouter();
     const border = useThemeColor({}, 'border');
 
-    const [schedules, setSchedules] = useState<Schedule[] | null>(null);
-    const [armed, setArmed] = useState<OccurrenceResponse[]>([]);
-    const [errorCode, setErrorCode] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    /*
+     * Kept apart from the query's own error, because the two deserve opposite
+     * treatment. A read that failed while a list is on screen is a footnote: the
+     * list is still true as of when it was fetched. A write that failed is
+     * always loud, because somebody asked for something and it did not happen.
+     */
+    const [writeError, setWriteError] = useState<string | null>(null);
 
-    const load = useCallback(async () => {
-        try {
-            const [saved, occurrences] = await Promise.all([listSchedules(), listOccurrences()]);
-            setSchedules(saved);
-            setArmed(occurrences);
-            setErrorCode(null);
-        } catch (error) {
-            setErrorCode(ApiRequestError.from(error).code);
-        }
+    /*
+     * Both reads share one query, because the list is only meaningful as a pair:
+     * a schedule beside the morning it has armed. Two queries would let the
+     * screen render half of yesterday next to half of today.
+     */
+    const fetchBoth = useCallback(async () => {
+        // In parallel, as it was before this screen moved onto the query hook.
+        // Awaiting them in sequence made opening the tab two round trips deep
+        // for no reason, which on a slow connection is exactly the wait this
+        // work is meant to remove.
+        const [schedules, armed] = await Promise.all([listSchedules(), listOccurrences()]);
+        return { schedules, armed };
     }, []);
+
+    const { data, loading, cachedAt, error, refresh } = useApiQuery(
+        'schedules+occurrences',
+        fetchBoth,
+    );
+    const schedules = data?.schedules ?? null;
+    const armed = data?.armed ?? [];
 
     // On focus rather than on mount: coming back from the editor must show the
     // change that was just made, and a stale list here is a list somebody will
-    // act on.
+    // act on. The cached copy is on screen while that runs, so returning from an
+    // edit no longer blanks the list for the length of a request.
     useFocusEffect(
         useCallback(() => {
-            void load();
-        }, [load]),
+            refresh();
+        }, [refresh]),
     );
 
     const togglePaused = useCallback(
         async (schedule: Schedule) => {
             setBusy(true);
+            setWriteError(null);
             try {
                 await updateSchedule(schedule.id, { active: !schedule.active });
-                await load();
+                refresh();
             } catch (error) {
-                setErrorCode(ApiRequestError.from(error).code);
+                setWriteError(ApiRequestError.from(error).code);
             } finally {
                 setBusy(false);
             }
         },
-        [load],
+        [refresh],
     );
 
     const confirmDelete = useCallback(
@@ -85,10 +103,13 @@ export default function SchedulesScreen() {
                     style: 'destructive',
                     onPress: () => {
                         setBusy(true);
+                        setWriteError(null);
                         deleteSchedule(schedule.id)
-                            .then(load)
+                            .then(() => {
+                                refresh();
+                            })
                             .catch((error: unknown) => {
-                                setErrorCode(ApiRequestError.from(error).code);
+                                setWriteError(ApiRequestError.from(error).code);
                             })
                             .finally(() => {
                                 setBusy(false);
@@ -97,7 +118,7 @@ export default function SchedulesScreen() {
                 },
             ]);
         },
-        [load, t],
+        [refresh, t],
     );
 
     return (
@@ -106,10 +127,27 @@ export default function SchedulesScreen() {
                 <ScrollView contentContainerStyle={styles.content}>
                     <ThemedText type="title">{t('tabs.schedules')}</ThemedText>
 
-                    {errorCode !== null && (
+                    <StaleNotice cachedAt={cachedAt} />
+
+                    {loading && <ActivityIndicator />}
+
+                    {/*
+                     * Only when there is nothing to show. A failed refresh over
+                     * a list somebody can already read is not worth an error
+                     * banner: StaleNotice above says it could not be checked,
+                     * and the list is still the truth as of then.
+                     */}
+                    {error !== null && schedules === null && (
                         <WarningBanner
                             title={t('schedules.failed')}
-                            message={apiErrorMessage(t, errorCode)}
+                            message={apiErrorMessage(t, error)}
+                        />
+                    )}
+
+                    {writeError !== null && (
+                        <WarningBanner
+                            title={t('schedules.failed')}
+                            message={apiErrorMessage(t, writeError)}
                         />
                     )}
 

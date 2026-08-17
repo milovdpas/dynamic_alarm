@@ -749,10 +749,24 @@ CONVENTIONS.md.
 
 Both decided 2026-08-16, both written up in PLAN.md.
 
-- [ ] Cache every API read so the app stays readable when the backend does not
-      answer, with cached answers labelled and dated. Writes are refused rather
-      than queued: a queued edit to an alarm lands while its owner is asleep.
-      Shares a store with the M1 offline mirror, so they are worth doing together
+- [x] Cache every API read so the app stays readable when the backend does not
+      answer, with cached answers labelled and dated. Lives inside `Axios.get`,
+      the single place every read passes through, so no screen changed and none
+      can forget it. Served only for a genuine outage: a 404, a 401 and a 400 are
+      answers rather than failures and are never papered over, and a rejected
+      token empties the cache because every body in it belonged to the device
+      that was just refused. Writes are refused rather than queued, with their
+      own `OFFLINE_WRITE` code and sentence, since a queued edit to an alarm
+      lands while its owner is asleep
+- [~] `useApiQuery` puts the cached copy on screen first and corrects it when the
+      server answers, rather than waiting. Schedules uses it, which also stopped
+      the list blanking every time somebody returns from the editor. Today
+      (`useNextAlarm`) is next and wants doing deliberately, since that hook also
+      arms alarms
+- [ ] The M1 offline mirror still wants doing, and should reuse this store rather
+      than start a second one. What is missing is recomputing a wake time on the
+      device from cached schedules and routines, which is what would let the app
+      arm a morning with no backend at all
 - [ ] Alarm sound in settings: the system ringtone picker (already built, but
       only reachable from the debug panel) plus a file the user owns, copied into
       app storage rather than referenced, because a document picker's URI does

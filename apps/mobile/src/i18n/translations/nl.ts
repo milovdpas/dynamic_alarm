@@ -144,6 +144,8 @@ export default {
             REQUEST_FAILED: 'Kon niet worden opgehaald',
         },
         retry: 'Opnieuw proberen',
+        stale: 'Geen verbinding. Dit is wat we het laatst wisten, om {{when}}.',
+        stale_unknown: 'Geen verbinding. Dit is wat we het laatst wisten.',
         error: {
             API_URL_MISSING:
                 'Deze build heeft geen API-adres en geen Metro-server om er een te raden. Stel EXPO_PUBLIC_API_URL in voor je bouwt.',
@@ -156,6 +158,8 @@ export default {
             UNAUTHORIZED: 'Dit toestel werd niet meer herkend en heeft zich opnieuw aangemeld. Probeer het nog een keer.',
             UNEXPECTED_FAILURE:
                 'Er ging iets mis in de app voordat het verzoek verstuurd werd. De details staan in het debugscherm.',
+            OFFLINE_WRITE:
+                'Geen verbinding, dus deze wijziging is niet opgeslagen. Wijzigingen worden niet bewaard voor later: een wekker die uren later alsnog verandert, verandert terwijl je slaapt.',
             TRANSPORT_RATE_LIMITED: 'Reisinformatie is nu druk. Het probeert het zo opnieuw.',
             unknown: 'Er ging iets mis bij het bereiken van de API.',
         },
@@ -190,6 +194,7 @@ export default {
         working: 'Je ochtend uitrekenen',
         today: 'Vandaag',
         tomorrow: 'Morgen',
+        yesterday: 'Gisteren',
         until: 'tot',
         no_schedule_title: 'Nog geen alarm ingesteld',
         no_schedule_body: 'Vertel de app waar je reist en wanneer je er moet zijn, dan rekent hij de rest uit.',

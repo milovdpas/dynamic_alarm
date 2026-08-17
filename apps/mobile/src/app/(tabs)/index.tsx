@@ -9,6 +9,7 @@ import type { DeviceResponse, Journey } from '@alarm/types';
 import { getDevice } from '@/api';
 import DisruptionBanner from '@/components/home/DisruptionBanner';
 import PermissionBanner from '@/components/home/PermissionBanner';
+import StaleNotice from '@/components/ui/StaleNotice';
 import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { clock, relativeDay } from '@/utils/time';
 import { Radius, Spacing } from '@/assets/Stylesheet';
@@ -174,6 +175,16 @@ export default function HomeScreen() {
                              * than no wake time, because it looks the same.
                              */}
                             <PermissionBanner />
+
+                            {/*
+                             * Under the wake time rather than above it. The time
+                             * is still the answer, and it is still the one this
+                             * phone will ring at, since the alarm is already
+                             * armed in the OS. What this says is that nothing has
+                             * checked since, which is a caveat rather than a
+                             * warning.
+                             */}
+                            <StaleNotice />
 
                             {!next.armed && (
                                 <WarningBanner
