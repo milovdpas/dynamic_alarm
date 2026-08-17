@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { OccurrenceState, WakeChangeReason } from '@alarm/types';
+import {
+    JourneyStatus,
+    LegType,
+    OccurrenceState,
+    PUSH_MESSAGE_TYPE,
+    SimulationKind,
+    WakeChangeReason,
+} from '@alarm/types';
 import type { PushMessage } from '@alarm/types';
 
 import AlarmEvent from '../src/app/models/AlarmEvent.entity';
@@ -10,6 +17,7 @@ import { DisruptionSweepService } from '../src/app/services/DisruptionSweepServi
 import { MonitorService } from '../src/app/services/MonitorService';
 import { PushDeliveryService } from '../src/app/services/PushDeliveryService';
 import { PushService } from '../src/app/services/PushService';
+import { SimulationService } from '../src/app/services/SimulationService';
 import { RoutineService } from '../src/app/services/RoutineService';
 import { ScheduleService } from '../src/app/services/ScheduleService';
 import type { PushOutcome } from '../src/app/services/PushService';
@@ -322,8 +330,14 @@ describe('push delivery', () => {
         );
 
         expect(result).toBe('SENT');
-        expect(push.sent[0]?.message).toBe('A service was cancelled, so the alarm moved to 07:05.');
-        expect(push.sent[0]?.reason).toBe(WakeChangeReason.CANCELLATION);
+        // Narrowed rather than cast: `PushMessage` is a union now, and the
+        // assertion is about the wake-change arm of it.
+        const sent = push.sent[0];
+        expect(sent?.type).toBe(PUSH_MESSAGE_TYPE.WAKE_CHANGED);
+        if (sent?.type === PUSH_MESSAGE_TYPE.WAKE_CHANGED) {
+            expect(sent.message).toBe('A service was cancelled, so the alarm moved to 07:05.');
+            expect(sent.reason).toBe(WakeChangeReason.CANCELLATION);
+        }
     });
 
     it('says nothing when there is no recorded change to retry', async () => {
@@ -420,4 +434,107 @@ function futureDate(days: number): string {
     const date = new Date();
     date.setDate(date.getDate() + days);
     return date.toISOString().slice(0, 10);
+}
+
+describe('simulated disruptions', () => {
+    const simulations = new SimulationService();
+
+    /**
+     * The point of the whole feature: only the timetable is invented.
+     *
+     * A simulated delay must reach the engine as a delayed journey, so that
+     * everything downstream, the risk buffer included, behaves as it would for a
+     * real one. A version that only moved the wake time would test arithmetic
+     * and prove nothing about the product.
+     */
+    it('moves the journey later and marks it disrupted', () => {
+        const occurrence = ScheduleOccurrence.create({
+            simulationKind: SimulationKind.DELAY,
+            simulationMinutes: 20,
+            simulationExpiresAt: new Date(Date.now() + 30 * MINUTE),
+        });
+
+        const journey = simulations.apply(occurrence, sampleJourney(), new Date());
+
+        expect(journey?.status).toBe(JourneyStatus.DISRUPTION);
+        expect(journey?.departureAt).toBe('2026-08-20T08:20:00.000+02:00');
+        expect(journey?.arrivalAt).toBe('2026-08-20T09:10:00.000+02:00');
+        // Every leg, not only the first: a train that leaves late arrives late,
+        // and shifting one end invents a journey that gains time in transit.
+        expect(journey?.legs[0]?.actualArrival).toBe('2026-08-20T09:10:00.000+02:00');
+        expect(journey?.legs[0]?.delaySeconds).toBe(20 * 60);
+    });
+
+    it('makes a cancellation unreconstructable, which forces a re-plan', () => {
+        const occurrence = ScheduleOccurrence.create({
+            simulationKind: SimulationKind.CANCELLATION,
+            simulationExpiresAt: new Date(Date.now() + 30 * MINUTE),
+        });
+
+        expect(simulations.apply(occurrence, sampleJourney(), new Date())).toBeNull();
+    });
+
+    /**
+     * The safety property. A simulation left staged overnight would be an alarm
+     * that has quietly stopped tracking reality, which is the exact failure this
+     * product exists to prevent.
+     */
+    it('is ignored once it has expired', () => {
+        const occurrence = ScheduleOccurrence.create({
+            simulationKind: SimulationKind.CANCELLATION,
+            simulationExpiresAt: new Date(Date.now() - MINUTE),
+        });
+
+        // Undefined, not null: "nothing staged" and "simulated into a
+        // cancellation" must stay distinguishable to the caller.
+        expect(simulations.apply(occurrence, sampleJourney(), new Date())).toBeUndefined();
+    });
+
+    it('does nothing when none is staged', () => {
+        const occurrence = ScheduleOccurrence.create({ simulationKind: null });
+
+        expect(simulations.apply(occurrence, sampleJourney(), new Date())).toBeUndefined();
+    });
+
+    it('is consumed by the check that applies it', async () => {
+        const occurrence = await armedMorning({
+            simulationKind: SimulationKind.DELAY,
+            simulationMinutes: 20,
+            simulationExpiresAt: new Date(Date.now() + 30 * MINUTE),
+            nextCheckAt: new Date(Date.now() - MINUTE),
+        });
+
+        await new MonitorService(sweeper([])).tick();
+
+        const after = await ScheduleOccurrence.findOneBy({ id: occurrence.id });
+        expect(after?.simulationKind).toBeNull();
+        expect(after?.simulationExpiresAt).toBeNull();
+    });
+});
+
+/** A one-leg journey, enough to assert what a simulation did to it. */
+function sampleJourney() {
+    return {
+        id: 'test-journey',
+        ctxRecon: 'test-ctx',
+        status: JourneyStatus.NORMAL,
+        departureAt: '2026-08-20T08:00:00.000+02:00',
+        arrivalAt: '2026-08-20T08:50:00.000+02:00',
+        transferCount: 0,
+        source: 'NS',
+        watchedStationCodes: ['UT'],
+        legs: [
+            {
+                type: LegType.TRAIN,
+                fromName: 'Utrecht Centraal',
+                toName: 'Amsterdam Zuid',
+                plannedDeparture: '2026-08-20T08:00:00.000+02:00',
+                actualDeparture: '2026-08-20T08:00:00.000+02:00',
+                plannedArrival: '2026-08-20T08:50:00.000+02:00',
+                actualArrival: '2026-08-20T08:50:00.000+02:00',
+                delaySeconds: 0,
+                cancelled: false,
+            },
+        ],
+    };
 }

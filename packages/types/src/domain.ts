@@ -174,6 +174,15 @@ export interface Journey {
     /** Provider-stable id where one exists. */
     id: string;
     /**
+     * The provider's own link to this exact trip.
+     *
+     * NS returns one per trip (`https://www.ns.nl/rpx?ctx=...`), and it is an
+     * app link: on a phone with the NS app installed it opens there, otherwise
+     * in a browser. Theirs rather than one we assemble from station names and
+     * times, which would drift the moment either side changed a format.
+     */
+    shareUrl?: string;
+    /**
      * NS reconstruction context. Re-fetching with this returns *this same
      * itinerary* with fresh realtime data, the mechanism that lets us recompute
      * an actual journey instead of blindly adding a delay. Null for car journeys.

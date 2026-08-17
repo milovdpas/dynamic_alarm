@@ -11,7 +11,7 @@ import {
     UpdateDateColumn,
 } from 'typeorm';
 import { OccurrenceState } from '@alarm/types';
-import type { OccurrenceDto, WakePlan } from '@alarm/types';
+import type { Journey, OccurrenceDto, SimulationKind, WakePlan } from '@alarm/types';
 
 import Device from './Device.entity';
 import Schedule from './Schedule.entity';
@@ -116,6 +116,16 @@ export default class ScheduleOccurrence extends BaseEntity {
     @Column({ name: 'plan_snapshot', type: 'json', nullable: true })
     planSnapshot!: WakePlan | null;
 
+    /**
+     * The itinerary a cancellation replaced, when one did.
+     *
+     * Written by the monitor when a re-plan happens, cleared when the morning is
+     * armed afresh. A record of what was lost rather than a second plan: the
+     * buffers and the wake time belong to the plan in force.
+     */
+    @Column({ name: 'replaced_journey', type: 'json', nullable: true })
+    replacedJourney!: Journey | null;
+
     /** NS reconstruction context. Null for car journeys, which have no such thing. */
     @Column({ name: 'ctx_recon', type: 'text', nullable: true })
     ctxRecon!: string | null;
@@ -123,6 +133,37 @@ export default class ScheduleOccurrence extends BaseEntity {
     /** Matched against the disruption sweep, which runs once for everyone. */
     @Column({ name: 'watched_station_codes', type: 'json', nullable: true })
     watchedStationCodes!: string[] | null;
+
+    /**
+     * A staged pretend disruption, for testing the path that real trains only
+     * exercise twice a month.
+     *
+     * On the row rather than in memory because the monitor that applies it runs
+     * in a different process from the request that asked for it. Cleared in the
+     * same save as the plan it produced, so it cannot be applied twice, and it
+     * expires on its own in case nobody comes back for it.
+     */
+    @Column({ name: 'simulation_kind', type: 'varchar', length: 32, nullable: true })
+    simulationKind!: SimulationKind | null;
+
+    @Column({ name: 'simulation_minutes', type: 'int', nullable: true })
+    simulationMinutes!: number | null;
+
+    @Column({ name: 'simulation_expires_at', type: 'datetime', precision: 3, nullable: true })
+    simulationExpiresAt!: Date | null;
+
+    /**
+     * The disruption state the device has already been told about.
+     *
+     * `CANCELLATION`, or `DELAY:12`. Near the alarm the monitor re-checks every
+     * three minutes, and without this each check would push the same news again.
+     * A delay that grows is new information; a delay that persists is not.
+     */
+    @Column({ name: 'notice_key', type: 'varchar', length: 64, nullable: true })
+    noticeKey!: string | null;
+
+    @Column({ name: 'notice_sent_at', type: 'datetime', precision: 3, nullable: true })
+    noticeSentAt!: Date | null;
 
     @Column({ name: 'last_checked_at', type: 'datetime', precision: 3, nullable: true })
     lastCheckedAt!: Date | null;
@@ -169,8 +210,10 @@ export default class ScheduleOccurrence extends BaseEntity {
             currentWakeAt: (this.currentWakeAt ?? this.anchorWakeAt).toISOString(),
             departHomeAt: (this.departHomeAt ?? this.anchorWakeAt).toISOString(),
             journey: this.planSnapshot.journey,
+            replacedJourney: this.replacedJourney,
             plan: this.planSnapshot,
             lastCheckedAt: this.lastCheckedAt?.toISOString() ?? null,
+            simulated: this.simulationKind,
         };
     }
 }

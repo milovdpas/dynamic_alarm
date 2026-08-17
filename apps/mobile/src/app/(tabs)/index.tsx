@@ -167,9 +167,18 @@ export default function HomeScreen() {
                                         value={journeySummary(t, next.occurrence.journey)}
                                     />
                                 )}
+                                {/*
+                                 * When you get there, not when you must. The
+                                 * deadline is a number the user typed into the
+                                 * schedule and already knows; the arrival is the
+                                 * answer the journey produced.
+                                 */}
                                 <DetailRow
-                                    label={t('common.arrive_by')}
-                                    value={clock(next.occurrence.plan.breakdown.requiredArrivalAt)}
+                                    label={t('journey.arrive')}
+                                    value={clock(
+                                        next.occurrence.journey?.arrivalAt ??
+                                            next.occurrence.plan.breakdown.latestArrivalAt,
+                                    )}
                                 />
                             </View>
 

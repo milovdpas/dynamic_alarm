@@ -437,6 +437,125 @@ real delay. `CANCELLATION` makes the refresh return null, which is what NS
 effectively says when a trip can no longer be reconstructed, and forces the
 re-plan path.
 
+### Which replacement is acceptable when a train is cancelled
+
+Re-planning a cancellation answers "is there another way", and the app currently
+takes whatever comes back. That is not good enough: a 06:50 departure is a
+technically valid replacement for a 07:52 and a terrible answer for someone who
+is not willing to get up an hour earlier. The choice belongs to the user, and it
+has two parts.
+
+**A direction, and a window.**
+
+| Setting | Meaning | Default |
+|---|---|---|
+| `replacementPreference` | `EARLIER` or `LATER`, which way to look first when the usual train is gone | `EARLIER`, because arriving on time is the point of the app |
+| `travelWindowStart` / `travelWindowEnd` | The hours within which a replacement is acceptable at all, e.g. 07:00 to 09:00 | Unset, meaning any replacement, which is today's behaviour |
+
+The window bounds the **departure of the first service leg**, the train itself,
+because that is what the user is actually reasoning about. It is a different
+constraint from the arrival deadline: the deadline says when they must be
+somewhere, the window says when they are willing to travel, and a cancellation is
+exactly the moment those two stop agreeing.
+
+**The order of resolution, and it must be this order:**
+
+1. The preferred direction, inside the window.
+2. The other direction, inside the window. Someone who prefers an earlier train
+   would still rather take a later one than none, and the reverse holds too.
+3. Nothing. The alarm stays exactly where it is, and the user is told.
+
+Step three is the one worth building carefully, because it is the case where the
+app has no good answer and must say so rather than invent one. It becomes a
+disruption notice like any other, so it is on the device before the alarm rings:
+
+```
+Your 07:52 is cancelled, and there is no train between 07:00 and 09:00
+that gets you there. Your alarm has not moved.
+```
+
+That is more useful than an alarm silently moved to 06:20 for a train the user
+was never going to catch, and far more useful than silence.
+
+**A later replacement will often be infeasible, and that is fine.** The engine
+already models it: `feasible: false` with `shortfallMinutes`, which the UI shows
+as "the earliest you can arrive is 08:41, 11 minutes late". Someone who chose
+`LATER` has implicitly said they would rather be late than early, and the app's
+job is to be honest about the cost rather than to refuse.
+
+**Per schedule, not per device.** A weekday commute and a Saturday climbing trip
+have different tolerances, and the window is a property of the journey rather
+than of the person. This differs deliberately from the disruption switches, which
+are per device because they are about how somebody likes to be woken.
+
+**It bounds the emergency path too.** The emergency-earlier rule moves an alarm
+earlier regardless of the opt-in switches, because not moving is a guaranteed
+failure. The window does not weaken that: it says which replacements exist at
+all, and if none do, then there is nothing to move the alarm *to*, and the honest
+outcome is the notice above.
+
+Implementation notes worth having before starting:
+
+- The re-plan already exists (`SchedulePlanService.forDate`). What it lacks is
+  the ability to return **several** candidate journeys so a choice can be made
+  among them; `PlanService.options` already does exactly that, so this is a
+  matter of planning options for the date and filtering, not new provider work.
+- Filtering happens in `packages/core`, beside the rest of the engine, so the app
+  and the server agree about which replacements are acceptable.
+- The window is a pair of local times like the arrival deadline, so the same
+  `LocalTimeString` handling and the same DST care applies.
+
+### Showing that something has gone wrong
+
+The gap found by running the first simulation: the alarm moved, the event trail
+recorded why, and **no screen said anything**. Today showed a new time with no
+explanation, which is the one thing this product cannot afford. An alarm that
+moves without saying why is an alarm nobody trusts, and the whole reason it is
+allowed to move is that it can explain itself.
+
+This is also the M2 payoff the build order names and never specified: *"the you
+can sleep 12 minutes longer moment"*. That moment is a sentence on a screen, and
+nobody had written it.
+
+**Four states, and each needs different words.**
+
+| State | What the user needs to know |
+|---|---|
+| Normal | Nothing. Silence is the right answer for the ordinary morning |
+| Delayed, alarm moved | The delay, the new time, and that they gained sleep |
+| Cancelled, re-planned | That their train is gone, which one replaced it, and the new time |
+| Disrupted, alarm **not** moved | That something is wrong and the alarm deliberately did not move |
+
+The fourth is the one that is easy to leave out and the most important. With the
+opt-in settings off, a delay changes nothing, and a screen that stays silent is
+indistinguishable from an app that did not notice. It has to say that it noticed
+and did not act, and name the setting that would have let it:
+
+```
+Your 07:52 is 12 minutes late.
+Your alarm has not moved, because sleeping longer on delays is switched off.
+```
+
+**Where it goes.** Today, above the wake time, because it is the reason the wake
+time is what it is. The Schedules list gets a marker on the affected row so the
+state is visible without opening anything. The journey screen already marks a
+late or cancelled leg and gains the journey's own status at the top.
+
+**Say the size of the change, not just that there was one.** "Your alarm moved"
+is a notification; "you can sleep 12 minutes longer" is the product. The number
+comes from the event trail, which already records `fromAt` and `toAt` for exactly
+this.
+
+**A simulated disruption says so, everywhere it appears.** Not only in the debug
+panel where it was staged. Someone woken early by a test must be able to tell
+that from the product being wrong, and by the morning after they will not
+remember which. The `simulated` field is already on the wire for this.
+
+**It clears itself.** The banner belongs to the current plan, not to a
+notification history: once a re-check finds the journey normal again the message
+goes, and the trail keeps the record. A stale "your train is cancelled" on a
+morning that is running fine is worse than no banner at all.
+
 ### Language selector in settings
 
 Dutch and English are both maintained and the app already picks one: a stored
@@ -596,6 +715,56 @@ sweep through the app. What it would need before shipping:
 
 Not scheduled. The system, light and dark choice is worth having on its own, and
 it is the part that makes a phone in a dark room bearable.
+
+### Choosing the alarm sound, from settings rather than from diagnostics
+
+The machinery exists and is reachable only from the debug panel. `modules/alarm-sound`
+already opens the system ringtone picker and returns a `content://` URI with a
+label, and the ring service already plays a URI on the alarm stream. What is
+missing is a settings screen, somewhere to keep the choice, and a second source
+of sounds.
+
+**Two sources, and they behave differently.**
+
+| Source | How | What it costs |
+|---|---|---|
+| The phone's own alarm tones | `RingtoneManager.ACTION_RINGTONE_PICKER`, already built | Nothing. It is the OS's own picker, so it looks native because it is |
+| A file the user owns | `expo-document-picker`, then **copy it into the app's storage** | One copy per chosen sound, and a real reason to do it, below |
+
+**A picked file must be copied, not referenced.** A `content://` URI handed over
+by a document picker is a temporary grant: it does not survive a reboot, and on
+some devices not even a process restart. The alarm is played hours later by a
+native service after the phone may well have rebooted, so a stored URI that has
+quietly expired means an alarm that rings silently, which is the worst failure
+this app has. Copy the bytes into the app's own files directory on selection and
+store that path.
+
+Same reasoning applies more weakly to the ringtone picker, whose URIs are stable
+system ones. Those can be stored as-is, and the fallback chain below covers the
+case where one stops resolving.
+
+What the screen needs to get right:
+
+- **Preview, on the alarm stream.** A sound chosen at volume 3 in the afternoon
+  and heard at alarm volume at 06:00 is not the same experience. The preview must
+  use the same path the alarm does, and say so when the alarm volume is muted,
+  which the debug panel already detects.
+- **The fallback chain stays honest**, and is already specified above: the chosen
+  URI, then `Settings.System.DEFAULT_ALARM_ALERT_URI`, then the bundled asset. A
+  chosen sound that no longer resolves must fall back **and say so on the
+  settings screen**, rather than silently ringing something else.
+- **The choice is per device, not per schedule.** Sound is a property of how
+  somebody likes to be woken, not of one commute. Per-schedule sounds are a
+  plausible later idea and would slot in the same way the disruption settings
+  would, read through the schedule.
+- **iOS gets the bundled asset and nothing else**, which is permanent rather than
+  a gap: AlarmKit reads only from the app bundle or `Library/Sounds`, and Apple's
+  own alarm tones have no public API. The screen must not offer a picker there
+  that cannot work.
+
+Storage is the same `Storage` wrapper as language and theme, and the same caveat
+applies: on a binary without AsyncStorage it degrades to memory for the session,
+so the row should say so rather than pretend the choice will survive.
 
 ### Alarm sound, the user's own tones on Android, bundled on iOS
 

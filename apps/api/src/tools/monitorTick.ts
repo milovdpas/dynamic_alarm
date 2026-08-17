@@ -64,6 +64,29 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-    console.error('Tick could not reach the API:', error instanceof Error ? error.message : error);
+    /**
+     * "fetch failed" on its own sends whoever reads it looking at the network.
+     *
+     * The overwhelmingly common cause is that nothing is listening: the API is
+     * not running, or `tsx watch` is a second into restarting after a file
+     * changed. Naming the address it tried turns a mystery into a glance at the
+     * other terminal.
+     */
+    const refused =
+        error instanceof Error &&
+        (error.cause as NodeJS.ErrnoException | undefined)?.code === 'ECONNREFUSED';
+
+    if (refused) {
+        console.error(
+            `Nothing is listening on 127.0.0.1:${String(env.port)}. Start the API with ` +
+                '`npm run dev -w @alarm/api`, and note that it closes the port for a ' +
+                'moment whenever tsx restarts it after a file change.',
+        );
+    } else {
+        console.error(
+            'Tick could not reach the API:',
+            error instanceof Error ? error.message : error,
+        );
+    }
     process.exit(1);
 });

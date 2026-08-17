@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SimulationKind } from '@alarm/types';
 
 /**
  * What the device says it actually armed.
@@ -10,4 +11,16 @@ import { z } from 'zod';
  */
 export const ackOccurrenceSchema = z.object({
     ackedWakeAt: z.iso.datetime({ offset: true }),
+});
+
+/**
+ * A staged pretend disruption, or null to clear one.
+ *
+ * `minutes` is bounded rather than free. A simulated delay is meant to move an
+ * alarm and be watched; four hours of it just makes the journey infeasible,
+ * which is a different test with a different name.
+ */
+export const simulateOccurrenceSchema = z.object({
+    kind: z.nativeEnum(SimulationKind).nullable(),
+    minutes: z.number().int().min(1).max(180).optional(),
 });

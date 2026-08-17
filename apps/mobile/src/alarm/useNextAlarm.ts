@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import type { OccurrenceResponse } from '@alarm/types';
 
 import { ackOccurrence, armSchedule, listOccurrences, listSchedules } from '@/api';
 import { canGuaranteeAlarm, getAlarmScheduler } from '@/alarm';
+import { readDisruption, rememberDisruption } from '@/alarm/disruption';
 import i18n from '@/i18n/i18n';
 import { rememberHeldAlarm } from '@/push/heldAlarm';
 import { ApiRequestError } from '@/utils/modules/Axios';
@@ -93,6 +95,15 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
             // The soonest is what Today shows, and the list arrives in that
             // order, so this is the first rather than a search.
             const soonest = occurrences[0];
+
+            if (soonest !== undefined) {
+                // Written down for the ring screen, which cannot afford to wait
+                // for a request at 06:00. Every time the app learns anything,
+                // the alarm screen's copy of it is refreshed.
+                await rememberDisruption(soonest.id, readDisruption(soonest)).catch(
+                    () => undefined,
+                );
+            }
             if (soonest === undefined) {
                 return { state: 'none', occurrence: null, armed: false, errorCode: null };
             }
@@ -117,22 +128,37 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
         // loop of both.
     }, []);
 
-    useEffect(() => {
-        let cancelled = false;
+    /**
+     * On focus, not only on mount.
+     *
+     * Today used to read once per launch, so anything that changed the plan
+     * elsewhere left it showing an answer that was true when the app started. A
+     * cancellation was the visible case: the journey screen fetched fresh and
+     * named the replacement train, and the card on Today still named the one
+     * that had been cancelled, from the same occurrence, because it was holding
+     * the copy it fetched hours earlier.
+     *
+     * Cheap to do. The read is a stored plan and spends no provider call; only
+     * arming does, and that happens when nothing is armed or the user asks.
+     */
+    useFocusEffect(
+        useCallback(() => {
+            let cancelled = false;
 
-        void load(attempt > 0).then((result) => {
-            if (!cancelled) {
-                setNext(result);
-                setBusy(false);
-            }
-        });
+            void load(attempt > 0).then((result) => {
+                if (!cancelled) {
+                    setNext(result);
+                    setBusy(false);
+                }
+            });
 
-        // Guards against a result landing after the screen is gone, and against
-        // an earlier run overwriting a newer one after a refresh.
-        return () => {
-            cancelled = true;
-        };
-    }, [load, attempt]);
+            // Guards against a result landing after the screen is gone, and
+            // against an earlier run overwriting a newer one after a refresh.
+            return () => {
+                cancelled = true;
+            };
+        }, [load, attempt]),
+    );
 
     /**
      * The previous answer stays on screen while a new one is worked out.

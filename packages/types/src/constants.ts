@@ -42,6 +42,14 @@ export const API_ENDPOINTS = {
         DETAIL: (id: string) => `/api/v1/occurrences/${id}`,
         ACK: (id: string) => `/api/v1/occurrences/${id}/ack`,
         EVENTS: (id: string) => `/api/v1/occurrences/${id}/events`,
+        /**
+         * Test only. Stages a pretend delay or cancellation for the next check.
+         *
+         * Device authenticated like everything else here, and it can only touch
+         * this device's own morning: a simulation that could be aimed at
+         * somebody else's alarm is a way to make a stranger late.
+         */
+        SIMULATE: (id: string) => `/api/v1/occurrences/${id}/simulate`,
     },
     PLAN: {
         PREVIEW: '/api/v1/plan/preview',
@@ -162,6 +170,16 @@ export const APP_CONSTANTS = {
          * perceives, and burns battery doing it.
          */
         MIN_PUSH_DELTA_MINUTES: 2,
+        /**
+         * How long a staged simulation waits before it is discarded.
+         *
+         * Long enough to arm, walk away and watch it happen; short enough that
+         * one left on by accident cannot still be lying to the monitor tonight.
+         * A simulation that outlives the test is an alarm that has quietly
+         * stopped tracking reality, which is the exact failure this product
+         * exists to prevent.
+         */
+        SIMULATION_TTL_MINUTES: 60,
     },
 
     RISK_BUFFER: {

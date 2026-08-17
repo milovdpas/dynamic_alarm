@@ -33,6 +33,12 @@ export default {
         silent_preview: 'Geen geluid in deze build. Dit is een stille preview.',
         volume_muted: 'Je wekkervolume staat uit, dus je hoort dit niet.',
     },
+    ring: {
+        your_train: 'Je trein',
+        delayed: '{{service}} heeft {{minutes}} minuten vertraging.',
+        cancelled: '{{service}} rijdt niet.',
+        simulated: 'Dit is een test, niet echt.',
+    },
     permissions: {
         battery: 'Onbeperkt batterijgebruik',
         grant_battery: 'Onbeperkt batterijgebruik toestaan',
@@ -71,6 +77,17 @@ export default {
             secure_store: 'Het toestel kan zijn API-token niet bewaren.',
             task_manager: 'Het alarm past zich niet aan terwijl je slaapt.',
         },
+    },
+    simulate: {
+        title: 'Storing nadoen',
+        help: 'Alleen de dienstregeling wordt verzonnen. De rest is echt: dezelfde berekening, je eigen instellingen, een echte melding. De monitor past het toe bij de volgende controle, op de server binnen een minuut.',
+        target: 'Voor welk alarm',
+        staged_label: 'Klaargezet',
+        delay: '20 minuten vertraging nadoen',
+        cancellation: 'Uitgevallen trein nadoen',
+        clear: 'Weer weghalen',
+        staged: 'Klaargezet. De volgende controle past het toe.',
+        cleared: 'Weggehaald.',
     },
     push: {
         title: 'Meldingen tijdens je slaap',
@@ -111,6 +128,10 @@ export default {
             unknown: 'Er ging iets mis bij het bereiken van de API.',
         },
     },
+    language: {
+        title: 'Taal',
+        not_persistent: 'Deze keuze geldt tot je de app afsluit. Bouw de development client opnieuw om hem te bewaren.',
+    },
     tabs: {
         today: 'Vandaag',
         schedules: 'Schema\'s',
@@ -138,6 +159,10 @@ export default {
         see_journey: 'Bekijk je hele reis',
     },
     journey: {
+        spare: 'Je moet er om {{time}} zijn, dat is {{minutes}} minuten speling.',
+        late_by: 'Je moet er om {{time}} zijn. Dit lukt niet: je bent {{minutes}} minuten te laat.',
+        deadline: 'Je moet er om {{time}} zijn.',
+        open_in_ns: 'Bekijk deze reis in de NS-app',
         arrive: 'Aankomst',
         why_title: 'Waarom deze tijd',
         why_help: 'Vanaf je aankomsttijd wordt er teruggerekend. Elke regel telt mee.',
@@ -153,6 +178,7 @@ export default {
         track: 'Spoor {{track}}',
         delayed: '{{minutes}} min later',
         cancelled: 'Rijdt niet',
+        replaced_help: 'Deze rijdt niet meer, hieronder staat wat je nu neemt.',
     },
     onboarding: {
         entry_title: 'Stel je alarm in',

@@ -12,14 +12,16 @@ import AlarmEvent from '../models/AlarmEvent.entity';
 import Schedule from '../models/Schedule.entity';
 import type ScheduleOccurrence from '../models/ScheduleOccurrence.entity';
 import { OccurrenceService } from '../services/OccurrenceService';
+import { SimulationService } from '../services/SimulationService';
 import { ScheduleService } from '../services/ScheduleService';
 import type { SchedulePlanProblem } from '../services/SchedulePlanService';
 import { sendConflict, sendNotFound, sendSuccess } from '../utils/ApiResponses';
-import { ackOccurrenceSchema } from '../validators/occurrenceSchemas';
+import { ackOccurrenceSchema, simulateOccurrenceSchema } from '../validators/occurrenceSchemas';
 
 export default class OccurrenceController {
     private readonly occurrences = new OccurrenceService();
     private readonly schedules = new ScheduleService();
+    private readonly simulations = new SimulationService();
 
     /**
      * The soonest armed occurrence, or 404 when there is none.
@@ -100,6 +102,43 @@ export default class OccurrenceController {
         const updated = await this.occurrences.acknowledge(occurrence, req.body.ackedWakeAt);
         const schedule = await Schedule.findOneBy({ id: updated.scheduleId });
         sendSuccess<OccurrenceResponse>(res, updated.toDto(schedule?.name ?? ''));
+    };
+
+    /**
+     * Stages a pretend disruption for the next check of this occurrence.
+     *
+     * A test tool, and deliberately a narrow one. It is authenticated as a
+     * device and looked up by device id, so it can only ever touch this phone's
+     * own morning: a simulation that could be aimed at someone else's alarm is a
+     * way to make a stranger late.
+     *
+     * It also does nothing by itself. The monitor applies it on the next check,
+     * which is what makes the test worth running: every step after the invented
+     * timetable is the real one.
+     *
+     * `kind: null` clears a simulation that has not been applied yet, for
+     * changing your mind before the tick arrives.
+     */
+    simulate: Handler<BodyOf<typeof simulateOccurrenceSchema>, IdParams> = async (req, res) => {
+        const occurrence = await this.occurrences.findOwned(req.device.id, req.params.id);
+        if (occurrence === null) {
+            sendNotFound(res, 'Occurrence');
+            return;
+        }
+
+        if (req.body.kind === null) {
+            this.simulations.clear(occurrence);
+        } else {
+            this.simulations.stage(occurrence, req.body.kind, req.body.minutes ?? 15);
+            // Due now, so the next tick picks it up rather than the next band.
+            // Waiting half an hour to see whether a test worked is how a test
+            // tool stops being used.
+            occurrence.nextCheckAt = new Date();
+        }
+
+        const saved = await occurrence.save();
+        const schedule = await Schedule.findOneBy({ id: saved.scheduleId });
+        sendSuccess<OccurrenceResponse>(res, saved.toDto(schedule?.name ?? ''));
     };
 
     /** Why this alarm moved, oldest first, so the story reads forwards. */

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { DateTime } from 'luxon';
+import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
@@ -15,6 +16,7 @@ import type {
 
 import { listOccurrences, occurrenceEvents } from '@/api';
 import { Radius, Spacing } from '@/assets/Stylesheet';
+import ActionButton from '@/components/buttons/ActionButton';
 import DetailRow from '@/components/ui/DetailRow';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
@@ -100,6 +102,25 @@ export default function JourneyScreen() {
                                     label={t('common.leave_home')}
                                 />
 
+                                {/*
+                                 * What a cancellation took away, above what
+                                 * replaced it. The order is the point: the train
+                                 * somebody has caught for a year comes first
+                                 * with a line through it, and the one they are
+                                 * actually getting sits underneath.
+                                 */}
+                                {occurrence.replacedJourney?.legs
+                                    .filter(
+                                        (leg) =>
+                                            leg.type !== LegType.WALK && leg.type !== LegType.BIKE,
+                                    )
+                                    .map((leg, index) => (
+                                        <ReplacedLeg
+                                            key={`replaced-${String(index)}`}
+                                            leg={leg}
+                                        />
+                                    ))}
+
                                 {occurrence.journey?.legs.map((leg, index) => (
                                     <Leg
                                         key={`${leg.type}-${String(index)}`}
@@ -117,11 +138,35 @@ export default function JourneyScreen() {
                                         label={t('journey.arrive')}
                                     />
                                 )}
-                                <Step
-                                    time={clock(occurrence.plan.breakdown.requiredArrivalAt)}
-                                    label={t('common.arrive_by')}
-                                />
                             </View>
+
+                            {/*
+                             * The deadline as a margin rather than as a second
+                             * arrival. Two times in the timeline read as two
+                             * arrivals; what the user actually wants to know is
+                             * how much room the plan left them.
+                             */}
+                            <ThemedText type="small" themeColor="textSecondary">
+                                {marginLine(t, occurrence)}
+                            </ThemedText>
+
+                            {/*
+                             * NS's own link to this exact trip, from the trip
+                             * itself rather than assembled from station names
+                             * and times. It is an app link: the NS app opens it
+                             * when installed, a browser otherwise, so there is
+                             * nothing to detect and nothing to fall back to.
+                             */}
+                            {occurrence.journey?.shareUrl !== undefined && (
+                                <ActionButton
+                                    label={t('journey.open_in_ns')}
+                                    onPress={() => {
+                                        void Linking.openURL(
+                                            occurrence.journey?.shareUrl ?? '',
+                                        ).catch(() => undefined);
+                                    }}
+                                />
+                            )}
 
                             <ThemedText type="subtitle">{t('journey.why_title')}</ThemedText>
                             <ThemedText type="small" themeColor="textSecondary">
@@ -177,12 +222,26 @@ function Leg({ leg, open, onToggle }: { leg: JourneyLeg; open: boolean; onToggle
 
     if (stops.length === 0) {
         return (
-            <Step
-                time={clock(leg.actualDeparture)}
-                label={legLabel(t, leg)}
-                detail={legDetail(t, leg)}
-                warn={leg.cancelled}
-            />
+            <View style={styles.step}>
+                <Time
+                    planned={leg.plannedDeparture}
+                    actual={leg.actualDeparture}
+                    cancelled={leg.cancelled}
+                />
+                <View style={styles.grow}>
+                    <View style={styles.legTitle}>
+                        <ThemedText themeColor={leg.cancelled ? 'danger' : 'text'}>
+                            {legLabel(t, leg)}
+                        </ThemedText>
+                        {leg.cancelled && <Pill label={t('journey.cancelled')} />}
+                    </View>
+                    {legDetail(t, leg) !== undefined && (
+                        <ThemedText type="small" themeColor="textSecondary">
+                            {legDetail(t, leg)}
+                        </ThemedText>
+                    )}
+                </View>
+            </View>
         );
     }
 
@@ -195,17 +254,18 @@ function Leg({ leg, open, onToggle }: { leg: JourneyLeg; open: boolean; onToggle
                 accessibilityLabel={t('journey.stops_toggle', { name: legLabel(t, leg) })}
                 style={styles.step}
             >
-                <ThemedText
-                    type="smallBold"
-                    style={styles.time}
-                    themeColor={leg.cancelled ? 'danger' : 'text'}
-                >
-                    {clock(leg.actualDeparture)}
-                </ThemedText>
+                <Time
+                    planned={leg.plannedDeparture}
+                    actual={leg.actualDeparture}
+                    cancelled={leg.cancelled}
+                />
                 <View style={styles.grow}>
-                    <ThemedText themeColor={leg.cancelled ? 'danger' : 'text'}>
-                        {legLabel(t, leg)}
-                    </ThemedText>
+                    <View style={styles.legTitle}>
+                        <ThemedText themeColor={leg.cancelled ? 'danger' : 'text'}>
+                            {legLabel(t, leg)}
+                        </ThemedText>
+                        {leg.cancelled && <Pill label={t('journey.cancelled')} />}
+                    </View>
                     <ThemedText type="small" themeColor="textSecondary">
                         {[legDetail(t, leg), t('journey.stops_count', { count: stops.length })]
                             .filter(Boolean)
@@ -240,23 +300,104 @@ function Leg({ leg, open, onToggle }: { leg: JourneyLeg; open: boolean; onToggle
 function Stop({ stop }: { stop: JourneyStop }) {
     const { t } = useTranslation();
 
+    const at = stop.departureAt ?? stop.arrivalAt ?? '';
+    // A stop's own delay, worked back from its time, so a train that catches up
+    // does not keep flagging stations it now reaches punctually.
+    const planned =
+        stop.delaySeconds >= 60
+            ? (DateTime.fromISO(at, { setZone: true })
+                  .minus({ seconds: stop.delaySeconds })
+                  .toISO() ?? at)
+            : at;
+
     return (
         <View style={styles.step}>
+            <Time planned={planned} actual={at} cancelled={stop.cancelled} />
+            <View style={styles.grow}>
+                <View style={styles.legTitle}>
+                    <ThemedText type="small" themeColor={stop.cancelled ? 'danger' : 'text'}>
+                        {stop.name}
+                        {stop.track === undefined
+                            ? ''
+                            : ` \u00b7 ${t('journey.track', { track: stop.track })}`}
+                    </ThemedText>
+                    {stop.cancelled && <Pill label={t('journey.cancelled')} />}
+                </View>
+            </View>
+        </View>
+    );
+}
+
+/**
+ * How much room the journey leaves before the deadline.
+ *
+ * Spare minutes are the point of the whole calculation, so they are said in
+ * words rather than left to be worked out from two clock times. A journey that
+ * cannot make it says how late it will be instead, which the engine already
+ * computes rather than guessing at.
+ */
+function marginLine(
+    t: (key: string, options?: Record<string, unknown>) => string,
+    occurrence: OccurrenceResponse,
+): string {
+    const deadline = DateTime.fromISO(occurrence.plan.breakdown.requiredArrivalAt, {
+        setZone: true,
+    });
+
+    if (!occurrence.plan.feasible) {
+        return t('journey.late_by', {
+            time: clock(occurrence.plan.breakdown.requiredArrivalAt),
+            minutes: occurrence.plan.shortfallMinutes ?? 0,
+        });
+    }
+
+    const arrival = occurrence.journey?.arrivalAt;
+    if (arrival === undefined) {
+        return t('journey.deadline', { time: clock(occurrence.plan.breakdown.requiredArrivalAt) });
+    }
+
+    const spare = Math.round(deadline.diff(DateTime.fromISO(arrival, { setZone: true }), 'minutes').minutes);
+    return t('journey.spare', {
+        time: clock(occurrence.plan.breakdown.requiredArrivalAt),
+        minutes: Math.max(0, spare),
+    });
+}
+
+/**
+ * A time, and the time it was supposed to be.
+ *
+ * The planned time stays on screen with a line through it rather than being
+ * replaced. Someone who has taken this train for a year reads 07:52 without
+ * thinking; showing 08:04 alone makes them doubt their own memory, while showing
+ * both says what happened in one glance. It is also how every departure board in
+ * the country does it.
+ *
+ * Only when the two differ by a minute or more. Below that they render as the
+ * same clock time, and a struck-out 07:52 beside a red 07:52 is nonsense.
+ */
+function Time({ planned, actual, cancelled = false }: { planned: string; actual: string; cancelled?: boolean }) {
+    const danger = useThemeColor({}, 'danger');
+    const late = !cancelled && planned !== '' && clock(planned) !== clock(actual);
+
+    if (!late) {
+        return (
             <ThemedText
-                type="small"
+                type="smallBold"
                 style={styles.time}
-                themeColor={stop.cancelled ? 'danger' : 'textSecondary'}
+                themeColor={cancelled ? 'danger' : 'text'}
             >
-                {clock(stop.departureAt ?? stop.arrivalAt ?? '')}
+                {clock(actual)}
             </ThemedText>
-            <ThemedText
-                type="small"
-                style={styles.grow}
-                themeColor={stop.cancelled ? 'danger' : 'text'}
-            >
-                {stop.name}
-                {stop.track === undefined ? '' : ` \u00b7 ${t('journey.track', { track: stop.track })}`}
-                {stop.cancelled ? ` \u00b7 ${t('journey.cancelled')}` : ''}
+        );
+    }
+
+    return (
+        <View style={styles.time}>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.struck}>
+                {clock(planned)}
+            </ThemedText>
+            <ThemedText type="smallBold" style={{ color: danger }}>
+                {clock(actual)}
             </ThemedText>
         </View>
     );
@@ -287,6 +428,62 @@ function Step({
                     </ThemedText>
                 )}
             </View>
+        </View>
+    );
+}
+
+/**
+ * A leg that is not happening, shown so the replacement makes sense.
+ *
+ * Struck through and pilled rather than merely absent. A journey that silently
+ * becomes a different train reads as the app changing its mind; showing the
+ * cancelled one says what actually happened, which is the difference between
+ * trusting the new time and doubting it.
+ *
+ * The user's own legs are left out, walking and cycling both. Only the service
+ * was cancelled; the ride to the station is the same ride, and a "cancelled"
+ * pill on somebody's own bicycle is nonsense that makes the real cancellation
+ * harder to find.
+ */
+function ReplacedLeg({ leg }: { leg: JourneyLeg }) {
+    const { t } = useTranslation();
+    const secondary = useThemeColor({}, 'textSecondary');
+
+    return (
+        <View style={styles.step}>
+            <ThemedText type="small" style={[styles.time, styles.struck]} themeColor="textSecondary">
+                {clock(leg.actualDeparture)}
+            </ThemedText>
+            <View style={styles.grow}>
+                <View style={styles.legTitle}>
+                    <ThemedText type="small" style={[styles.struck, { color: secondary }]}>
+                        {legLabel(t, leg)}
+                    </ThemedText>
+                    <Pill label={t('journey.cancelled')} />
+                </View>
+                <ThemedText type="small" themeColor="textSecondary">
+                    {t('journey.replaced_help')}
+                </ThemedText>
+            </View>
+        </View>
+    );
+}
+
+/**
+ * A short, loud label on the thing it belongs to.
+ *
+ * A pill rather than a line of text underneath, because "cancelled" has to be
+ * readable at a glance from a phone held at arm's length in the dark, and
+ * because it attaches to the leg rather than describing the journey.
+ */
+function Pill({ label }: { label: string }) {
+    const danger = useThemeColor({}, 'danger');
+
+    return (
+        <View style={[styles.pill, { borderColor: danger }]}>
+            <ThemedText type="small" style={{ color: danger }}>
+                {label.toUpperCase()}
+            </ThemedText>
         </View>
     );
 }
@@ -357,12 +554,8 @@ function legDetail(t: (key: string, options?: Record<string, unknown>) => string
     if (leg.actualTrack !== undefined) {
         parts.push(t('journey.track', { track: leg.actualTrack }));
     }
-    if (leg.delaySeconds >= 60) {
-        parts.push(t('journey.delayed', { minutes: Math.round(leg.delaySeconds / 60) }));
-    }
-    if (leg.cancelled) {
-        parts.push(t('journey.cancelled'));
-    }
+    // The delay and the cancellation are shown by the time and the pill now,
+    // so repeating them here would say the same thing three times.
 
     return parts.length === 0 ? undefined : parts.join(' · ');
 }
@@ -377,7 +570,15 @@ const styles = StyleSheet.create({
         gap: Spacing.small,
     },
     step: { flexDirection: 'row', gap: Spacing.small, alignItems: 'flex-start' },
-    time: { width: 52 },
+    time: { width: 56 },
+    struck: { textDecorationLine: 'line-through' },
+    legTitle: { flexDirection: 'row', alignItems: 'center', gap: Spacing.extraSmall, flexWrap: 'wrap' },
+    pill: {
+        borderWidth: 1,
+        borderRadius: Radius.small,
+        paddingHorizontal: Spacing.extraSmall,
+        paddingVertical: 1,
+    },
     grow: { flex: 1, gap: 2 },
     stops: {
         // Indented under the leg it belongs to, so the timeline still reads as

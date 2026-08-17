@@ -1,3 +1,12 @@
+/**
+ * Where the chosen language is kept.
+ *
+ * Exported so the settings screen writes the same key `i18n.ts` reads on boot.
+ * Two spellings of it would mean a choice that applies immediately and silently
+ * reverts on the next launch.
+ */
+export const LANGUAGE_STORAGE_KEY = 'appLanguage';
+
 export enum Language {
     NL = 'nl',
     EN = 'en',

@@ -7,6 +7,13 @@ import { APP_CONSTANTS } from '@alarm/types';
 import { moveAppToBackground } from '@modules/alarm-sound';
 
 import { dismissAlarm, snoozeAlarm } from '@/alarm/alarmActions';
+import {
+    readDisruption,
+    readRememberedDisruption,
+    rememberDisruption,
+} from '@/alarm/disruption';
+import type { Disruption } from '@/alarm/disruption';
+import { listOccurrences } from '@/api';
 import { Color, FontSize, Radius, Spacing } from '@/assets/Stylesheet';
 import { ThemedText } from '@/components/ui/ThemedText';
 
@@ -32,6 +39,57 @@ export default function RingScreen() {
 
     const [now, setNow] = useState(() => new Date());
     const [actionError, setActionError] = useState<string | null>(null);
+
+    /**
+     * Whether the journey behind this alarm is disrupted.
+     *
+     * Shown whatever the disruption settings say. Those decide whether the alarm
+     * is allowed to *move*; they were never meant to decide whether someone is
+     * told their train is cancelled. Waking at the usual time not knowing the
+     * 07:52 is gone is the worst version of this app.
+     */
+    const [disruption, setDisruption] = useState<Disruption | null>(null);
+
+    // The scheduler names its alarms after the occurrence they belong to.
+    const occurrenceId = params.alarmId?.startsWith('occurrence-')
+        ? params.alarmId.slice('occurrence-'.length)
+        : null;
+
+    useEffect(() => {
+        if (occurrenceId === null) {
+            return;
+        }
+        let cancelled = false;
+
+        // What the app last knew, read from the device. No request, so it is on
+        // screen immediately and it works in flight mode, in a tunnel, and
+        // before the radio has woken up.
+        void readRememberedDisruption(occurrenceId).then((stored) => {
+            if (!cancelled && stored !== null) {
+                setDisruption(stored);
+            }
+        });
+
+        // Then the current answer, if the network happens to be there. This is
+        // the path that catches a delay nobody pushed, which is exactly what
+        // happens when moving the alarm is switched off. Failing is fine and
+        // silent: the stored note is already up.
+        void listOccurrences()
+            .then(async (occurrences) => {
+                const occurrence = occurrences.find((each) => each.id === occurrenceId);
+                if (occurrence === undefined || cancelled) {
+                    return;
+                }
+                const current = readDisruption(occurrence);
+                setDisruption(current);
+                await rememberDisruption(occurrenceId, current);
+            })
+            .catch(() => undefined);
+
+        return () => {
+            cancelled = true;
+        };
+    }, [occurrenceId]);
 
     useEffect(() => {
         const timer = setInterval(() => setNow(new Date()), 1000);
@@ -95,6 +153,30 @@ export default function RingScreen() {
                 {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </ThemedText>
 
+            {/*
+             * Above the buttons, because it is the reason to read this screen
+             * rather than reach for the phone and dismiss it by reflex.
+             */}
+            {disruption !== null && (
+                <View style={styles.disruption}>
+                    <ThemedText style={styles.disruptionText}>
+                        {disruption.kind === 'CANCELLATION'
+                            ? t('ring.cancelled', {
+                                  service: disruption.service ?? t('ring.your_train'),
+                              })
+                            : t('ring.delayed', {
+                                  service: disruption.service ?? t('ring.your_train'),
+                                  minutes: disruption.minutes,
+                              })}
+                    </ThemedText>
+                    {disruption.simulated && (
+                        <ThemedText type="small" style={styles.disruptionText}>
+                            {t('ring.simulated')}
+                        </ThemedText>
+                    )}
+                </View>
+            )}
+
             {actionError !== null && (
                 <ThemedText type="small" style={styles.error}>
                     {actionError}
@@ -139,6 +221,21 @@ const styles = StyleSheet.create({
     },
     error: {
         color: '#FF8A8A',
+        textAlign: 'center',
+    },
+    disruption: {
+        // Amber rather than red: something has changed and needs reading, but
+        // the alarm itself is working exactly as intended.
+        borderColor: '#F0A85C',
+        borderWidth: 1,
+        borderRadius: Radius.small,
+        paddingVertical: Spacing.small,
+        paddingHorizontal: Spacing.medium,
+        gap: Spacing.extraSmall,
+        alignItems: 'center',
+    },
+    disruptionText: {
+        color: '#F0A85C',
         textAlign: 'center',
     },
     actions: {

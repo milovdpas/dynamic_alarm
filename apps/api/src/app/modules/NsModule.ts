@@ -139,6 +139,7 @@ export class NsModule {
         return {
             id: trip.ctxRecon ?? String(trip.idx ?? 'ns-trip'),
             ctxRecon: trip.ctxRecon ?? null,
+            shareUrl: trip.shareUrl?.uri,
             status: this.toStatus(trip.status),
             legs,
             departureAt: first?.actualDeparture ?? '',
@@ -261,6 +262,7 @@ export interface NsStation {
 /* Only the fields we read. The full NS schema is far larger. */
 
 interface NsTrip {
+    shareUrl?: { uri?: string };
     idx?: number;
     ctxRecon?: string;
     status?: string;

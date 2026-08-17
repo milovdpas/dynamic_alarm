@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "1a20cd24-05a8-4104-b825-86a30f9dc38f",
     "name": "Dynamic Alarm: Backend",
-    "description": "Everything the app never calls.\n\nTwo kinds of thing live here. The health check is served by our API but read by uptime monitors and load balancers rather than by the phone. The rest are the upstream NS and TomTom calls the backend makes on the app's behalf, reproduced exactly as the server sends them.\n\nThose upstream requests are the reason this collection exists. When a wake time comes back wrong, the question is almost always whether the API composed the journey badly or whether NS answered oddly, and the only way to separate the two is to make the same call by hand. Every diagnosis in this project so far has come from doing that: the subscription refusing door-to-door planning, and `stations/nearest` returning a railway museum with no scheduled service.\n\n**These requests spend the shared NS budget.** 300 requests per 5 minutes for the whole deployment, not per user. Do not point a Postman Runner at the NS folder.\n\nThe keys go in a Postman environment, never in this file. `apps/api/.env` holds the real ones.",
+    "description": "Everything the app never calls.\n\nTwo kinds of thing live here. The health check is served by our API but read by uptime monitors and load balancers rather than by the phone. The rest are the upstream NS and TomTom calls the backend makes on the app's behalf, reproduced exactly as the server sends them.\n\nThose upstream requests are the reason this collection exists. When a wake time comes back wrong, the question is almost always whether the API composed the journey badly or whether NS answered oddly, and the only way to separate the two is to make the same call by hand. Every diagnosis in this project so far has come from doing that: the subscription refusing door-to-door planning, and `stations/nearest` returning a railway museum with no scheduled service.\n\n**These requests spend the shared NS budget.** 300 requests per 5 minutes for the whole deployment, not per user. Do not point a Postman Runner at the NS folder.\n\nThe simulation requests are the exception to \"everything the app never calls\": the app's debug panel uses them too. They live here because they are a test tool rather than part of the product, and because using them by hand is the point.\n\n`deviceToken` is a real device's bearer token, and `occurrenceId` one of its armed mornings. Both come from the app collection's register and occurrences requests.\n\nThe keys go in a Postman environment, never in this file. `apps/api/.env` holds the real ones.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "13715750",
     "_collection_link": "https://go.postman.co/collection/13715750-1a20cd24-05a8-4104-b825-86a30f9dc38f?source=collection_link"
@@ -179,6 +179,128 @@
               "body": "{\n    \"disruptions\": 14,\n    \"promoted\": 0,\n    \"claimed\": 5,\n    \"moved\": 0,\n    \"unchanged\": 5,\n    \"failed\": 0,\n    \"skipped\": false,\n    \"durationMs\": 1127\n}"
             }
           ]
+        },
+        {
+          "name": "Simulate a delay",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{deviceToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/occurrences/{{occurrenceId}}/simulate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "occurrences",
+                "{{occurrenceId}}",
+                "simulate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"kind\": \"DELAY\",\n    \"minutes\": 20\n}"
+            },
+            "description": "**Test only, and it invents nothing but the timetable.** The monitor applies this on its next check of that occurrence; everything after that is the real path, the same engine recomputing, the same opt-in settings deciding whether the alarm may move, the same push through Expo, and the same monotonic rule on the phone.\n\nDevice authenticated, and it can only touch that device's own morning: a simulation aimed at somebody else's alarm is a way to make a stranger late.\n\nStaging one sets `nextCheckAt` to now, so the next tick picks it up rather than the next cadence band. Locally nothing ticks on its own, so run the **Monitor tick** request above, or `npm run tick -w @alarm/api`.\n\nIt expires after an hour, and is consumed by the check that applies it, so it cannot be applied twice. The occurrence reports `simulated`, and the alarm event written for the change is prefixed `SIMULATED:`, because someone woken early by a test must be able to tell that from the product being wrong.\n\nShifts the stored journey later by `minutes` and marks it disrupted, so the risk buffer responds the way it would to a real delay rather than only the arithmetic being exercised. Every leg moves, not just the first: a train that leaves late arrives late, and shifting one end would invent a journey that gains time in transit.\n\nThe alarm only actually moves if the device has **sleep longer on delays** switched on. A run where nothing moves and the setting is off is the setting working, not a failed test.\n\n`minutes` is capped at 180. Four hours of pretend delay makes the journey infeasible, which is a different test with a different name."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('staged', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(body.simulated).to.eql('DELAY');",
+                  "});",
+                  "// Handy for the tick request that follows.",
+                  "pm.collectionVariables.set('occurrenceId', body.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Simulate a cancellation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{deviceToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/occurrences/{{occurrenceId}}/simulate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "occurrences",
+                "{{occurrenceId}}",
+                "simulate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"kind\": \"CANCELLATION\"\n}"
+            },
+            "description": "**Test only, and it invents nothing but the timetable.** The monitor applies this on its next check of that occurrence; everything after that is the real path, the same engine recomputing, the same opt-in settings deciding whether the alarm may move, the same push through Expo, and the same monotonic rule on the phone.\n\nDevice authenticated, and it can only touch that device's own morning: a simulation aimed at somebody else's alarm is a way to make a stranger late.\n\nStaging one sets `nextCheckAt` to now, so the next tick picks it up rather than the next cadence band. Locally nothing ticks on its own, so run the **Monitor tick** request above, or `npm run tick -w @alarm/api`.\n\nIt expires after an hour, and is consumed by the check that applies it, so it cannot be applied twice. The occurrence reports `simulated`, and the alarm event written for the change is prefixed `SIMULATED:`, because someone woken early by a test must be able to tell that from the product being wrong.\n\nMakes the next refresh unreconstructable, which is what a cancellation looks like from the monitor's side: the itinerary no longer exists to be delayed, so a full re-plan is forced and a different train is chosen.\n\nGoverned by **sleep longer on cancellations** rather than the delay switch. `minutes` is ignored."
+          },
+          "response": []
+        },
+        {
+          "name": "Clear a staged simulation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{deviceToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/occurrences/{{occurrenceId}}/simulate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "occurrences",
+                "{{occurrenceId}}",
+                "simulate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"kind\": null\n}"
+            },
+            "description": "**Test only, and it invents nothing but the timetable.** The monitor applies this on its next check of that occurrence; everything after that is the real path, the same engine recomputing, the same opt-in settings deciding whether the alarm may move, the same push through Expo, and the same monotonic rule on the phone.\n\nDevice authenticated, and it can only touch that device's own morning: a simulation aimed at somebody else's alarm is a way to make a stranger late.\n\nStaging one sets `nextCheckAt` to now, so the next tick picks it up rather than the next cadence band. Locally nothing ticks on its own, so run the **Monitor tick** request above, or `npm run tick -w @alarm/api`.\n\nIt expires after an hour, and is consumed by the check that applies it, so it cannot be applied twice. The occurrence reports `simulated`, and the alarm event written for the change is prefixed `SIMULATED:`, because someone woken early by a test must be able to tell that from the product being wrong.\n\nRemoves one that has not been applied yet, for changing your mind before the tick arrives. Applied simulations are already gone: the check that uses one clears it in the same save as the plan it produced."
+          },
+          "response": []
         }
       ],
       "description": "Served by our API, not called by the app."
@@ -568,6 +690,14 @@
     }
   ],
   "variable": [
+    {
+      "key": "occurrenceId",
+      "value": ""
+    },
+    {
+      "key": "deviceToken",
+      "value": ""
+    },
     {
       "key": "monitorToken",
       "value": ""

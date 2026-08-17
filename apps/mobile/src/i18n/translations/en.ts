@@ -33,6 +33,12 @@ export default {
         silent_preview: 'No audio in this build. This is a silent preview.',
         volume_muted: 'Your alarm volume is muted, so you will not hear this.',
     },
+    ring: {
+        your_train: 'Your train',
+        delayed: '{{service}} is {{minutes}} minutes late.',
+        cancelled: '{{service}} is not running.',
+        simulated: 'This is a test, not real.',
+    },
     permissions: {
         battery: 'Unrestricted battery',
         grant_battery: 'Allow unrestricted battery',
@@ -71,6 +77,17 @@ export default {
             secure_store: 'The device cannot store its API token.',
             task_manager: 'The alarm will not adjust itself while you sleep.',
         },
+    },
+    simulate: {
+        title: 'Pretend something went wrong',
+        help: 'Only the timetable is invented. The rest is real: the same calculation, your own settings, an actual push. The monitor applies it on its next check, which on the server is within a minute.',
+        target: 'Which alarm',
+        staged_label: 'Staged',
+        delay: 'Pretend a 20 minute delay',
+        cancellation: 'Pretend a cancellation',
+        clear: 'Take it back',
+        staged: 'Staged. The next check applies it.',
+        cleared: 'Cleared.',
     },
     push: {
         title: 'Pushes while you sleep',
@@ -111,6 +128,10 @@ export default {
             unknown: 'Something went wrong reaching the API.',
         },
     },
+    language: {
+        title: 'Language',
+        not_persistent: 'This choice lasts until you close the app. Rebuild the development client to keep it.',
+    },
     tabs: {
         today: 'Today',
         schedules: 'Schedules',
@@ -138,6 +159,10 @@ export default {
         see_journey: 'See your whole journey',
     },
     journey: {
+        spare: 'You need to be there by {{time}}, so that is {{minutes}} minutes to spare.',
+        late_by: 'You need to be there by {{time}}. This does not make it: you arrive {{minutes}} minutes late.',
+        deadline: 'You need to be there by {{time}}.',
+        open_in_ns: 'See this trip in the NS app',
         arrive: 'Arrive',
         why_title: 'Why this time',
         why_help: 'Counted back from when you need to be there. Every line adds up.',
@@ -153,6 +178,7 @@ export default {
         track: 'Platform {{track}}',
         delayed: '{{minutes}} min late',
         cancelled: 'Not running',
+        replaced_help: 'This one is not running. What you are taking instead is below.',
     },
     onboarding: {
         entry_title: 'Set up your alarm',

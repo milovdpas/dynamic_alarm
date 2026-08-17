@@ -528,8 +528,41 @@ schedule be changed. See the information architecture section in PLAN.md.
       reading them. Stations the train only passes through are dropped at the
       mapping layer, because a list naming a stop the train runs past is worse
       than a short one. About 1.8 KB per stored journey, measured
-- [ ] Simulated delay and cancellation, so the interesting path can be tested on
-      demand rather than twice a month (PLAN.md has the design and its limits)
+- [x] Simulated delay and cancellation, so the interesting path can be tested on
+      demand rather than twice a month. `POST /occurrences/:id/simulate`, device
+      authenticated and limited to that device's own morning, staged for the next
+      check and consumed by it, expiring after an hour. Only the timetable is
+      invented: the engine, the opt-in settings, the push and the phone's
+      monotonic rule are all the real ones. Proved end to end against a live
+      occurrence, which moved 07:10 to 07:30 and recorded
+      `SIMULATED: A service is delayed, so the alarm moved to 07:30.`
+- [~] Show disruption on screen. Done: the journey screen strikes the planned
+      time through and prints the delayed one in red, a cancelled leg carries a
+      pill, and the cancelled train is listed above the one that replaced it
+      (`replacedJourney`, new column). The ring screen names the delay or
+      cancellation whatever the disruption settings say, since those decide
+      whether the alarm may move and were never meant to decide whether somebody
+      is told their train is gone
+- [x] The server pushes a disruption notice even when the alarm does not move,
+      so the phone holds the news before the alarm rings rather than needing a
+      request at 06:00. Deduplicated by state (`DELAY:12`, `CANCELLATION`), so a
+      delay that persists is silent and one that grows pushes again
+- [x] Cancellations re-plan. The monitor never did: a trip that could not be
+      reconstructed produced a wake time computed from no journey at all, which
+      is why a simulated cancellation showed a vanished train and no replacement
+- [x] The emergency-earlier path, which PLAN.md has described since day one and
+      nothing implemented. A cancellation that forces an earlier start now moves
+      the alarm regardless of the opt-in switches, since not moving is a
+      guaranteed failure rather than a risk
+- [ ] Which replacement is acceptable: a direction (earlier or later) and a
+      travel window per schedule, falling back to the other direction inside the
+      window and then to leaving the alarm alone with a notice saying why. See
+      PLAN.md
+- [ ] Still to do: the same message on Today, with the minutes gained, and the
+      case where a setting being off is why the alarm did not move
+- [x] Reachable from the debug panel, which is how it is meant to be used on a
+      phone: it targets the soonest armed morning, shows what is staged, and says
+      that the next check applies it
 
 ## M3: car
 
@@ -558,6 +591,11 @@ Both decided 2026-08-16, both written up in PLAN.md.
       answer, with cached answers labelled and dated. Writes are refused rather
       than queued: a queued edit to an alarm lands while its owner is asleep.
       Shares a store with the M1 offline mirror, so they are worth doing together
+- [ ] Alarm sound in settings: the system ringtone picker (already built, but
+      only reachable from the debug panel) plus a file the user owns, copied into
+      app storage rather than referenced, because a document picker's URI does
+      not survive a reboot and the alarm is played hours later by a native
+      service. See PLAN.md
 - [ ] Theme choice in settings: system, light or dark, with system staying the
       default. `ThemeContext` already follows the system and has a toggle nothing
       can reach; what is missing is the row, the persistence and applying it

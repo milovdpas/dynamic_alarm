@@ -4,9 +4,7 @@ import { initReactI18next } from 'react-i18next';
 import Storage from '@/utils/modules/Storage';
 import { loadOptionalModule } from '@/utils/modules/optionalModule';
 import translations from '@/i18n/translations/index';
-import { Language, supportedLanguages } from '@/i18n/languages';
-
-const STORAGE_KEY = 'appLanguage';
+import { LANGUAGE_STORAGE_KEY, Language, supportedLanguages } from '@/i18n/languages';
 
 /**
  * Device language, or null when `expo-localization` is unavailable.
@@ -55,7 +53,7 @@ void i18n.use(initReactI18next).init({
 async function applyPreferredLanguage(): Promise<void> {
     let storedLanguage: string | null = null;
     try {
-        storedLanguage = await Storage.getItem(STORAGE_KEY);
+        storedLanguage = await Storage.getItem(LANGUAGE_STORAGE_KEY);
     } catch (error) {
         console.error('Failed to fetch stored language:', error);
     }
@@ -76,7 +74,7 @@ async function applyPreferredLanguage(): Promise<void> {
     }
     if (storedLanguage === null) {
         try {
-            await Storage.setItem(STORAGE_KEY, i18n.language);
+            await Storage.setItem(LANGUAGE_STORAGE_KEY, i18n.language);
         } catch (error) {
             console.error('Failed to store language:', error);
         }

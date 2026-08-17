@@ -7,7 +7,10 @@ import OccurrenceController from '../../controllers/OccurrenceController';
 import { deviceAuth } from '../../middleware/DeviceAuth';
 import { validate } from '../../middleware/ValidateRequest';
 import { idParamSchema } from '../../validators/commonSchemas';
-import { ackOccurrenceSchema } from '../../validators/occurrenceSchemas';
+import {
+    ackOccurrenceSchema,
+    simulateOccurrenceSchema,
+} from '../../validators/occurrenceSchemas';
 
 /**
  * One morning's alarm: reading it, arming it, confirming it, explaining it.
@@ -38,6 +41,14 @@ export default class OccurrenceRoutes implements IRoute {
             deviceAuth,
             validate({ params: idParamSchema, body: ackOccurrenceSchema }),
             this.controller.acknowledge,
+        );
+
+        // Test only, and device authenticated like everything else here.
+        router.post<IdParams>(
+            API_ENDPOINTS.OCCURRENCES.SIMULATE(':id'),
+            deviceAuth,
+            validate({ params: idParamSchema, body: simulateOccurrenceSchema }),
+            this.controller.simulate,
         );
 
         router.get<IdParams>(

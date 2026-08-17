@@ -1,14 +1,40 @@
-import { APP_CONSTANTS, PUSH_MESSAGE_TYPE } from '@alarm/types';
-import type { WakeChangedPush } from '@alarm/types';
+import { APP_CONSTANTS, PUSH_MESSAGE_TYPE, WakeChangeReason } from '@alarm/types';
+import type { DisruptionNoticePush, PushMessage, WakeChangedPush } from '@alarm/types';
 import { resolvePushedWake } from '@alarm/core';
 
 import { canGuaranteeAlarm, getAlarmScheduler } from '@/alarm';
 import { ackOccurrence } from '@/api';
 import i18n from '@/i18n/i18n';
+import { rememberDisruption } from '@/alarm/disruption';
 import { readHeldAlarm, rememberHeldAlarm } from '@/push/heldAlarm';
 import { recordPushOutcome } from '@/push/pushLog';
 
 /** What happened to a push, recorded for the debug panel. */
+/**
+ * Records a disruption for the alarm screen, and changes nothing else.
+ *
+ * The server sends this when a journey is disrupted but the wake time is staying
+ * where it is, which is the ordinary case when the user has not opted into being
+ * woken later. Nothing is rescheduled and nothing is acknowledged: the only
+ * effect is that the phone can now say what happened when the alarm rings, with
+ * no network at 06:00.
+ */
+export async function applyDisruptionNotice(push: DisruptionNoticePush): Promise<void> {
+    await rememberDisruption(push.occurrenceId, {
+        kind: push.kind,
+        minutes: push.minutes,
+        service: push.service,
+        simulated: push.simulated,
+    });
+
+    await recordPushOutcome({
+        at: new Date().toISOString(),
+        wakeAt: '',
+        emergency: false,
+        outcome: `NOTICE_${push.kind}`,
+    });
+}
+
 export type PushApplyOutcome =
     | 'APPLIED'
     | 'IGNORED_NOT_LATER'
@@ -28,9 +54,9 @@ export type PushApplyOutcome =
  * is exactly the failure this whole path exists to prevent, so it tries the
  * known shapes and validates the result instead.
  */
-export function extractWakeChange(payload: unknown): WakeChangedPush | null {
+export function extractPush(payload: unknown): PushMessage | null {
     for (const candidate of unwrap(payload, 0)) {
-        if (isWakeChange(candidate)) {
+        if (isWakeChange(candidate) || isDisruptionNotice(candidate)) {
             return candidate;
         }
     }
@@ -118,6 +144,17 @@ async function apply(push: WakeChangedPush): Promise<PushApplyOutcome> {
         }
 
         await rememberHeldAlarm({ occurrenceId: push.occurrenceId, wakeAt: push.wakeAt });
+
+        // The reason, kept for the ring screen. This runs while the phone is
+        // asleep, which is exactly when the alarm screen's copy would otherwise
+        // go stale.
+        await rememberDisruption(push.occurrenceId, {
+            kind:
+                push.reason === WakeChangeReason.CANCELLATION ? 'CANCELLATION' : 'DELAY',
+            minutes: 0,
+            service: null,
+            simulated: push.message.startsWith('SIMULATED'),
+        }).catch(() => undefined);
         // Only after the read-back. This is the message that stops the server
         // retrying, so sending it on an intention would end the retries that are
         // the reason a dropped push is survivable.
@@ -162,6 +199,18 @@ function* unwrap(value: unknown, depth: number): Generator<unknown> {
             yield* unwrap(record[key], depth + 1);
         }
     }
+}
+
+function isDisruptionNotice(value: unknown): value is DisruptionNoticePush {
+    if (typeof value !== 'object' || value === null) {
+        return false;
+    }
+    const record = value as Record<string, unknown>;
+    return (
+        record.type === PUSH_MESSAGE_TYPE.DISRUPTION_NOTICE &&
+        typeof record.occurrenceId === 'string' &&
+        (record.kind === 'DELAY' || record.kind === 'CANCELLATION')
+    );
 }
 
 function isWakeChange(value: unknown): value is WakeChangedPush {

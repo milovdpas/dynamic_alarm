@@ -4,6 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 
+import languages from '@/i18n/languages';
+
 import appConfig from '@/config';
 import { Radius, Spacing } from '@/assets/Stylesheet';
 import ActionButton from '@/components/buttons/ActionButton';
@@ -29,7 +31,7 @@ const TAPS_TO_REVEAL = 10;
  * the way into the debug panel: ten taps, then a password.
  */
 export default function SettingsScreen() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const router = useRouter();
     const border = useThemeColor({}, 'border');
 
@@ -98,6 +100,21 @@ export default function SettingsScreen() {
                             value={t('settings.disruptions_summary')}
                             onPress={() => {
                                 router.push('/settings/disruptions');
+                            }}
+                        />
+
+                        <SettingsRow
+                            icon="translate"
+                            label={t('language.title')}
+                            // The language it is in, in that language. Someone
+                            // who has landed in the wrong one needs to recognise
+                            // their own, not read a translation of its name.
+                            value={
+                                languages.find((language) => language.code === i18n.language)
+                                    ?.label ?? i18n.language
+                            }
+                            onPress={() => {
+                                router.push('/settings/language');
                             }}
                         />
 

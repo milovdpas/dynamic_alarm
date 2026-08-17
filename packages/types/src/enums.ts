@@ -89,6 +89,22 @@ export enum AlarmEventType {
     DISMISSED = 'DISMISSED',
 }
 
+/**
+ * A pretend disruption, applied to one occurrence on its next check.
+ *
+ * Test-only, and the one place this system deliberately lies to itself. Real
+ * trains are mostly on time, so the path this product exists for runs perhaps
+ * twice a month and never while anyone is watching. Everything downstream stays
+ * real: the same engine recomputes, the same push goes out, the phone reschedules
+ * under the same rule. Only the timetable is invented.
+ */
+export enum SimulationKind {
+    /** Shifts the stored journey later and marks its legs disrupted. */
+    DELAY = 'DELAY',
+    /** Makes the refresh unreconstructable, which forces a re-plan. */
+    CANCELLATION = 'CANCELLATION',
+}
+
 /** ISO-8601 weekday numbering, matching Luxon's `weekday`. */
 export enum Weekday {
     MONDAY = 1,

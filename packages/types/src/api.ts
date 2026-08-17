@@ -3,6 +3,7 @@ import type {
     AlarmEventType,
     DevicePlatform,
     OccurrenceState,
+    SimulationKind,
     TransportMode,
     WakeChangeReason,
     Weekday,
@@ -323,8 +324,36 @@ export interface OccurrenceDto {
     currentWakeAt: IsoDateTimeString;
     departHomeAt: IsoDateTimeString;
     journey: Journey | null;
+    /**
+     * The itinerary a cancellation replaced, when one did.
+     *
+     * Kept so the journey screen can show the train that is gone above the one
+     * that took its place. Without it a re-plan erases the evidence: a perfectly
+     * good 08:02 appears with nothing to say the 07:52 it replaced is cancelled,
+     * and the user goes looking for their usual train on the platform.
+     */
+    replacedJourney: Journey | null;
     plan: WakePlan;
     lastCheckedAt: IsoDateTimeString | null;
+    /**
+     * Set while a pretend disruption is waiting to be applied, or has been.
+     *
+     * On the wire because it has to be visible. Someone woken early by a test
+     * must be able to see that is what happened, and a simulation that hides
+     * itself is indistinguishable from the product being wrong.
+     */
+    simulated: SimulationKind | null;
+}
+
+/**
+ * Asks for a pretend disruption on the next check of this occurrence.
+ *
+ * `minutes` applies to a delay and is ignored otherwise. Omit `kind` to clear a
+ * simulation that has not been applied yet.
+ */
+export interface SimulateOccurrenceRequest {
+    kind: SimulationKind | null;
+    minutes?: number;
 }
 
 /**

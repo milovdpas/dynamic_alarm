@@ -5,8 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { DateTime } from 'luxon';
 import * as Clipboard from 'expo-clipboard';
 
-import { APP_CONSTANTS, DEFAULT_BUFFERS, TransportMode } from '@alarm/types';
-import type { WakePlan } from '@alarm/types';
+import { APP_CONSTANTS, DEFAULT_BUFFERS, SimulationKind, TransportMode } from '@alarm/types';
+import type { OccurrenceResponse, WakePlan } from '@alarm/types';
 import { FixtureTransportProvider, planWake } from '@alarm/core';
 
 import {
@@ -35,10 +35,13 @@ import DetailRow from '@/components/ui/DetailRow';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import WarningBanner from '@/components/ui/WarningBanner';
+import { nextOccurrence, simulateOccurrence } from '@/api';
 import { registerWakeChangePushTask } from '@/push/backgroundTask';
 import { readHeldAlarm, type HeldAlarm } from '@/push/heldAlarm';
 import { clearPushLog, readPushLog, type PushLogEntry } from '@/push/pushLog';
 import { useApiConnection } from '@/utils/hooks/useApiConnection';
+import { clock } from '@/utils/time';
+import { ApiRequestError } from '@/utils/modules/Axios';
 import { buildDebugReport } from '@/utils/modules/debugReport';
 import {
     getMissingNativeModules,
@@ -215,12 +218,31 @@ export default function DebugScreen() {
      * answer, because the only part of the system that runs while nobody is
      * watching is also the only part that cannot report itself any other way.
      */
+    /**
+     * The morning a simulation would be staged against.
+     *
+     * The soonest armed one, because that is the alarm about to happen and the
+     * only one worth testing against. Null when nothing is armed, in which case
+     * there is nothing to disrupt and the buttons say so instead of failing.
+     */
+    const [occurrence, setOccurrence] = useState<OccurrenceResponse | null>(null);
+    const [simulating, setSimulating] = useState(false);
+
     const [pushRegistered, setPushRegistered] = useState<boolean | null>(null);
     const [held, setHeld] = useState<HeldAlarm | null>(null);
     const [pushLog, setPushLog] = useState<PushLogEntry[]>([]);
 
     useEffect(() => {
         let cancelled = false;
+        // A 404 means nothing is armed, which is an ordinary answer here.
+        void nextOccurrence()
+            .then((next) => {
+                if (!cancelled) {
+                    setOccurrence(next);
+                }
+            })
+            .catch(() => undefined);
+
         void Promise.all([registerWakeChangePushTask(), readHeldAlarm(), readPushLog()]).then(
             ([registered, current, log]) => {
                 if (!cancelled) {
@@ -234,6 +256,34 @@ export default function DebugScreen() {
             cancelled = true;
         };
     }, []);
+
+    /**
+     * Stages a pretend disruption, or clears one.
+     *
+     * Reports the outcome into the same status line the rest of this panel
+     * uses, including failures: this is the screen where a broken thing should
+     * say so rather than look inert.
+     */
+    const simulate = useCallback(
+        async (kind: SimulationKind | null) => {
+            if (occurrence === null) {
+                return;
+            }
+            setSimulating(true);
+            try {
+                const updated = await simulateOccurrence(occurrence.id, kind, 20);
+                setOccurrence(updated);
+                setStatus(
+                    kind === null ? t('simulate.cleared') : t('simulate.staged'),
+                );
+            } catch (error) {
+                setStatus(apiErrorMessage(t, ApiRequestError.from(error).code));
+            } finally {
+                setSimulating(false);
+            }
+        },
+        [occurrence, t],
+    );
 
     const clearPushes = useCallback(async () => {
         await clearPushLog();
@@ -398,6 +448,51 @@ export default function DebugScreen() {
                         )}
                         {connection !== null && connection.state !== 'registering' && (
                             <ActionButton label={t('api.retry')} onPress={retryApi} />
+                        )}
+                    </Section>
+
+                    {/*
+                     * Test tools, and the only place in the app that asks the
+                     * server to lie. Behind the debug gate because a simulated
+                     * disruption moves a real alarm, and nobody should meet that
+                     * by accident.
+                     */}
+                    <Section title={t('simulate.title')}>
+                        <ThemedText type="small" themeColor="textSecondary">
+                            {t('simulate.help')}
+                        </ThemedText>
+
+                        <DetailRow
+                            label={t('simulate.target')}
+                            value={
+                                occurrence === null
+                                    ? t('harness.none')
+                                    : `${occurrence.scheduleName} ${clock(occurrence.currentWakeAt)}`
+                            }
+                            warn={occurrence === null}
+                        />
+                        <DetailRow
+                            label={t('simulate.staged_label')}
+                            value={occurrence?.simulated ?? t('harness.none')}
+                            warn={occurrence?.simulated != null}
+                        />
+
+                        <ActionButton
+                            label={t('simulate.delay')}
+                            disabled={occurrence === null || simulating}
+                            onPress={() => void simulate(SimulationKind.DELAY)}
+                        />
+                        <ActionButton
+                            label={t('simulate.cancellation')}
+                            disabled={occurrence === null || simulating}
+                            onPress={() => void simulate(SimulationKind.CANCELLATION)}
+                        />
+                        {occurrence?.simulated != null && (
+                            <ActionButton
+                                label={t('simulate.clear')}
+                                disabled={simulating}
+                                onPress={() => void simulate(null)}
+                            />
                         )}
                     </Section>
 

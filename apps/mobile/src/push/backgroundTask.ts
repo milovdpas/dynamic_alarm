@@ -1,6 +1,8 @@
 import { loadOptionalModule } from '@/utils/modules/optionalModule';
 import { isExpoGo } from '@/utils/modules/runtime';
-import { applyWakeChange, extractWakeChange } from '@/push/wakeChangePush';
+import { PUSH_MESSAGE_TYPE } from '@alarm/types';
+
+import { applyDisruptionNotice, applyWakeChange, extractPush } from '@/push/wakeChangePush';
 
 /**
  * The task name is part of the app's persisted native state, so it must stay
@@ -45,16 +47,22 @@ export function defineWakeChangePushTask(): void {
     }
 
     taskManager.defineTask(TASK_NAME, async ({ data }) => {
-        const push = extractWakeChange(data);
+        const push = extractPush(data);
         if (push === null) {
             // Some other notification, or a shape this app does not know. Not an
             // error: the payload is validated rather than assumed, precisely so
             // an unexpected message cannot be mistaken for a wake time.
             return;
         }
-        // Awaited, so the platform keeps the process alive until the alarm is
-        // actually rescheduled. The work is one scheduler call and one HTTP
-        // request; if it is killed first, the server retries.
+
+        // Awaited, so the platform keeps the process alive until the work is
+        // done. A wake change is a scheduler call and one request; a notice is a
+        // single write. If either is killed first, the server retries.
+        if (push.type === PUSH_MESSAGE_TYPE.DISRUPTION_NOTICE) {
+            await applyDisruptionNotice(push);
+            return;
+        }
+
         await applyWakeChange(push);
     });
 

@@ -69,6 +69,11 @@ export class OccurrenceService {
         occurrence.currentWakeAt = instant(plan.wakeUpAt);
         occurrence.departHomeAt = instant(plan.departHomeAt);
         occurrence.planSnapshot = plan;
+        // Arming computes a morning from scratch, so anything a previous
+        // cancellation replaced belongs to a plan that no longer exists, and
+        // whatever the device was told about it no longer applies either.
+        occurrence.replacedJourney = null;
+        occurrence.noticeKey = null;
         occurrence.ctxRecon = plan.journey?.ctxRecon ?? null;
         occurrence.watchedStationCodes = plan.journey?.watchedStationCodes ?? null;
         occurrence.lastCheckedAt = new Date();

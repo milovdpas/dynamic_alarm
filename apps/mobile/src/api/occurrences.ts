@@ -3,6 +3,8 @@ import type {
     ListAlarmEventsResponse,
     ListOccurrencesResponse,
     OccurrenceResponse,
+    SimulateOccurrenceRequest,
+    SimulationKind,
 } from '@alarm/types';
 
 import Axios, { ApiRequestError } from '@/utils/modules/Axios';
@@ -72,4 +74,26 @@ export async function occurrenceEvents(
     occurrenceId: string,
 ): Promise<ListAlarmEventsResponse> {
     return Axios.get<ListAlarmEventsResponse>(API_ENDPOINTS.OCCURRENCES.EVENTS(occurrenceId));
+}
+
+/**
+ * Stages a pretend disruption for the next check of this morning.
+ *
+ * A test tool, and the only call in this app that asks the server to lie. It
+ * invents the timetable and nothing else: the monitor recomputes with the same
+ * engine, the opt-in settings still decide whether the alarm may move, the push
+ * is a real push, and this phone applies it under the same rule as any other.
+ *
+ * Nothing happens immediately. The monitor applies it on its next check, which
+ * on the server is within a minute and locally is whenever a tick is run.
+ *
+ * `kind: null` clears one that has not been applied yet.
+ */
+export async function simulateOccurrence(
+    occurrenceId: string,
+    kind: SimulationKind | null,
+    minutes?: number,
+): Promise<OccurrenceResponse> {
+    const body: SimulateOccurrenceRequest = { kind, minutes };
+    return Axios.post<OccurrenceResponse>(API_ENDPOINTS.OCCURRENCES.SIMULATE(occurrenceId), body);
 }

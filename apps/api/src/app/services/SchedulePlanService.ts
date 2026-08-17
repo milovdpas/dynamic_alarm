@@ -61,6 +61,40 @@ export class SchedulePlanService {
 
 
     /**
+     * A fresh plan for one specific morning, ignoring what was stored.
+     *
+     * The re-plan path: the itinerary an occurrence was armed from no longer
+     * exists, which is what NS means when a trip stops being reconstructable,
+     * and the only useful answer is a different journey to the same deadline.
+     * Without it a cancellation left the occurrence with no journey at all,
+     * which reads on screen as a train that vanished with nothing replacing it.
+     *
+     * The date is passed in rather than recomputed, because the morning being
+     * re-planned is the one already armed, and `nextOccurrenceDate` rolls
+     * forward the moment its deadline passes.
+     */
+    async forDate(
+        schedule: Schedule,
+        date: string,
+        journeyOffset?: number,
+    ): Promise<SchedulePlanResult> {
+        const request = await this.requestFor(schedule, date, journeyOffset);
+        if (!request.ok) {
+            return { ok: false, problem: request.problem };
+        }
+
+        return {
+            ok: true,
+            response: {
+                scheduleId: schedule.id,
+                scheduleName: schedule.name,
+                date: request.date,
+                plan: await this.plans.preview(request.input),
+            },
+        };
+    }
+
+    /**
      * Turns a saved schedule into a plan request, or says why it cannot.
      *
      * Shared by both callers above, because they differ only in what they ask
@@ -70,6 +104,8 @@ export class SchedulePlanService {
      */
     private async requestFor(
         schedule: Schedule,
+        forDate?: string,
+        journeyOffset?: number,
     ): Promise<
         { ok: true; input: PlanPreviewRequest; date: string } | { ok: false; problem: SchedulePlanProblem }
     > {
@@ -90,17 +126,7 @@ export class SchedulePlanService {
             return { ok: false, problem: 'REFERENCES_MISSING' };
         }
 
-        const next = nextOccurrenceDate(
-            schedule.daysOfWeek,
-            schedule.arrivalTime.slice(0, 5),
-            schedule.timezone,
-            DateTime.now().setZone(schedule.timezone),
-        );
-        if (next === null) {
-            return { ok: false, problem: 'NO_UPCOMING_OCCURRENCE' };
-        }
-
-        const date = next.toISODate();
+        const date = forDate ?? this.nextDate(schedule);
         if (date === null) {
             return { ok: false, problem: 'NO_UPCOMING_OCCURRENCE' };
         }
@@ -113,7 +139,7 @@ export class SchedulePlanService {
             mode: schedule.mode,
             originAccess: schedule.originAccess,
             destinationAccess: schedule.destinationAccess,
-            journeyOffset: schedule.journeyOffset,
+            journeyOffset: journeyOffset ?? schedule.journeyOffset,
             fixedTravelMinutes: schedule.fixedTravelMinutes ?? undefined,
             // Disabled steps are kept and count zero, which is how "not today"
             // works without losing the step.
@@ -123,5 +149,15 @@ export class SchedulePlanService {
         };
 
         return { ok: true, input, date };
+    }
+
+    private nextDate(schedule: Schedule): string | null {
+        const next = nextOccurrenceDate(
+            schedule.daysOfWeek,
+            schedule.arrivalTime.slice(0, 5),
+            schedule.timezone,
+            DateTime.now().setZone(schedule.timezone),
+        );
+        return next?.toISODate() ?? null;
     }
 }

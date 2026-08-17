@@ -77,6 +77,10 @@ function RootNavigator() {
                 />
                 <Stack.Screen name="journey/[id]" options={{ title: t('home.journey') }} />
                 <Stack.Screen
+                    name="settings/language"
+                    options={{ title: t('language.title') }}
+                />
+                <Stack.Screen
                     name="settings/disruptions"
                     options={{ title: t('settings.disruptions') }}
                 />
