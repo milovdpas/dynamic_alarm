@@ -138,6 +138,7 @@ function RootNavigator() {
                     options={{ title: t('language.title') }}
                 />
                 <Stack.Screen name="settings/theme" options={{ title: t('theme.title') }} />
+                <Stack.Screen name="settings/sound" options={{ title: t('sound.title') }} />
                 <Stack.Screen
                     name="settings/disruptions"
                     options={{ title: t('settings.disruptions') }}

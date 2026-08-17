@@ -49,6 +49,16 @@ export function getNativeModuleStatuses(): NativeModuleStatus[] {
             impactKey: 'diagnostics.impact.secure_store',
         },
         {
+            name: 'ExpoDocumentPicker',
+            available: hasExpoModule(() => require('expo-document-picker')),
+            impactKey: 'diagnostics.impact.document_picker',
+        },
+        {
+            name: 'ExpoFileSystem',
+            available: hasExpoModule(() => require('expo-file-system')),
+            impactKey: 'diagnostics.impact.file_system',
+        },
+        {
             name: 'ExpoTaskManager',
             available: hasExpoModule(() => require('expo-task-manager')),
             impactKey: 'diagnostics.impact.task_manager',

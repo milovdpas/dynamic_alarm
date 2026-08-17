@@ -11,6 +11,7 @@ import {
     OCCURRENCES_CACHE_KEY,
 } from '@/api';
 import { canGuaranteeAlarm, getAlarmScheduler } from '@/alarm';
+import { resolveAlarmSoundUri } from '@/alarm/alarmSound';
 import { readDisruption, rememberDisruption } from '@/alarm/disruption';
 import i18n from '@/i18n/i18n';
 import { rememberHeldAlarm } from '@/push/heldAlarm';
@@ -444,6 +445,11 @@ async function arm(occurrence: OccurrenceResponse): Promise<boolean> {
     await scheduler.schedule({
         id,
         at: occurrence.currentWakeAt,
+        // Carried with the alarm rather than read when it rings. After a reboot
+        // the boot receiver re-arms from native storage with no JavaScript
+        // running, so a sound that lived only in app storage would quietly
+        // revert to the default on the mornings that matter most.
+        soundUri: await resolveAlarmSoundUri(),
         // The i18n instance rather than the hook: this is not React code, and
         // i18n is initialised synchronously exactly so it is safe from here.
         title: i18n.t('alarm.ringing_title'),

@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 
 import languages from '@/i18n/languages';
@@ -13,6 +13,7 @@ import SettingsRow from '@/components/settings/SettingsRow';
 import TextField from '@/components/ui/TextField';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
+import { readChosenSound, type ChosenSound } from '@/alarm/alarmSound';
 import { useTheme } from '@/utils/contexts/ThemeContext';
 import { useThemeColor } from '@/utils/hooks/useThemeColor';
 
@@ -35,6 +36,10 @@ export default function SettingsScreen() {
     const { t, i18n } = useTranslation();
     const router = useRouter();
     const { preference } = useTheme();
+    // Shown on the row itself: which tone is set is the whole question, and
+    // making somebody open a screen to find out is the sort of thing settings
+    // lists get wrong.
+    const [sound, setSound] = useState<ChosenSound | null>(null);
     const border = useThemeColor({}, 'border');
 
     const [taps, setTaps] = useState(0);
@@ -53,6 +58,14 @@ export default function SettingsScreen() {
         }
         setWrong(true);
     };
+
+    // On focus rather than on mount, so choosing a tone and coming back shows
+    // the tone rather than the one that was set when this screen first opened.
+    useFocusEffect(
+        useCallback(() => {
+            void readChosenSound().then(setSound);
+        }, []),
+    );
 
     const scroll = useRef<ScrollView>(null);
 
@@ -117,6 +130,15 @@ export default function SettingsScreen() {
                             }
                             onPress={() => {
                                 router.push('/settings/language');
+                            }}
+                        />
+
+                        <SettingsRow
+                            icon="music-note-outline"
+                            label={t('sound.title')}
+                            value={sound?.label ?? t('sound.system_default')}
+                            onPress={() => {
+                                router.push('/settings/sound');
                             }}
                         />
 

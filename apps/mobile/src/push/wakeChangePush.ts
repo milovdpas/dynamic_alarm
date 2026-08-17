@@ -5,6 +5,7 @@ import { resolvePushedWake } from '@alarm/core';
 import { canGuaranteeAlarm, getAlarmScheduler } from '@/alarm';
 import { ackOccurrence } from '@/api';
 import i18n from '@/i18n/i18n';
+import { resolveAlarmSoundUri } from '@/alarm/alarmSound';
 import { rememberDisruption } from '@/alarm/disruption';
 import { readHeldAlarm, rememberHeldAlarm } from '@/push/heldAlarm';
 import { recordPushOutcome } from '@/push/pushLog';
@@ -134,6 +135,10 @@ async function apply(push: WakeChangedPush): Promise<PushApplyOutcome> {
             at: push.wakeAt,
             title: i18n.t('alarm.ringing_title'),
             body: push.message,
+            // Re-read here too. This path runs in a headless task with the app
+            // closed, and an alarm moved overnight that quietly lost the user's
+            // tone would be a strange thing to wake up to.
+            soundUri: await resolveAlarmSoundUri(),
             occurrenceId: push.occurrenceId,
         });
 

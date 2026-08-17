@@ -68,6 +68,7 @@ module.exports = defineConfig([
         files: [
             'src/components/ui/TimeField.tsx',
             'src/utils/modules/pushToken.ts',
+            'src/alarm/ownSoundFile.ts',
             'src/utils/modules/Splash.ts',
             'src/utils/modules/Storage.ts',
             'src/utils/modules/Updates.ts',

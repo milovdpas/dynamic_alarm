@@ -208,6 +208,24 @@ preview build cannot reach the API: **a release build cannot talk to `http://`
 at all**, so a LAN address baked into one fails instantly, with a message that
 blames the network.
 
+### The runtime version does not notice a native dependency
+
+`runtimeVersion` follows `appVersion`, so adding a native module **does not**
+change it. An update published afterwards is still offered to a build that has
+none of that native code, and there is no version check standing in the way.
+
+That is survivable here only because of the house rule: every native module is
+loaded through `loadOptionalModule`, so a binary that lacks one shows a sentence
+saying a rebuild is needed instead of failing to evaluate the module that
+imported it. The rebuild banner names the missing ones, which is why every new
+dependency gets an entry in `nativeDiagnostics.ts` at the same time it is added.
+
+Worth considering before this bites somebody who is not us: the `fingerprint`
+policy computes the runtime version from the native project itself, so adding a
+dependency bumps it and older builds stop being offered updates they cannot run.
+The cost is that a build is needed more often, which is exactly the constraint we
+are working around at the moment, so it is a decision rather than an obvious win.
+
 ### JavaScript changes do not need a build. `eas update` ships them
 
 Found on 2026-08-17, when the free plan's Android build allowance ran out with
@@ -818,11 +836,31 @@ Both decided 2026-08-16, both written up in PLAN.md.
       than start a second one. What is missing is recomputing a wake time on the
       device from cached schedules and routines, which is what would let the app
       arm a morning with no backend at all
-- [ ] Alarm sound in settings: the system ringtone picker (already built, but
-      only reachable from the debug panel) plus a file the user owns, copied into
-      app storage rather than referenced, because a document picker's URI does
-      not survive a reboot and the alarm is played hours later by a native
-      service. See PLAN.md
+- [x] Alarm sound in settings, the system ringtone picker half. Every piece
+      already existed and nothing joined them up: the picker worked,
+      `AlarmRequest.soundUri` was in the interface, the Android scheduler
+      forwarded it and `AlarmService` played it, but nobody stored a choice and
+      nothing passed one, so every alarm rang on the system default. The URI is
+      **carried with each alarm** rather than looked up when it fires, because
+      after a reboot the boot receiver re-arms from native storage with no
+      JavaScript running. Both arming paths set it, including the overnight push,
+      so an alarm moved while somebody sleeps does not lose their tone. Previews
+      play on the alarm stream at alarm volume, which is the only honest answer
+      to "will this wake me"
+- [~] Alarm sound: a file the user owns. **Written, and unusable until a
+      build.** `expo-document-picker` and `expo-file-system` were added on
+      2026-08-17 while the EAS allowance is spent, so this works on the next
+      build and reports itself as needing one until then. Both are loaded
+      optionally and the rebuild banner names them, so the current binary shows a
+      sentence rather than crashing
+- [x] The file is **copied** into app storage rather than referenced, which is
+      the entire reason this needed a native dependency at all. A document
+      picker's URI is a temporary grant that does not survive a reboot, and the
+      alarm is played hours later by a native service with no JavaScript, no
+      picker and no way to ask again: a referenced file is a tone that works when
+      it is tested in the evening and is silent at 06:00. One fixed filename, so
+      choosing a second tone replaces the first instead of accumulating every
+      audio file somebody ever auditioned
 - [x] Theme choice in settings: system, light or dark, with system staying the
       default. The context stores the preference rather than the resolved colour,
       because resolving `system` at the moment it is picked would freeze the app
