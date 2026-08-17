@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { LegType } from '@alarm/types';
-import type { JourneyLeg, WakePlan } from '@alarm/types';
+import type { Journey } from '@alarm/types';
 
 import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { clock, relativeDay } from '@/utils/time';
@@ -155,25 +155,33 @@ export default function HomeScreen() {
                                     label={t('common.leave_home')}
                                     value={clock(next.occurrence.departHomeAt)}
                                 />
+                                {/*
+                                 * Which train, in one line. The timetable behind
+                                 * it is a tap away: the wake time is the answer,
+                                 * and burying it in a list of legs was the
+                                 * fastest way to make it look like a detail.
+                                 */}
+                                {next.occurrence.journey !== null && (
+                                    <DetailRow
+                                        label={t('home.journey')}
+                                        value={journeySummary(t, next.occurrence.journey)}
+                                    />
+                                )}
                                 <DetailRow
                                     label={t('common.arrive_by')}
-                                    value={clock(
-                                        next.occurrence.plan.breakdown.requiredArrivalAt,
-                                    )}
+                                    value={clock(next.occurrence.plan.breakdown.requiredArrivalAt)}
                                 />
-                                {next.occurrence.journey?.legs.map((leg, index) => (
-                                    <DetailRow
-                                        key={`${leg.type}-${String(index)}`}
-                                        label={legLabel(t, leg)}
-                                        value={`${clock(leg.actualDeparture)} ${t(
-                                            'home.until',
-                                        )} ${clock(leg.actualArrival)}`}
-                                        warn={leg.cancelled}
-                                    />
-                                ))}
                             </View>
 
-                            <Breakdown plan={next.occurrence.plan} />
+                            <ActionButton
+                                label={t('home.see_journey')}
+                                onPress={() => {
+                                    router.push({
+                                        pathname: '/journey/[id]',
+                                        params: { id: next.occurrence?.id ?? '' },
+                                    });
+                                }}
+                            />
 
                             {!next.occurrence.plan.feasible && (
                                 <WarningBanner
@@ -214,35 +222,33 @@ export default function HomeScreen() {
 }
 
 /** Every term of the calculation, so the wake time can be argued with. */
-function Breakdown({ plan }: { plan: WakePlan }) {
-    const { t } = useTranslation();
-    const { breakdown } = plan;
 
-    return (
-        <View style={styles.breakdown}>
-            <DetailRow
-                label={t('plan.travel')}
-                value={t('common.minutes_short', { count: breakdown.travelMinutes })}
-            />
-            <DetailRow
-                label={t('plan.risk_buffer')}
-                value={t('common.minutes_short', { count: breakdown.riskBufferMinutes })}
-            />
-            <DetailRow
-                label={t('plan.routine')}
-                value={t('common.minutes_short', { count: breakdown.routineMinutes })}
-            />
-        </View>
+/**
+ * The one line that answers "which train".
+ *
+ * The first leg that is not the user's own legs: walking to the station is not
+ * the journey anybody means when they ask. Falls back to the whole trip's
+ * departure when there is nothing but walking, which is a real answer for a
+ * short enough commute.
+ */
+function journeySummary(
+    t: (key: string, options?: Record<string, unknown>) => string,
+    journey: Journey,
+): string {
+    const service = journey.legs.find(
+        (leg) => leg.type !== LegType.WALK && leg.type !== LegType.BIKE,
     );
-}
 
-/** Walking and cycling are the traveller's own legs, so they read differently. */
-function legLabel(t: (key: string) => string, leg: JourneyLeg): string {
-    if (leg.type === LegType.WALK) return t('home.leg_walk');
-    if (leg.type === LegType.BIKE) return t('home.leg_bike');
-    return leg.name ?? leg.fromName;
-}
+    if (service === undefined) {
+        return t('home.journey_summary_walk', { time: clock(journey.departureAt) });
+    }
 
+    return t('home.journey_summary', {
+        time: clock(service.actualDeparture),
+        name: service.name ?? service.fromName,
+        to: service.toName,
+    });
+}
 
 const styles = StyleSheet.create({
     flex: {

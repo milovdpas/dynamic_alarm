@@ -29,6 +29,23 @@ packages/core   Wake-time engine, risk buffers, monitor cadence, transport adapt
                 Shared so the app and the API compute identical answers.
 ```
 
+## One file this repository does not contain
+
+`apps/mobile/google-services.json` is gitignored. It is not secret, since every
+value in it ships inside the APK, but this repository is public and the Android
+API key it carries is better restricted than published. Builds get it from the
+EAS file variable `GOOGLE_SERVICES_JSON`, read by `app.config.js`.
+
+A fresh clone needs it locally before `expo prebuild` or a development build:
+
+```sh
+cd apps/mobile
+eas env:pull --environment development    # writes the file back out
+```
+
+Without it, prebuild fails naming the missing file, and any build that somehow
+gets past that produces an app that cannot register for push.
+
 ## Commands
 
 ```bash

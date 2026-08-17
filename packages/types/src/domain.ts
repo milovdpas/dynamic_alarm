@@ -119,6 +119,29 @@ export interface Schedule {
 }
 
 /** A single leg of a planned journey, already normalised across providers. */
+/**
+ * A station a leg calls at, in the order it is reached.
+ *
+ * Stations the train runs through without stopping are not included: NS marks
+ * them `passing`, and a list that says "Boxtel" for a train that does not stop
+ * there is worse than a shorter list.
+ *
+ * Both times are optional because the ends of a leg only have one each. The
+ * first stop has a departure and no arrival, the last has an arrival and no
+ * departure, and that is the honest shape rather than repeating a time twice.
+ */
+export interface JourneyStop {
+    name: string;
+    /** Absent at the first stop of the leg. */
+    arrivalAt?: IsoDateTimeString;
+    /** Absent at the last stop of the leg. */
+    departureAt?: IsoDateTimeString;
+    /** Realtime where known. Differs from the planned track on a change. */
+    track?: string;
+    delaySeconds: number;
+    cancelled: boolean;
+}
+
 export interface JourneyLeg {
     type: LegType;
     /** e.g. "Intercity naar Amsterdam Centraal", or a road name for car legs. */
@@ -135,6 +158,15 @@ export interface JourneyLeg {
     /** Differs from `plannedTrack` on a platform change. */
     actualTrack?: string;
     cancelled: boolean;
+    /**
+     * Where this leg calls, when the provider says. Absent for a walk, and for
+     * any provider that does not publish them.
+     *
+     * Stored with the plan, so reading them later costs nothing. They are what
+     * answers "is my stop on this train", which is the question the NS app is
+     * usually open for.
+     */
+    stops?: JourneyStop[];
 }
 
 /** A concrete itinerary from a transport provider. */

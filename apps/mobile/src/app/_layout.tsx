@@ -75,6 +75,7 @@ function RootNavigator() {
                     name="schedules/[id]/routine"
                     options={{ title: t('schedules.section_routine') }}
                 />
+                <Stack.Screen name="journey/[id]" options={{ title: t('home.journey') }} />
                 <Stack.Screen
                     name="settings/disruptions"
                     options={{ title: t('settings.disruptions') }}

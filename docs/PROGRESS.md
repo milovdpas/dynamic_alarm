@@ -518,8 +518,16 @@ schedule be changed. See the information architecture section in PLAN.md.
 - [x] Arm every active schedule rather than only the first, and cancel OS alarms
       for occurrences that no longer exist
 - [x] `GET /api/v1/occurrences` for this device's armed occurrences
-- [ ] Journey detail: leg-by-leg timeline, buffer breakdown, and the event trail
-      that already exists in the database and has never been shown
+- [x] Journey detail: leg-by-leg timeline with platforms and delays, the buffer
+      breakdown that answers "why this time", and the `alarm_events` trail, which
+      had existed in the database since M2 and had never been shown to anyone.
+      Today is a summary again: wake time, leave-home time, which train, and a
+      way in
+- [x] Tapping a train leg lists the stations it calls at, the way the NS app
+      does. `JourneyLeg.stops` is new: NS returns them per leg and nothing was
+      reading them. Stations the train only passes through are dropped at the
+      mapping layer, because a list naming a stop the train runs past is worse
+      than a short one. About 1.8 KB per stored journey, measured
 - [ ] Simulated delay and cancellation, so the interesting path can be tested on
       demand rather than twice a month (PLAN.md has the design and its limits)
 

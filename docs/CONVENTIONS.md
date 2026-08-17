@@ -335,6 +335,18 @@ enough:
 npx expo start --port 8099    # then stop it
 ```
 
+**A new route directory needs the dev server restarted, not just reloaded.** The
+route list comes from a Metro `require.context` over `src/app`, resolved when the
+server starts, so a directory created afterwards is invisible to it. The symptom
+is a warning that names the route you just added and lists every other one:
+
+```
+No route named "journey/[id]" exists in nested children: [...]
+```
+
+`npx expo start --clear` fixes it. Reloading the app does not, because it re-runs
+the same stale context.
+
 ## Registration is the request layer's job, not the launch order's
 
 Every screen fetches on mount. Registration used to be a separate thing the

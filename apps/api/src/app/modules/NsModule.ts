@@ -1,5 +1,5 @@
 import { JourneyStatus, LegType } from '@alarm/types';
-import type { GeoPoint, Journey, JourneyLeg } from '@alarm/types';
+import type { GeoPoint, Journey, JourneyLeg, JourneyStop } from '@alarm/types';
 
 import { env } from '../../config/app';
 
@@ -165,7 +165,35 @@ export class NsModule {
             plannedTrack: leg.origin?.plannedTrack,
             actualTrack: leg.origin?.actualTrack,
             cancelled: leg.cancelled === true,
+            stops: this.toStops(leg.stops),
         };
+    }
+
+    /**
+     * The stations a leg calls at, dropping the ones it only passes.
+     *
+     * `passing` stops are stations the train runs through at speed. NS returns
+     * them so a map can draw the line; listing them would tell someone their
+     * stop is served when it is not, which is the one mistake this list must
+     * never make.
+     *
+     * Undefined rather than empty when there is nothing to show, so a walk leg
+     * and a train with no published stops read differently in the app.
+     */
+    private toStops(stops?: NsTripStop[]): JourneyStop[] | undefined {
+        const calling = (stops ?? []).filter((stop) => stop.passing !== true);
+        if (calling.length === 0) {
+            return undefined;
+        }
+
+        return calling.map((stop) => ({
+            name: stop.name ?? '',
+            arrivalAt: stop.actualArrivalDateTime ?? stop.plannedArrivalDateTime,
+            departureAt: stop.actualDepartureDateTime ?? stop.plannedDepartureDateTime,
+            track: stop.actualDepartureTrack ?? stop.plannedDepartureTrack,
+            delaySeconds: stop.departureDelayInSeconds ?? 0,
+            cancelled: stop.cancelled === true,
+        }));
     }
 
     private toLegType(travelType?: string, productType?: string): LegType {
@@ -246,6 +274,22 @@ interface NsLeg {
     product?: { type?: string; displayName?: string };
     origin?: NsStop;
     destination?: NsStop;
+    stops?: NsTripStop[];
+}
+
+/** A station along a leg. Distinct from `NsStop`, which is a leg's own end. */
+interface NsTripStop {
+    name?: string;
+    plannedArrivalDateTime?: string;
+    actualArrivalDateTime?: string;
+    plannedDepartureDateTime?: string;
+    actualDepartureDateTime?: string;
+    plannedDepartureTrack?: string;
+    actualDepartureTrack?: string;
+    departureDelayInSeconds?: number;
+    cancelled?: boolean;
+    /** True where the train runs through without stopping. */
+    passing?: boolean;
 }
 
 interface NsStop {
