@@ -10,7 +10,6 @@ import { rememberDisruption } from '@/alarm/disruption';
 import { readHeldAlarm, rememberHeldAlarm } from '@/push/heldAlarm';
 import { recordPushOutcome } from '@/push/pushLog';
 
-/** What happened to a push, recorded for the debug panel. */
 /**
  * Records a disruption for the alarm screen, and changes nothing else.
  *

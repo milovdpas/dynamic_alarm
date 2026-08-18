@@ -4,7 +4,7 @@ import { API_ENDPOINTS, APP_CONSTANTS, DevicePlatform } from '@alarm/types';
 import type { ApiErrorResponse, RegisterDeviceResponse } from '@alarm/types';
 
 import appConfig from '@/config';
-import { clearCache, readCache, writeCache } from './ApiCache';
+import { clearCache, noteLiveAnswer, readCache, writeCache } from './ApiCache';
 import { loadOptionalModule } from './optionalModule';
 
 const DEVICE_TOKEN_KEY = 'deviceToken';
@@ -381,6 +381,11 @@ export default class Axios {
             const body = await Axios.request<T>((config) =>
                 axios.get<T>(endpoint, { ...config, params }),
             );
+            // Said here rather than in `writeCache`, because this is the line
+            // that knows a server answered. A write is just a write: the same
+            // function stores answers assembled from reads that may every one
+            // have come from the cache.
+            noteLiveAnswer();
             void writeCache(key, body);
             return body;
         } catch (error) {

@@ -21,7 +21,7 @@ import {
 import type { Disruption } from '@/alarm/disruption';
 import { listOccurrences } from '@/api';
 import { clock } from '@/utils/time';
-import { Color, FontSize, Radius, Spacing } from '@/assets/Stylesheet';
+import { FontSize, Night, Radius, Spacing } from '@/assets/Stylesheet';
 import { ThemedText } from '@/components/ui/ThemedText';
 
 /**
@@ -64,7 +64,15 @@ export default function RingScreen() {
     const preview = params.preview ?? null;
 
     const [now, setNow] = useState(() => new Date());
-    const [actionError, setActionError] = useState<string | null>(null);
+    /**
+     * An i18n key, never a message.
+     *
+     * An exception's text is written for whoever debugs it and is English
+     * wherever it comes from, which will not do on the one screen a user cannot
+     * navigate away from. The raw text goes to the log; the sentence comes from
+     * translations like every other string in the app.
+     */
+    const [actionErrorKey, setActionErrorKey] = useState<string | null>(null);
 
     /**
      * The puzzle standing between this alarm and being switched off.
@@ -180,24 +188,37 @@ export default function RingScreen() {
     }, [isTakeover, router]);
 
     /**
-     * Each step is isolated, because they are independent obligations.
+     * Silences the alarm, and leaves only if that worked.
      *
-     * Previously one `await` chain meant a throw anywhere left the user stranded
-     * on a screen with no way out. Silencing the alarm and leaving the screen
-     * must not be able to break each other, and a failure has to be visible
-     * rather than swallowed by an unawaited promise.
+     * The order matters and so does the dependency between the two steps. Leaving
+     * regardless would replace the route and background the app, which renders any
+     * explanation onto a screen nobody is looking at, while the alarm carries on
+     * sounding. So a failure stays put: this screen is the only thing left that
+     * can say what happened, the alarm keeps ringing underneath it because the
+     * sound belongs to the native service, and trying again is a second press.
      */
     const runAlarmAction = useCallback(
         async (act: (alarmId: string | undefined) => Promise<void>) => {
+            // Cleared first, so a second attempt that works is not still
+            // apologising for the first.
+            setActionErrorKey(null);
+
             try {
                 await act(params.alarmId);
             } catch (error) {
-                setActionError(error instanceof Error ? error.message : String(error));
+                // English, for whoever debugs it. The user reads the key.
+                console.warn('Alarm action failed:', error);
+                setActionErrorKey('ring.stop_failed');
+                return;
             }
+
             try {
                 await leaveRingScreen();
             } catch (error) {
-                setActionError(error instanceof Error ? error.message : String(error));
+                console.warn('Leaving the ring screen failed:', error);
+                // The alarm is off, so this is the smaller problem: the screen
+                // would not close and the way out is the phone's own button.
+                setActionErrorKey('ring.leave_failed');
             }
         },
         [params.alarmId, leaveRingScreen],
@@ -286,9 +307,9 @@ export default function RingScreen() {
                 </View>
             )}
 
-            {actionError !== null && (
+            {actionErrorKey !== null && (
                 <ThemedText type="small" style={styles.error}>
-                    {actionError}
+                    {t(actionErrorKey)}
                 </ThemedText>
             )}
 
@@ -322,7 +343,7 @@ export default function RingScreen() {
                         autoFocus
                         style={[styles.input, wrong && styles.inputWrong]}
                         placeholder={t('lock.answer')}
-                        placeholderTextColor="#5A6B8C"
+                        placeholderTextColor={Night.hint}
                         // Enter submits, so a correct answer needs one gesture
                         // rather than a reach for a button in the dark.
                         onSubmitEditing={dismiss}
@@ -406,26 +427,26 @@ const styles = StyleSheet.create({
         flex: 1,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: Color.night,
+        backgroundColor: Night.background,
         padding: Spacing.large,
         gap: Spacing.large,
     },
     label: {
-        color: '#8FA0C0',
+        color: Night.muted,
         letterSpacing: 1,
         textTransform: 'uppercase',
     },
     clock: {
-        color: Color.white,
+        color: Night.text,
     },
     error: {
-        color: '#FF8A8A',
+        color: Night.danger,
         textAlign: 'center',
     },
     disruption: {
         // Amber rather than red: something has changed and needs reading, but
         // the alarm itself is working exactly as intended.
-        borderColor: '#F0A85C',
+        borderColor: Night.warning,
         borderWidth: 1,
         borderRadius: Radius.small,
         paddingVertical: Spacing.small,
@@ -434,14 +455,14 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     disruptionText: {
-        color: '#F0A85C',
+        color: Night.warning,
         textAlign: 'center',
     },
     // Brighter than the warning it sits under: the cancellation is the news,
     // this is the instruction, and the instruction is what somebody half awake
     // needs to leave the screen with.
     replacement: {
-        color: Color.white,
+        color: Night.text,
         textAlign: 'center',
     },
     challenge: {
@@ -449,22 +470,22 @@ const styles = StyleSheet.create({
         gap: Spacing.small,
     },
     prompt: {
-        color: Color.white,
+        color: Night.text,
         letterSpacing: 2,
     },
     input: {
         minWidth: 200,
         borderWidth: 1,
-        borderColor: '#8FA0C0',
+        borderColor: Night.muted,
         borderRadius: Radius.small,
         paddingVertical: Spacing.small,
         paddingHorizontal: Spacing.medium,
-        color: Color.white,
+        color: Night.text,
         fontSize: FontSize.medium,
         textAlign: 'center',
     },
     inputWrong: {
-        borderColor: '#FF8A8A',
+        borderColor: Night.danger,
     },
     actions: {
         marginTop: Spacing.extraLarge,
@@ -476,20 +497,20 @@ const styles = StyleSheet.create({
         paddingVertical: Spacing.small,
         borderRadius: Radius.pill,
         borderWidth: StyleSheet.hairlineWidth,
-        borderColor: '#8FA0C0',
+        borderColor: Night.muted,
     },
     snoozeText: {
-        color: '#8FA0C0',
+        color: Night.muted,
         fontSize: FontSize.small,
     },
     dismiss: {
         paddingHorizontal: Spacing.extraLarge,
         paddingVertical: Spacing.medium,
         borderRadius: Radius.pill,
-        backgroundColor: Color.white,
+        backgroundColor: Night.text,
     },
     dismissText: {
-        color: Color.night,
+        color: Night.background,
         fontSize: FontSize.medium,
     },
 });

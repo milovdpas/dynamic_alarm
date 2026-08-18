@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { API_ENDPOINTS, OccurrenceState } from '@alarm/types';
 import type { OccurrenceResponse, Routine, Schedule } from '@alarm/types';
@@ -82,6 +82,17 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
     const [next, setNext] = useState<NextAlarm>(LOADING);
     const [attempt, setAttempt] = useState(0);
     const [busy, setBusy] = useState(true);
+    /**
+     * Whether the next load is the one the user asked for. Consumed once.
+     *
+     * **A `useFocusEffect` callback re-runs on every focus, whether or not a
+     * dependency changed**, so a one-off intent has to be cleared when it is read
+     * rather than tested. Anything derived from state that stays high, a counter
+     * above zero for instance, is true for the rest of the session: every later
+     * focus takes the forced path, and that path calls `armSchedule` per active
+     * schedule, which is the one call here that spends an NS and a TomTom request.
+     */
+    const forceNext = useRef(false);
 
     /**
      * Returns the next state rather than setting it, so nothing here touches
@@ -113,7 +124,14 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
 
             // Every armed morning is held by the OS, not only the soonest. The
             // schedules list says each one is armed, and it has to be true.
-            const armed = await Promise.all(occurrences.map((each) => arm(each)));
+            //
+            // Isolated per morning, for the same reason `armActiveSchedules` is: a
+            // time that has just passed makes `schedule` refuse, and one rejection
+            // here would fail the whole load, which reads as "nothing is armed" and
+            // hands over to `armLocally` on top of a perfectly good answer.
+            const armed = await Promise.all(
+                occurrences.map((each) => arm(each).catch(() => false)),
+            );
 
             for (const [index, occurrence] of occurrences.entries()) {
                 if (armed[index] === true) {
@@ -225,7 +243,12 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
                 }
             });
 
-            void load(attempt > 0).then(async (result) => {
+            // Read and cleared here, so exactly one load is forced per press of
+            // Refresh and every other focus takes the free stored read.
+            const forced = forceNext.current;
+            forceNext.current = false;
+
+            void load(forced).then(async (result) => {
                 if (cancelled) {
                     return;
                 }
@@ -272,6 +295,13 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
             return () => {
                 cancelled = true;
             };
+            /*
+             * `attempt` is a dependency that nothing reads, which is the whole job:
+             * pressing Refresh on an already-focused screen fires no focus event,
+             * so a changing dependency is the only thing that runs this again.
+             * Whether the run is forced is the ref's answer, never this counter's.
+             */
+            // eslint-disable-next-line react-hooks/exhaustive-deps
         }, [load, attempt]),
     );
 
@@ -283,6 +313,10 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
      */
     const refresh = useCallback(() => {
         setBusy(true);
+        // Set before the re-run, read by the effect below. The counter is only
+        // here to make the effect run again; whether that run is forced is the
+        // ref's answer, so it cannot leak into later focuses.
+        forceNext.current = true;
         setAttempt((count) => count + 1);
     }, []);
 

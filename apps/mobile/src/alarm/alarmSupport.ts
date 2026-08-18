@@ -9,10 +9,12 @@ export const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.
 /**
  * Whether the native alarm module is present in this binary.
  *
- * Checked lazily rather than at module scope: on the New Architecture the
- * TurboModule is not installed until the runtime is ready, so a top-level probe
- * can report "missing" for a module that appears moments later. `get` returns
- * null instead of throwing, unlike `getEnforcing`.
+ * The module half of the answer is `isAlarmSoundAvailable`, resolved once by
+ * `modules/alarm-sound/index.ts` when it is first imported. Settled at import is
+ * correct here rather than merely convenient: Expo populates its module registry
+ * natively before any JavaScript evaluates, `requireOptionalNativeModule` returns
+ * null instead of throwing, and nothing can install the module mid-session. The
+ * function exists for the platform check beside it.
  */
 export function hasAlarmNativeModule(): boolean {
     return Platform.OS === 'android' && isAlarmSoundAvailable;

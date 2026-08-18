@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
     AccessMode,
     APP_CONSTANTS,
@@ -141,6 +142,15 @@ const OnboardingContext = createContext<OnboardingContextValue | null>(null);
  */
 export function OnboardingProvider({ children }: { children: ReactNode }) {
     const [draft, setDraft] = useState<OnboardingDraft>(createInitialDraft);
+    /**
+     * For the two records this flow names on the user's behalf.
+     *
+     * Those names are not internal. The schedule's shows on the schedules list
+     * and travels into the alarm notification body, so a hardcoded "Work
+     * mornings" was English copy reaching a Dutch user at 06:00, from the one
+     * place a search for strings in JSX would never find it.
+     */
+    const { t } = useTranslation();
 
     const update = useCallback((patch: Partial<OnboardingDraft>) => {
         setDraft((current) => ({ ...current, ...patch }));
@@ -201,7 +211,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         ]);
 
         const routine = await createRoutine({
-            name: 'Weekday',
+            name: t('onboarding.default_routine_name'),
             // Ids are ours, not the server's, and position is the order.
             steps: draft.routineSteps.map(({ label, minutes, enabled }) => ({
                 label,
@@ -211,7 +221,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         });
 
         const schedule = await createSchedule({
-            name: 'Work mornings',
+            name: t('onboarding.default_schedule_name'),
             originPlaceId: home.id,
             destinationPlaceId: work.id,
             routineId: routine.id,
@@ -240,7 +250,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         }
 
         return schedule;
-    }, [draft]);
+    }, [draft, t]);
 
     const value = useMemo(
         () => ({ draft, update, routineMinutes, addStep, removeStep, updateStep, commit }),

@@ -47,6 +47,32 @@ export const Color = {
 };
 
 /**
+ * The ring screen's palette, which is fixed rather than themed.
+ *
+ * That screen is looked at in a dark bedroom by someone half awake and must never
+ * flash white, so it does not follow the user's light or dark choice.
+ *
+ * Not part of `Colors`, because it is not a theme. Nothing resolves it through
+ * `useThemeColor`, and adding it there would offer it as a scheme somebody could
+ * pick for the whole app.
+ */
+export const Night = {
+    background: Color.night,
+    text: Color.white,
+    /** Labels, the snooze button, and the border of the answer field. */
+    muted: '#8FA0C0',
+    /** The answer field's placeholder, a step dimmer than `muted`. */
+    hint: '#5A6B8C',
+    /**
+     * A disruption, which is news rather than a fault: something changed and
+     * wants reading, but the alarm itself is working exactly as intended.
+     */
+    warning: '#F0A85C',
+    /** A wrong answer, and an action that failed. */
+    danger: '#FF8A8A',
+} as const;
+
+/**
  * Theme colours, resolved through `useThemeColor`.
  *
  * Dark is not an afterthought here, this app is looked at in bed and again at

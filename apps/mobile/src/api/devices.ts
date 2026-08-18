@@ -52,7 +52,13 @@ export async function updateDevice(
  * copy. The disruption settings are acted on by the monitor, so the server's
  * values are the ones that decide what happens overnight; a local mirror could
  * disagree and there would be no way to tell which was in force.
+ *
+ * `live` refuses the cache. Only the connection check passes it: a stored answer
+ * proves the server answered once, and answering "is the API reachable" from it
+ * reports a healthy connection to a phone with no network. Every other caller
+ * wants the cache, because showing the switches as they were last known beats
+ * showing an error where the settings should be.
  */
-export async function getDevice(): Promise<DeviceResponse> {
-    return Axios.get<DeviceResponse>(API_ENDPOINTS.DEVICES.ME);
+export async function getDevice(options?: { live?: boolean }): Promise<DeviceResponse> {
+    return Axios.get<DeviceResponse>(API_ENDPOINTS.DEVICES.ME, undefined, options);
 }

@@ -24,9 +24,8 @@ vi.mock('@/utils/modules/Storage', () => ({
     isPersistent: () => true,
 }));
 
-const { clearCache, getFreshness, peekCache, readCache, writeCache } = await import(
-    '@/utils/modules/ApiCache'
-);
+const { clearCache, getFreshness, noteLiveAnswer, peekCache, readCache, writeCache } =
+    await import('@/utils/modules/ApiCache');
 
 beforeEach(async () => {
     store.clear();
@@ -87,14 +86,29 @@ describe('what the app says it is showing', () => {
         expect(getFreshness().since).toBe('2026-08-17T06:00:00.000Z');
     });
 
-    it('goes back to live as soon as a real answer is written', async () => {
+    it('goes back to live as soon as the server answers', async () => {
         await writeCache('/occurrences', []);
         await readCache('/occurrences');
         expect(getFreshness().servingFromCache).toBe(true);
 
-        await writeCache('/occurrences', []);
+        noteLiveAnswer();
 
         expect(getFreshness()).toEqual({ servingFromCache: false, since: null });
+    });
+
+    it('writing does not claim the server answered', async () => {
+        await writeCache('/schedules', []);
+        await readCache('/schedules');
+        expect(getFreshness().servingFromCache).toBe(true);
+
+        // What a combined query does: it assembles the reads it just made and
+        // stores them under its own key. Every one of those reads may have come
+        // from the cache, so this write is no evidence of a connection. When it
+        // published one, the stale notice disappeared and the screen showed
+        // yesterday's schedule with nothing saying so.
+        await writeCache('scheduleBundle:abc', { schedule: {} });
+
+        expect(getFreshness().servingFromCache).toBe(true);
     });
 });
 

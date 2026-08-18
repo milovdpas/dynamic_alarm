@@ -1,12 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { LegType } from '@alarm/types';
-import type { DeviceResponse, Journey } from '@alarm/types';
+import type { Journey } from '@alarm/types';
 
-import { getDevice } from '@/api';
 import DisruptionBanner from '@/components/home/DisruptionBanner';
 import PermissionBanner from '@/components/home/PermissionBanner';
 import StaleNotice from '@/components/ui/StaleNotice';
@@ -23,6 +22,16 @@ import { useApiConnection } from '@/utils/hooks/useApiConnection';
 import { useThemeColor } from '@/utils/hooks/useThemeColor';
 
 /**
+ * Whether this launch has already sent someone to onboarding.
+ *
+ * Module scope rather than a ref, so it survives the screen remounting and
+ * resets when the app restarts. Without it, backing out of onboarding lands on
+ * this screen, which sends you straight back in: a trap with no way out but
+ * force-quitting.
+ */
+let redirectedThisLaunch = false;
+
+/**
  * What time you are getting up, and why.
  *
  * The wake time is the largest thing on the screen because it is the only thing
@@ -34,16 +43,6 @@ import { useThemeColor } from '@/utils/hooks/useThemeColor';
  * successful call. "We asked for an alarm" and "there is an alarm" are different
  * claims, and only the second is worth showing to someone about to go to sleep.
  */
-/**
- * Whether this launch has already sent someone to onboarding.
- *
- * Module scope rather than a ref, so it survives the screen remounting and
- * resets when the app restarts. Without it, backing out of onboarding lands on
- * this screen, which sends you straight back in: a trap with no way out but
- * force-quitting.
- */
-let redirectedThisLaunch = false;
-
 export default function HomeScreen() {
     const { t } = useTranslation();
     const router = useRouter();
@@ -52,26 +51,13 @@ export default function HomeScreen() {
     const { connection } = useApiConnection();
     const { next, busy, refresh } = useNextAlarm();
 
-    /**
-     * The disruption switches, read once, so the banner can say which one would
-     * have let the alarm move. Cheap and cached by the server, and a failure
-     * costs the explanation rather than the screen.
+    /*
+     * The disruption switches, so the banner can say which one would have let the
+     * alarm move. Taken from the connection rather than fetched again: confirming
+     * the API is answering means reading this device, so the record is already
+     * here.
      */
-    const [device, setDevice] = useState<DeviceResponse | null>(null);
-
-    useEffect(() => {
-        let cancelled = false;
-        void getDevice()
-            .then((result) => {
-                if (!cancelled) {
-                    setDevice(result);
-                }
-            })
-            .catch(() => undefined);
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+    const device = connection?.device ?? null;
 
     const unreachable =
         connection?.state === 'unreachable' || connection?.state === 'not_configured';
@@ -311,8 +297,6 @@ export default function HomeScreen() {
     );
 }
 
-/** Every term of the calculation, so the wake time can be argued with. */
-
 /**
  * The one line that answers "which train".
  *
@@ -363,9 +347,6 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderRadius: Radius.medium,
         padding: Spacing.medium,
-        gap: Spacing.extraSmall,
-    },
-    breakdown: {
         gap: Spacing.extraSmall,
     },
 });

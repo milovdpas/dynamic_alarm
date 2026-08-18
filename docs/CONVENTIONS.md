@@ -30,7 +30,7 @@ apps/mobile/
 │   ├── app/               expo-router ROUTES ONLY
 │   ├── alarm/             alarm domain, scheduler impls + support detection
 │   ├── assets/Stylesheet.ts   design tokens
-│   ├── components/{buttons,ui}/
+│   ├── components/{buttons,debug,home,places,settings,ui}/
 │   ├── i18n/{i18n.ts,languages.ts,translations/}
 │   ├── utils/{contexts,hooks,modules}/
 │   └── config.ts          EXPO_PUBLIC_* env access
@@ -46,6 +46,11 @@ numbers: `Spacing.small`, `FontSize.medium`, `Radius.pill`.
 Colours go through `useThemeColor({}, 'background')`, never hardcoded, **except** the
 ring screen, which is deliberately fixed dark. It is looked at in a dark bedroom by
 someone half awake and must never flash white.
+
+That exception has its own named group, `Night`, rather than hex literals in
+`ring.tsx`. It sits beside `Colors` and deliberately outside it: nothing resolves it
+through `useThemeColor`, and putting it in `Colors` would offer it as a scheme
+somebody could pick for the whole app.
 
 ## Theming
 
@@ -89,6 +94,50 @@ than placeholder copy, see `getSoundLabel`.
 `Axios` static class in `utils/modules/Axios.ts`, mirroring the other apps. The device
 bearer token is read from secure storage per request rather than cached, so onboarding
 can register and immediately make an authenticated call.
+
+### A read puts the stored copy up first
+
+Whatever fetches, the rule is the same: show what the phone already knows, ask anyway,
+replace when the answer lands, and **never let a failure remove what is on screen**.
+The cache inside `Axios.get` is only a fallback, so on its own it leaves the ordinary
+case, where the answer is already known, showing a spinner for as long as NS, the
+server and the network take.
+
+There are three hooks doing this and the difference between them is deliberate:
+
+| Hook | For |
+|---|---|
+| `useApiQuery(key, fetcher)` | Any read that does not need to re-run on focus. Handles peek, revalidate, `cachedAt`, and the rule that `data` and `error` can both be set. |
+| `useScheduleBundle(id)` | The schedule editor, which **must** reload on focus: a sub-screen saves and pops, and the hub has to be looking at the new answer. |
+| `useNextAlarm()` | Today, which reloads on focus and also arms alarms, so its result is acted on rather than only rendered. |
+
+The two focus-reloading hooks exist because `useApiQuery` uses `useEffect`. If a third
+ever needs a focus reload, give `useApiQuery` the option rather than hand-rolling a
+fourth: each hand-rolled one has already had to learn cancellation and the cache peek
+separately, and the ones that had not yet learned them blanked their screen on every
+focus and set state after it was gone.
+
+**Cancel by generation, not by a boolean per effect.** A hook with a `reload()` has more
+than one way to start a load, and a flag owned by the focus effect cannot cover the one
+called from an event handler. A counter bumped on every start, and again in the effect
+cleanup, lets whoever started last win and needs nothing threaded through.
+
+**Only a request may report a live connection.** `Axios.get` calls `noteLiveAnswer()`;
+`writeCache` deliberately does not. A hook whose fetcher combines several reads stores
+the assembled answer under its own key, and if all of those reads came from the cache
+then that write must not clear the stale notice.
+
+**A read whose answer is a claim about *now* passes `live: true`.** Two layers here will
+otherwise answer from the past: a stored device token, and the cache inside `Axios.get`.
+That is right for anything being displayed and wrong for anything being acted on or
+reported as current, which is why `ensureDeviceRegistered` and Today's arming read both
+refuse it while the settings screens do not.
+
+**A `useFocusEffect` callback re-runs on every focus, dependencies unchanged or not.**
+Anything meant to happen once therefore has to be consumed rather than tested. Deriving
+"the user pressed Refresh" from a counter is the bug this cost: the counter stays high,
+so every later focus behaved as a refresh and spent provider quota. Keep the intent in a
+ref and clear it when it is read.
 
 ## The API: where each concern lives
 

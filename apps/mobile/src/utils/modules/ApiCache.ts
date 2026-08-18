@@ -66,8 +66,22 @@ export function subscribeToFreshness(listener: (value: Freshness) => void): () =
     };
 }
 
-/** A live answer arrived, so nothing on screen is stale any more. */
-function markLive(): void {
+/**
+ * The server answered, so nothing on screen is stale any more.
+ *
+ * Called by `Axios.get` on a successful read, and deliberately **not** by
+ * {@link writeCache}. Liveness is a fact about a request, so only something that
+ * made one may report it. A query combining several reads stores the assembled
+ * answer under its own key, and if every one of those reads came from the cache
+ * then that write must not be allowed to announce a connection none of them had:
+ * the stale notice would disappear and the screen would show yesterday undated.
+ *
+ * Not symmetrical with {@link markStale}, which keeps the oldest of several
+ * answers: this clears outright. So a batch where one endpoint is up and another is
+ * down resolves by whichever finishes last. Known, and listed in PROGRESS under
+ * open questions.
+ */
+export function noteLiveAnswer(): void {
     publish({ servingFromCache: false, since: null });
 }
 
@@ -110,8 +124,6 @@ export async function writeCache(key: string, body: unknown): Promise<void> {
         await Storage.removeItem(PREFIX + stale);
     }
     await Storage.setItem(INDEX_KEY, JSON.stringify(index));
-
-    markLive();
 }
 
 /**
@@ -166,5 +178,6 @@ export async function clearCache(): Promise<void> {
         await Storage.removeItem(PREFIX + key);
     }
     await Storage.removeItem(INDEX_KEY);
-    markLive();
+    // Nothing stored, so nothing on screen can be coming from here.
+    noteLiveAnswer();
 }
