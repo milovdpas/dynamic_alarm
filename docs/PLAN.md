@@ -922,6 +922,84 @@ Fallback chain if no sound is picked: user's chosen URI → `Settings.System.DEF
 - `expo-sqlite` + drizzle mirrors schedules/routines so the phone can recompute the anchor with zero connectivity.
 - Push receipt → recompute → `AlarmScheduler.reschedule` under the monotonic rule.
 
+### Building an APK without EAS
+
+The free plan allows a fixed number of Android builds a month, and running out of
+them stops verification dead: a native dependency added on the 17th cannot be
+tested until the 1st. Local builds have no such limit, and `eas build --local`
+uses the same `eas.json` profile, so the APK is the one the cloud would have
+produced.
+
+**It refuses to run on Windows.** That restriction belongs to the EAS CLI, not to
+Android: Gradle builds perfectly well on Windows, and `expo run:android --variant
+release` calls the same thing EAS would have. What Windows does have is a **260
+character path limit**, and the ninja bundled with CMake 3.22.1 is not long-path
+aware, so the build dies partway through with a bare "No such file or directory".
+Enabling `LongPathsEnabled` in the registry does not help: the operating system
+permits it, the tool does not use it.
+
+The paths get there honestly. Each object file mirrors the *source* path of a
+generated C++ file inside an already deep build tree, so
+`safeareacontext-generated.cpp.o` lands 351 characters down. **Two halves have to
+shrink and configuration can only reach one of them:**
+
+| | Length | |
+|---|---|---|
+| As it fails | 351 | |
+| Build tree moved to a short root | 295 | still fails |
+| Repository reached through a short path | 281 | still fails |
+| Both | 241 | works |
+
+So the fix is in two parts. `plugins/withShortNativeBuildPath.js` moves the
+native build tree, and is **Windows-only**, because that path is meaningless on a
+Linux EAS worker and would turn a working cloud build into a permissions error.
+The other half is a **directory junction** pointing at the repository: nothing is
+copied and nothing moves, it is the same files under a shorter name, and creating
+one needs no administrator rights.
+
+`npm run build:apk` does both, so none of it has to be remembered. It creates the
+junction if absent, refuses to build if the name is already taken by something
+else, and on macOS or Linux skips all of it because no other platform has the
+problem.
+
+Three other things EAS does for a build that a local one must do for itself:
+
+- **Gradle memory.** The template ships 2 GB heap and 512 MB metaspace, and KSP
+  and lint both run out partway through a release build.
+  `plugins/withGradleMemory.js` raises it to 4 GB and 2 GB. Moderate rather than
+  as much as a development machine has, because EAS workers read the same file
+  and are smaller.
+- **Signing.** The template signs release with the *debug* keystore, so the APK
+  cannot be installed over one built by EAS: Android refuses a package signed by
+  a different key, and replacing it means uninstalling, which takes the device
+  token, the settings and every armed alarm with it.
+  `plugins/withReleaseSigning.js` uses the real keystore when its details are in
+  `~/.gradle/gradle.properties`, and falls back to the debug key otherwise. It
+  returns early when `EAS_BUILD` is set, so a cloud build's own credential step
+  finds the line it patches exactly where it left it. That guard has never run on
+  EAS, which is an open item below.
+- **The update channel.** EAS stamps it from the profile; a local build has
+  nobody to do that, and an APK with no channel never sees `eas update` again.
+  `app.config.js` sets it when `EAS_BUILD` is unset, so cloud builds keep
+  choosing per profile and a production build cannot start taking preview
+  updates.
+
+All four live in config rather than in `android/`, because that directory is
+generated: it is gitignored, `expo prebuild` rewrites it, and an edit made by
+hand survives until the next prebuild and then vanishes silently.
+
+**WSL is the better long-term answer, and it is not free.** Linux has no path
+limit, so the entire class of problem disappears, and it builds faster on ext4
+than anything reached through `/mnt/c`. What it costs is a second JDK, a second
+Android SDK and a second `npm install`, with the repository living in `~/` rather
+than on the Windows mount, since building across the 9p mount is slow enough to
+be miserable. The part people expect to be hard is not: **build in WSL and
+install from Windows** with `adb install -r`, so no `usbipd` USB passthrough is
+needed.
+
+Worth the hour if local builds become routine. Until then the junction costs
+nothing, and `npm run build:apk` would work unchanged inside WSL anyway.
+
 ---
 
 ## Build order
@@ -1000,3 +1078,32 @@ Fallback chain if no sound is picked: user's chosen URI → `Settings.System.DEF
     can have.
 - One bundled fallback alarm sound (used as last resort on Android, and as the only option on iOS). Needed before M4; a placeholder tone is fine for M0-M3.
 - iOS 26 device eventually, for M4.
+- **The local build plugins have never been exercised on EAS. One `preview` build
+  in September 2026, when the monthly Android allowance resets.** The three
+  plugins above are all guarded so they do nothing in the cloud:
+  `withReleaseSigning` and the channel in `app.config.js` return early when
+  `EAS_BUILD` is `true`, and `withShortNativeBuildPath` runs on Windows only. The
+  shape is right and the reasoning is written down, but a guard whose entire job
+  is to not fire in the one environment this machine cannot reach is exactly the
+  kind of thing that is only ever proven by running it. Nothing here compiles
+  Kotlin either, so a native mistake surfaces in a cloud build and nowhere
+  earlier.
+
+  What the build has to show, in order of what would hurt:
+
+  - **The APK is signed with the EAS keystore, not the debug one.**
+    `apksigner verify --print-certs` answers it in a line. This is the one that
+    matters: if `withReleaseSigning` rewrote the anchor the credential step
+    patches, the build still succeeds and produces an APK that cannot be
+    installed over any other, and the only symptom is a refusal on the device.
+  - **No `buildStagingDirectory` in the cloud's `build.gradle`.** A `C:/x/..`
+    path on a Linux worker turns a working build into a permission error.
+  - **The channel still comes from the profile.** A `preview` build must listen
+    to `preview`, and a production build must not have quietly acquired it from
+    `app.config.js`.
+
+  The other half is local and needs no allowance: `npm run build:apk`, whose
+  generated `android/` still carries the previous plugin output, so the
+  per-checkout staging path and the validated signing anchors have not been
+  through a prebuild yet either. Worth doing first, because it is free and it
+  fails faster.

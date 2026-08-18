@@ -4,8 +4,9 @@ import ActionButton from '@/components/buttons/ActionButton';
 import DetailRow from '@/components/ui/DetailRow';
 import Section from '@/components/debug/Section';
 import WarningBanner from '@/components/ui/WarningBanner';
+import { ThemedText } from '@/components/ui/ThemedText';
 import { apiErrorMessage } from '@/utils/apiErrorMessage';
-import { useApiConnection } from '@/utils/hooks/useApiConnection';
+import type { ApiConnection } from '@/api/registration';
 
 /**
  * Whether the API is reachable, and what this device is to it.
@@ -14,9 +15,18 @@ import { useApiConnection } from '@/utils/hooks/useApiConnection';
  * cache. Anything weaker would make this panel agree with itself while every
  * request behind it failed, which is the one thing a diagnostic must not do.
  */
-export default function ApiSection() {
+interface ApiSectionProps {
+    /**
+     * Passed in rather than fetched here, so the panel and the report it copies
+     * describe the same check. Two `useApiConnection` calls would be two live
+     * reads that can disagree, which in a diagnostic is worse than useless.
+     */
+    connection: ApiConnection | null;
+    retry: () => void;
+}
+
+export default function ApiSection({ connection, retry }: ApiSectionProps) {
     const { t } = useTranslation();
-    const { connection, retry } = useApiConnection();
 
     return (
         <Section title={t('api.title')}>
@@ -57,10 +67,27 @@ export default function ApiSection() {
                 }
             />
             {connection?.errorCode != null && (
-                <WarningBanner
-                    title={t(`api.${connection.state}`)}
-                    message={apiErrorMessage(t, connection.errorCode)}
-                />
+                <>
+                    <WarningBanner
+                        title={t(`api.${connection.state}`)}
+                        message={apiErrorMessage(t, connection.errorCode)}
+                    />
+                    {/*
+                     * Shown raw because they are data, not copy: a code the
+                     * server chose and a message it wrote, neither of which has
+                     * a translation to have. Everything else on this screen goes
+                     * through `t()`.
+                     *
+                     * Worth the space because `state` says "unreachable" for a
+                     * dead network, a 401 and a 500 alike, so these two are the
+                     * only things that tell them apart, and hiding them behind a
+                     * copy button meant nobody read them.
+                     */}
+                    <ThemedText type="small" themeColor="textSecondary">
+                        {connection.errorCode}
+                        {connection.errorDetail == null ? '' : `: ${connection.errorDetail}`}
+                    </ThemedText>
+                </>
             )}
             {connection !== null && connection.state !== 'registering' && (
                 <ActionButton label={t('api.retry')} onPress={retry} />

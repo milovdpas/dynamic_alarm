@@ -41,6 +41,8 @@ import {
     getMissingNativeModules,
     getNativeModuleStatuses,
 } from '@/utils/modules/nativeDiagnostics';
+import { readRunningBundle } from '@/utils/modules/Updates';
+import { useApiConnection } from '@/utils/hooks/useApiConnection';
 
 const TEST_ALARM_ID = 'm0-test-alarm';
 const SECOND_ALARM_ID = 'm0-test-alarm-2';
@@ -66,6 +68,12 @@ function formatLastRearm(diagnostics: AlarmDiagnostics): string {
  */
 export default function DebugScreen() {
     const { t } = useTranslation();
+
+    // Owned here so the report copies exactly what the section shows. See the
+    // prop documentation on ApiSection for why that matters.
+    const { connection, retry: retryConnection } = useApiConnection();
+    // The running bundle cannot change without a restart, so read it once.
+    const [bundle] = useState(() => readRunningBundle());
     const [permissions, setPermissions] = useState<AlarmPermissionStatus | null>(null);
     const [volume, setVolume] = useState<AlarmVolumeInfo | null>(null);
     const [fullScreen, setFullScreen] = useState<boolean | null>(null);
@@ -164,6 +172,8 @@ export default function DebugScreen() {
             scheduled,
             missedCount: missed.length,
             nativeModules,
+            connection,
+            bundle,
         });
         await Clipboard.setStringAsync(report);
         setStatus(t('diagnostics.copied'));
@@ -177,6 +187,8 @@ export default function DebugScreen() {
         scheduled,
         missed.length,
         nativeModules,
+        connection,
+        bundle,
         t,
     ]);
 
@@ -295,7 +307,7 @@ export default function DebugScreen() {
                         <ActionButton label={t('diagnostics.copy')} onPress={copyDebug} />
                     </Section>
 
-                    <ApiSection />
+                    <ApiSection connection={connection} retry={retryConnection} />
 
                     <RingPreviewSection />
 

@@ -2,7 +2,10 @@ import { Platform } from 'react-native';
 
 import type { AlarmDiagnostics, AlarmSoundChoice, AlarmVolumeInfo } from '@modules/alarm-sound';
 import type { AlarmPermissionStatus } from '@/alarm';
+import type { ApiConnection } from '@/api/registration';
+import appConfig from '@/config';
 import type { NativeModuleStatus } from './nativeDiagnostics';
+import type { RunningBundle } from './Updates';
 
 export interface DebugReportInput {
     diagnostics: AlarmDiagnostics | null;
@@ -14,6 +17,18 @@ export interface DebugReportInput {
     scheduled: string[];
     missedCount: number;
     nativeModules: NativeModuleStatus[];
+    /**
+     * The API check, including the failure when there is one.
+     *
+     * The reason this is here: `state` collapses every possible failure into
+     * `unreachable`, which was true of a 401 and a 500 as much as of a dead
+     * network, and left "cannot reach the API" as the only clue for three
+     * completely different problems. `errorCode` and `errorDetail` are what
+     * separate them, and neither was in the report.
+     */
+    connection: ApiConnection | null;
+    /** Which JavaScript is running: embedded, an update, or Metro. */
+    bundle: RunningBundle | null;
 }
 
 /**
@@ -35,6 +50,8 @@ export function buildDebugReport(input: DebugReportInput): string {
         scheduled,
         missedCount,
         nativeModules,
+        connection,
+        bundle,
     } = input;
 
     const time = (millis: number | undefined) =>
@@ -71,6 +88,35 @@ export function buildDebugReport(input: DebugReportInput): string {
         `missed pending:   ${missedCount}`,
         `sound:            ${sound?.label ?? 'device default'}`,
         `alarm volume:     ${volume === null ? 'unknown' : `${volume.current}/${volume.max}`}`,
+        '',
+        '--- api ---',
+        `address:          ${connection?.apiUrl ?? 'not configured'}${connection?.inferred === true ? ' (guessed from Metro)' : ''}`,
+        `state:            ${connection?.state ?? 'unknown'}`,
+        `error code:       ${connection?.errorCode ?? 'none'}`,
+        // The English message from axios or the server. Not shown to users, and
+        // the single most useful line here: "Network Error" and "Request failed
+        // with status code 401" are the same word on screen and different bugs.
+        `error detail:     ${connection?.errorDetail ?? 'none'}`,
+        `push token:       ${connection?.pushToken ?? 'unknown'}`,
+        `device id:        ${connection?.device?.deviceId ?? 'none'}`,
+        '',
+        '--- running code ---',
+        `app version:      ${appConfig.appVersion}`,
+        // Not "development (Metro)". `readRunningBundle` also answers null when
+        // expo-updates is missing or throws, so a release APK could paste a
+        // claim about itself that is plainly false, one line above `update id:
+        // none (embedded)` contradicting it.
+        `source:           ${
+            bundle === null
+                ? 'unknown (expo-updates did not answer; Metro, or the module is absent)'
+                : bundle.fromUpdate
+                  ? 'from an update'
+                  : 'built into the app'
+        }`,
+        `update id:        ${bundle?.updateId ?? 'none (embedded)'}`,
+        `published:        ${bundle?.publishedAt ?? 'n/a'}`,
+        `channel:          ${bundle?.channel ?? 'none'}`,
+        `runtime version:  ${bundle?.runtimeVersion ?? 'unknown'}`,
         '',
         '--- native modules ---',
         ...nativeModules.map(

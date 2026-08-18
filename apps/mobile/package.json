@@ -59,7 +59,8 @@
     "lint": "expo lint",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:apk": "node scripts/build-apk.mjs"
   },
   "private": true
 }

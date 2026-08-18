@@ -22,8 +22,29 @@
  * this app. This file exists to override exactly one field, and adding more to
  * it would split the configuration across two places for no reason.
  */
+/**
+ * The update channel, for builds EAS did not make.
+ *
+ * EAS stamps the channel from the profile in `eas.json`, so a cloud build knows
+ * which branch it listens to. A local Gradle build has nobody to do that, and an
+ * APK with no channel never sees `eas update` again, which would quietly remove
+ * the one delivery mechanism this project has while builds are rationed.
+ *
+ * Only when EAS is *not* building, so cloud builds keep choosing per profile: a
+ * production build must not start taking preview updates because this file
+ * hardcoded a channel.
+ */
+const localChannel =
+    process.env.EAS_BUILD === 'true'
+        ? undefined
+        : { 'expo-channel-name': process.env.EXPO_UPDATE_CHANNEL ?? 'preview' };
+
 module.exports = ({ config }) => ({
     ...config,
+    updates: {
+        ...config.updates,
+        ...(localChannel === undefined ? {} : { requestHeaders: localChannel }),
+    },
     android: {
         ...config.android,
         // The build machine's copy when EAS provided one, otherwise the local

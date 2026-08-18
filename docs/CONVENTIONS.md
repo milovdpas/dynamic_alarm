@@ -417,6 +417,72 @@ gates UI on it should gate on a known failure (`unreachable`, `not_configured`)
 rather than on not-yet-confirmed success, or the one button on an empty screen is
 greyed out while a check nobody can see finishes.
 
+## A blocked app looks exactly like a broken network
+
+Android can put an app in **Restricted mode**, which denies it network entirely,
+foreground included. Motorola and Samsung builds apply it on their own to apps
+they consider idle, and a sideloaded app that is opened once a week is a prime
+candidate. From inside the app it is invisible: there is no permission to check,
+no callback, and no error that names it.
+
+What it produces is a DNS failure, and every HTTP client turns that into its most
+generic message. Axios says `Network Error`, which the app reports as
+`NETWORK_UNREACHABLE`, which the debug panel showed as "Cannot reach the API".
+Three layers of accurate wording, none of it true: the network was fine, the
+server was fine, the address was right, and the phone could reach it.
+
+It cost an evening. What ended it was one line in `adb logcat`:
+
+```
+E/dev.expo.updates: "Failed to download remote update", code UpdateFailedToLoad
+  java.net.Inet6AddressImpl.lookupHostByName
+  okhttp3.Dns$Companion$DnsSystem.lookup
+```
+
+**A component of the app failing to resolve a hostname that has nothing to do
+with our API.** `u.expo.dev` and `dynamic-alarm-api.milovanderpas.nl` do not fail
+together for any reason a server-side problem could explain.
+
+The confirmation, and the command worth remembering:
+
+```
+adb shell dumpsys netpolicy | grep "UID=<uid>"
+  UID=10429 policy=262144 (REJECT_ALL)
+  blocked_state={... effective=RESTRICTED_MODE}
+```
+
+`262144` is `POLICY_REJECT_ALL`. Clearing it made `effective=NONE` and the app
+worked immediately, with no change to any code.
+
+### What to take from it
+
+**Ask the device, not the code.** The phone ships `curl` and it runs as the shell
+user rather than as the app. If `adb shell curl` reaches the API and the app does
+not, the difference is something applied to the app, and the list of candidates
+is short: a system proxy the app obeys and `curl` ignores, private DNS, a missing
+`INTERNET` permission, a network security config, or this. Each is one `adb`
+command, and all of them are in
+[apps/mobile/README.md](../apps/mobile/README.md).
+
+**A generic client error deserves suspicion, not a diagnosis.** "Network Error"
+from axios means the request produced no response, which covers DNS failure, TLS
+rejection, a refused connection and a blocked socket. The app was already careful
+to separate a timeout from an unreachable host, and it was still not specific
+enough to be actionable.
+
+**Show the code and the raw message, always.** `ensureDeviceRegistered` collapses
+every failure into `state: 'unreachable'`, so a 401, a 500 and this all read the
+same on screen. `errorCode` and `errorDetail` now render in the panel and go into
+the copied report, untranslated. The label is for the user; the detail is for
+whoever has to fix it, and hiding it behind a copy button meant nobody read it.
+
+**This is a product problem, not only a debugging one.** An alarm that updates
+itself overnight and silently loses network is the failure this whole project is
+built to avoid: the push path dies, the monitor's changes never arrive, and the
+app looks fine while showing yesterday. `ActivityManager.isBackgroundRestricted()`
+reports the state and belongs beside the battery-optimisation row in the
+permissions flow, so the app can say so instead of blaming the connection.
+
 ## Two different timezones, and only one of them is the driver's
 
 `timezone: 'Z'` on the TypeORM DataSource governs how **mysql2** converts the

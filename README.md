@@ -59,12 +59,20 @@ npm run tick -w @alarm/api               # force one monitor pass locally
 npx eas build --profile development --platform android   # day-to-day iteration
 npx eas build --profile preview --platform android       # verification
 npx eas update --branch preview --environment preview  # JS only, no build needed
+npm run build:apk -w @alarm/mobile       # a release APK on this machine, no EAS
 ```
 
 Iterate on `development`, verify on `preview`. A development build loads its
 JavaScript from Metro over the network, so anything involving a reboot, a
 force-quit or "does this actually work" needs a `preview` build, which bundles
 the JS into the APK.
+
+`build:apk` exists because the free plan's monthly build allowance runs out, and
+a native dependency added the day after that happens is otherwise untestable
+until the counter resets. It needs the Android SDK and a JDK, and it arranges the
+signing, the update channel and the Windows path limit itself; see
+[apps/mobile/README.md](apps/mobile/README.md) for that and for the `adb`
+commands worth knowing when something only goes wrong on a real phone.
 
 ## Production
 
