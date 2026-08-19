@@ -1,5 +1,5 @@
 import { JourneyStatus } from '@alarm/types';
-import type { Journey, OccurrenceResponse } from '@alarm/types';
+import type { Journey, JourneyLeg, OccurrenceResponse } from '@alarm/types';
 
 import Storage from '@/utils/modules/Storage';
 
@@ -69,11 +69,17 @@ export function readDisruption(occurrence: OccurrenceResponse): Disruption | nul
     // morning that has no replacement and read `legs` off nothing.
     const replaced = occurrence.replacedJourney ?? null;
     if (replaced !== null) {
-        const goneLeg = replaced.legs.find((leg) => leg.cancelled) ?? replaced.legs[0];
+        /*
+         * Never the walk to the station, which `legs[0]` was. A journey
+         * cancelled as a whole flags no single leg, so the first one was named
+         * as the service that stopped running: the walk from your own front
+         * door, reported as a train that is not running.
+         */
+        const goneLeg = replaced.legs.find((leg) => leg.cancelled) ?? serviceLeg(replaced);
         return {
             kind: 'CANCELLATION',
             minutes: 0,
-            service: goneLeg?.name ?? goneLeg?.fromName ?? null,
+            service: named(goneLeg?.name, goneLeg?.fromName),
             simulated,
             replacement: firstService(journey),
         };
@@ -83,7 +89,7 @@ export function readDisruption(occurrence: OccurrenceResponse): Disruption | nul
         return {
             kind: 'CANCELLATION',
             minutes: 0,
-            service: cancelledLeg?.name ?? cancelledLeg?.fromName ?? null,
+            service: named(cancelledLeg?.name, cancelledLeg?.fromName),
             simulated,
             // Nothing was re-planned, so there is nothing to catch instead. The
             // alarm is staying where it is.
@@ -103,17 +109,40 @@ export function readDisruption(occurrence: OccurrenceResponse): Disruption | nul
  * The first leg that actually goes somewhere, skipping the walk or cycle to the
  * station. The same rule the engine uses when it compares departures, so the
  * time on the alarm screen is the time the replacement was chosen by.
+ *
+ * Used for both halves of a cancellation: the service that is gone, and the one
+ * to take instead. Neither of them is ever somebody's own walk to the platform.
  */
+function serviceLeg(journey: Journey): JourneyLeg | undefined {
+    return journey.legs.find((leg) => leg.type !== 'WALK' && leg.type !== 'BIKE');
+}
+
 function firstService(journey: Journey): Disruption['replacement'] {
-    const leg = journey.legs.find((each) => each.type !== 'WALK' && each.type !== 'BIKE');
+    const leg = serviceLeg(journey);
     if (leg === undefined) {
         return null;
     }
     return {
-        service: leg.name ?? null,
+        service: named(leg.name),
         departureAt: leg.actualDeparture,
         fromName: leg.fromName,
     };
+}
+
+/**
+ * A service name, or null when the provider did not give one.
+ *
+ * Blank counts as absent. A car route has no train to name, so the car provider
+ * sends empty strings, and `?? ` alone would happily pass one straight into
+ * "{{service}} is not running".
+ */
+function named(...candidates: (string | undefined)[]): string | null {
+    for (const candidate of candidates) {
+        if (candidate !== undefined && candidate.trim() !== '') {
+            return candidate;
+        }
+    }
+    return null;
 }
 
 /** The leg running latest, since that is the one that shapes the morning. */
@@ -128,7 +157,7 @@ function worstDelay(journey: Journey): { minutes: number; service: string | null
         // the ring screen contradicts the notification that woke it.
         const minutes = Math.floor(leg.delaySeconds / 60);
         if (minutes >= 1 && (worst === null || minutes > worst.minutes)) {
-            worst = { minutes, service: leg.name ?? leg.fromName };
+            worst = { minutes, service: named(leg.name, leg.fromName) };
         }
     }
 

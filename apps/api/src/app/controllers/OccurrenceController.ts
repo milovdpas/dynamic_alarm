@@ -86,6 +86,48 @@ export default class OccurrenceController {
     };
 
     /**
+     * Throws this morning away and plans it again from scratch.
+     *
+     * The way back from a test, and the reason it needs to exist: a simulated
+     * cancellation that moved the alarm earlier cannot be undone by taking the
+     * simulation back. Clearing it lets the monitor plan against reality again,
+     * but restoring the original time is a move *later*, which the opt-in
+     * switches govern, so a device that has not opted in keeps the early alarm.
+     *
+     * That asymmetry is a real bug for real cancellations too, and it is not
+     * fixed by this endpoint: this is the escape hatch for whoever is testing,
+     * not the rule. See PROGRESS.md.
+     *
+     * Discard and re-arm rather than "undo": there is no record of what the plan
+     * was before, and inventing one would be worse than planning the morning
+     * again from live data, which is what the app would have done anyway.
+     */
+    reset: Handler<unknown, IdParams> = async (req, res) => {
+        const occurrence = await this.occurrences.findOwned(req.device.id, req.params.id);
+        if (occurrence === null) {
+            sendNotFound(res, 'Occurrence');
+            return;
+        }
+
+        const schedule = await this.schedules.findOne(req.device.id, occurrence.scheduleId);
+        if (schedule === null) {
+            // Owned occurrence, missing schedule. Nothing to plan from.
+            sendNotFound(res, 'Schedule');
+            return;
+        }
+
+        await this.occurrences.discardUpcoming(schedule);
+
+        const result = await this.occurrences.arm(schedule);
+        if (!result.ok) {
+            this.sendProblem(res, result.problem);
+            return;
+        }
+
+        sendSuccess<OccurrenceResponse>(res, result.occurrence.toDto(result.scheduleName));
+    };
+
+    /**
      * The device confirming which time it actually holds.
      *
      * Deliberately takes the time rather than just the id. "I armed something"

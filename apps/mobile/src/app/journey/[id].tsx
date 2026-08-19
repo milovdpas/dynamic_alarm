@@ -538,6 +538,8 @@ function Breakdown({ plan, borderColor }: { plan: WakePlan; borderColor: string 
 function legLabel(t: (key: string) => string, leg: JourneyLeg): string {
     if (leg.type === LegType.WALK) return t('home.leg_walk');
     if (leg.type === LegType.BIKE) return t('home.leg_bike');
+    // A car leg is the traveller's own too, and TomTom names neither end of it.
+    if (leg.type === LegType.CAR) return t('home.leg_car');
     return leg.name ?? `${leg.fromName} - ${leg.toName}`;
 }
 
@@ -551,7 +553,9 @@ function legLabel(t: (key: string) => string, leg: JourneyLeg): string {
 function legDetail(t: (key: string, options?: Record<string, unknown>) => string, leg: JourneyLeg): string | undefined {
     const parts: string[] = [];
 
-    if (leg.type !== LegType.WALK && leg.type !== LegType.BIKE) {
+    // Only when both ends are named. A car route is planned from coordinates,
+    // so its leg carries no names and this would print a lonely arrow.
+    if (leg.fromName.trim() !== '' && leg.toName.trim() !== '') {
         parts.push(`${leg.fromName} → ${leg.toName}`);
     }
     if (leg.actualTrack !== undefined) {

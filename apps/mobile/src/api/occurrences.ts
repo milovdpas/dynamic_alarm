@@ -75,6 +75,21 @@ export async function ackOccurrence(
     });
 }
 
+/**
+ * Throws this morning away and plans it again from live data.
+ *
+ * The way back from a test. Taking a simulation back lets the monitor plan
+ * against reality again, but an alarm the emergency path moved *earlier* only
+ * returns to its old time if the device opted into later moves, so a test can
+ * leave an alarm stuck early with nothing in the app able to undo it.
+ *
+ * Spends provider calls, since it plans a journey. That is the price of a clean
+ * morning and the reason this is not something a screen does on its own.
+ */
+export async function resetOccurrence(occurrenceId: string): Promise<OccurrenceResponse> {
+    return Axios.post<OccurrenceResponse>(API_ENDPOINTS.OCCURRENCES.RESET(occurrenceId));
+}
+
 /** Why this alarm moved, oldest first. */
 export async function occurrenceEvents(
     occurrenceId: string,

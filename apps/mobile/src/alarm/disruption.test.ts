@@ -170,6 +170,28 @@ describe('a cancellation the alarm was allowed to act on', () => {
         });
     });
 
+    it('never names the walk to the station as the train that stopped', () => {
+        // A journey cancelled as a whole flags no single leg, so the first one
+        // was named: the walk from somebody's own front door, reported as a
+        // train that is not running. The server called it "Origin", which is how
+        // this was noticed, but the name was the smaller half of the bug.
+        const wholeJourneyCancelled = {
+            ...replaced,
+            legs: [
+                leg({ type: LegType.WALK, name: undefined, fromName: '', cancelled: false }),
+                leg({ name: 'Sprinter 4428', cancelled: false }),
+            ],
+        };
+
+        const result = readDisruption(
+            occurrence([leg({ name: 'Intercity 3052' })], {
+                replacedJourney: wholeJourneyCancelled as never,
+            }),
+        );
+
+        expect(result?.service).toBe('Sprinter 4428');
+    });
+
     it('offers no replacement when the alarm was left where it was', () => {
         // The switch is off, so the journey still carries its cancelled leg and
         // nothing was re-planned. Naming a train nobody is being woken for

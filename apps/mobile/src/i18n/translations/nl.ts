@@ -30,7 +30,7 @@ export default {
     },
     ring: {
         no_replacement: 'Je trein rijdt niet, en er is geen andere trein binnen de tijden die je hebt ingesteld.',
-        your_train: 'Je trein',
+        your_journey: 'Je reis',
         delayed: '{{service}} heeft {{minutes}} minuten vertraging.',
         cancelled: '{{service}} rijdt niet.',
         take_instead: 'Neem in plaats daarvan de {{service}} van {{time}} vanaf {{from}}.',
@@ -123,7 +123,10 @@ export default {
         cancellation: 'Uitgevallen trein nadoen',
         clear: 'Weer weghalen',
         staged: 'Klaargezet. De volgende controle past het toe.',
-        cleared: 'Weggehaald.',
+        cleared: 'Weggehaald. De volgende controle zet je echte reis terug.',
+        reset: 'Deze ochtend opnieuw plannen',
+        reset_help: 'Gooit deze ochtend weg en rekent hem opnieuw uit met echte reisinformatie. Gebruik dit als een test je wekker verzet heeft en hij verzet blijft.',
+        reset_done: 'Opnieuw gepland met echte gegevens.',
     },
     push: {
         title: 'Meldingen tijdens je slaap',
@@ -261,6 +264,7 @@ export default {
         checked_on_open: 'Uitgerekend toen je de app opende.',
         leg_walk: 'Lopen',
         leg_bike: 'Fietsen',
+        leg_car: 'Met de auto',
         journey: 'Je reis',
         journey_summary: '{{time}} {{name}} naar {{to}}',
         journey_summary_walk: 'Vertrek om {{time}}',

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { SimulationKind } from '@alarm/types';
 import type { OccurrenceResponse } from '@alarm/types';
 
-import { nextOccurrence, simulateOccurrence } from '@/api';
+import { nextOccurrence, resetOccurrence, simulateOccurrence } from '@/api';
 import ActionButton from '@/components/buttons/ActionButton';
 import DetailRow from '@/components/ui/DetailRow';
 import Section from '@/components/debug/Section';
@@ -72,6 +72,29 @@ export default function SimulationSection({ onStatus }: { onStatus: (message: st
         [occurrence, onStatus, t],
     );
 
+    /**
+     * Plans this morning again from scratch, whatever a test left behind.
+     *
+     * Separate from "take it back" because they undo different things. Taking a
+     * simulation back removes the invented timetable; this removes what the
+     * invented timetable *did*, which is the part that outlives it when an
+     * alarm was moved earlier and the switches will not let it move back.
+     */
+    const reset = useCallback(async () => {
+        if (occurrence === null) {
+            return;
+        }
+        setSimulating(true);
+        try {
+            setOccurrence(await resetOccurrence(occurrence.id));
+            onStatus(t('simulate.reset_done'));
+        } catch (error) {
+            onStatus(apiErrorMessage(t, ApiRequestError.from(error).code));
+        } finally {
+            setSimulating(false);
+        }
+    }, [occurrence, onStatus, t]);
+
     return (
         <Section title={t('simulate.title')}>
             <ThemedText type="small" themeColor="textSecondary">
@@ -110,6 +133,20 @@ export default function SimulationSection({ onStatus }: { onStatus: (message: st
                     onPress={() => void simulate(null)}
                 />
             )}
+
+            {/*
+             * Always offered, not only while something is staged: the state
+             * worth escaping is the one a simulation leaves behind after it has
+             * been taken back.
+             */}
+            <ActionButton
+                label={t('simulate.reset')}
+                disabled={occurrence === null || simulating}
+                onPress={() => void reset()}
+            />
+            <ThemedText type="small" themeColor="textSecondary">
+                {t('simulate.reset_help')}
+            </ThemedText>
         </Section>
     );
 }

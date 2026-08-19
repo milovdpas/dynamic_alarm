@@ -6,6 +6,7 @@ import {
     APP_CONSTANTS,
     DEFAULT_BUFFERS,
     DEFAULT_ROUTINE_STEPS,
+    ReplacementPreference,
     TransportMode,
     Weekday,
 } from '@alarm/types';
@@ -62,6 +63,22 @@ export interface OnboardingDraft {
     allowLaterWakeOnDelay: boolean;
     allowLaterWakeOnCancellation: boolean;
     allowEarlierWakeOnTraffic: boolean;
+    /**
+     * Which replacement is acceptable when the chosen train is cancelled.
+     *
+     * Asked here rather than defaulted, which is what onboarding did until
+     * 2026-08-19: a schedule arrived with `EARLIER` and no window, so the first
+     * cancellation could move somebody's alarm to a train an hour earlier, on a
+     * preference they had never been shown and could only find by opening the
+     * editor they did not know existed.
+     *
+     * The window bounds the departure of the first service leg, and empty means
+     * any replacement will do, which is the behaviour of a schedule that has
+     * never thought about it.
+     */
+    replacementPreference: ReplacementPreference;
+    travelWindowStart: string;
+    travelWindowEnd: string;
 }
 
 interface OnboardingContextValue {
@@ -127,6 +144,12 @@ function createInitialDraft(): OnboardingDraft {
         allowLaterWakeOnDelay: false,
         allowLaterWakeOnCancellation: false,
         allowEarlierWakeOnTraffic: false,
+        // Earlier, because arriving on time is the point of the app, and no
+        // window, because inventing hours somebody has not thought about would
+        // start refusing replacements they would have taken.
+        replacementPreference: ReplacementPreference.EARLIER,
+        travelWindowStart: '',
+        travelWindowEnd: '',
     };
 }
 
@@ -231,6 +254,11 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             originAccess: draft.originAccess,
             destinationAccess: draft.destinationAccess,
             journeyOffset: draft.journeyOffset,
+            replacementPreference: draft.replacementPreference,
+            // Empty means unset rather than midnight, and the two are very
+            // different: one accepts any replacement, the other accepts none.
+            travelWindowStart: draft.travelWindowStart === '' ? null : draft.travelWindowStart,
+            travelWindowEnd: draft.travelWindowEnd === '' ? null : draft.travelWindowEnd,
             buffers: DEFAULT_BUFFERS,
             timezone: APP_CONSTANTS.TIMEZONE,
         });

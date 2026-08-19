@@ -44,7 +44,7 @@ export default function DisruptionBanner({
         return null;
     }
 
-    const service = disruption.service ?? t('ring.your_train');
+    const service = disruption.service ?? t('ring.your_journey');
     const cancelled = disruption.kind !== 'DELAY';
 
     /**

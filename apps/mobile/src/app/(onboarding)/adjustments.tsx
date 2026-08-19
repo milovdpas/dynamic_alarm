@@ -3,11 +3,13 @@ import { ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
+import { TransportMode } from '@alarm/types';
 
 import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { Spacing } from '@/assets/Stylesheet';
 import ActionButton from '@/components/buttons/ActionButton';
 import DisruptionSettings, { settingsForModes } from '@/components/settings/DisruptionSettings';
+import ReplacementSection from '@/components/schedule/ReplacementSection';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import WarningBanner from '@/components/ui/WarningBanner';
@@ -85,6 +87,37 @@ export default function AdjustmentsStep() {
                                 update({ [setting]: value });
                             }}
                             disabled={busy}
+                        />
+                    )}
+
+                    {/*
+                     * The other half of a cancellation, and the half onboarding
+                     * used to skip. Switching "wake me later if my train is
+                     * cancelled" on decides *whether* the alarm may move; this
+                     * decides *what to*, and a schedule created without it took
+                     * whatever the planner returned first. A 06:50 is a valid
+                     * replacement for a 07:52 and a terrible answer for somebody
+                     * not willing to get up an hour earlier.
+                     *
+                     * Shown for public transport whatever the switches say,
+                     * because it is a property of the journey rather than of the
+                     * switches, and because the emergency path can re-plan a
+                     * cancellation even when every switch is off.
+                     */}
+                    {draft.mode === TransportMode.PUBLIC_TRANSPORT && (
+                        <ReplacementSection
+                            preference={draft.replacementPreference}
+                            onPreferenceChange={(replacementPreference) => {
+                                update({ replacementPreference });
+                            }}
+                            windowStart={draft.travelWindowStart}
+                            onWindowStartChange={(travelWindowStart) => {
+                                update({ travelWindowStart });
+                            }}
+                            windowEnd={draft.travelWindowEnd}
+                            onWindowEndChange={(travelWindowEnd) => {
+                                update({ travelWindowEnd });
+                            }}
                         />
                     )}
 

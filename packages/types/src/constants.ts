@@ -50,6 +50,8 @@ export const API_ENDPOINTS = {
          * somebody else's alarm is a way to make a stranger late.
          */
         SIMULATE: (id: string) => `/api/v1/occurrences/${id}/simulate`,
+        /** Throws this morning away and plans it again from live data. */
+        RESET: (id: string) => `/api/v1/occurrences/${id}/reset`,
     },
     PLAN: {
         PREVIEW: '/api/v1/plan/preview',

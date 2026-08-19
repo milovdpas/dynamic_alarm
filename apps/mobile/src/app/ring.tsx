@@ -291,10 +291,10 @@ export default function RingScreen() {
                             ? t('ring.no_replacement')
                             : disruption.kind === 'CANCELLATION'
                               ? t('ring.cancelled', {
-                                    service: disruption.service ?? t('ring.your_train'),
+                                    service: disruption.service ?? t('ring.your_journey'),
                                 })
                               : t('ring.delayed', {
-                                    service: disruption.service ?? t('ring.your_train'),
+                                    service: disruption.service ?? t('ring.your_journey'),
                                     minutes: disruption.minutes,
                                 })}
                     </ThemedText>

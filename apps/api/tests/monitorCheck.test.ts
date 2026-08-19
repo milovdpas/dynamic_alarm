@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+    LegType,
     OccurrenceState,
     PUSH_MESSAGE_TYPE,
     TransportMode,
     WakeChangeReason,
 } from '@alarm/types';
-import type { Journey, PushMessage } from '@alarm/types';
+import type { Journey, JourneyLeg, PushMessage } from '@alarm/types';
 import type { PlanRequest, RefreshResult, TransportProvider } from '@alarm/core';
 
 import AlarmEvent from '../src/app/models/AlarmEvent.entity';
@@ -98,6 +99,38 @@ async function dueMorning(
 
 function noticesIn(sent: PushMessage[]): PushMessage[] {
     return sent.filter((message) => message.type === PUSH_MESSAGE_TYPE.DISRUPTION_NOTICE);
+}
+
+/** Gives the stored plan real legs, which the factory leaves empty. */
+async function withLegs(
+    occurrence: ScheduleOccurrence,
+    legs: Partial<JourneyLeg>[],
+): Promise<void> {
+    const plan = occurrence.planSnapshot;
+    if (plan?.journey == null) {
+        throw new Error('The factory is meant to seed a journey.');
+    }
+    const iso = plan.journey.departureAt;
+    await ScheduleOccurrence.update(occurrence.id, {
+        planSnapshot: {
+            ...plan,
+            journey: {
+                ...plan.journey,
+                legs: legs.map((leg) => ({
+                    type: LegType.TRAIN,
+                    fromName: '',
+                    toName: '',
+                    plannedDeparture: iso,
+                    actualDeparture: iso,
+                    plannedArrival: iso,
+                    actualArrival: iso,
+                    delaySeconds: 0,
+                    cancelled: false,
+                    ...leg,
+                })),
+            },
+        },
+    });
 }
 
 /** What a FIXED schedule's plan really looks like: a wake time and no journey. */
@@ -299,6 +332,34 @@ describe('a rail morning whose trip really has gone', () => {
         // A screen showing only the replacement leaves somebody looking for a
         // train that is not coming.
         expect(after?.replacedJourney).not.toBeNull();
+    });
+
+    it('names the train that stopped, not the walk to the station', async () => {
+        /*
+         * A door-to-door plan starts with a walk, and a journey cancelled as a
+         * whole flags no single leg, so the fallback to `legs[0]` named that
+         * walk. NS gives an access leg no service name, and the server filled
+         * one in, so a cancelled train reached a Dutch lock screen as
+         * "Origin is not running".
+         */
+        const occurrence = await dueMorning(TransportMode.PUBLIC_TRANSPORT);
+        await Device.update(occurrence.deviceId, { allowLaterWakeOnCancellation: true });
+        await withLegs(occurrence, [
+            { type: LegType.WALK, fromName: '', toName: 'Utrecht Centraal' },
+            { type: LegType.TRAIN, name: 'Intercity 3052', fromName: 'Utrecht Centraal' },
+        ]);
+        useProvider({ status: 'GONE' });
+        const sent = recordPushes();
+
+        await monitor().tick();
+
+        // The move carries what was lost, since that is the message the ring
+        // screen reads from: "your Intercity 3052 is not running, take ...".
+        const moved = sent.find((message) => message.type === PUSH_MESSAGE_TYPE.WAKE_CHANGED);
+        if (moved?.type !== PUSH_MESSAGE_TYPE.WAKE_CHANGED) {
+            throw new Error('The alarm should have been moved to a replacement.');
+        }
+        expect(moved.cancelledService).toBe('Intercity 3052');
     });
 });
 

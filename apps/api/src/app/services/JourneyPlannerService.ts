@@ -164,7 +164,10 @@ export class JourneyPlannerService implements TransportProvider {
                 ? accessLeg(
                       railDeparture.minus({ minutes: from.accessMinutes }),
                       railDeparture,
-                      'Origin',
+                      // Empty, not 'Origin'. The traveller's own end of the walk
+                      // has no name this server knows, and inventing an English
+                      // one puts it on a Dutch screen: "Origin is not running".
+                      '',
                       stationName(from.station),
                       from.mode,
                   )
@@ -176,7 +179,7 @@ export class JourneyPlannerService implements TransportProvider {
                       railArrival,
                       railArrival.plus({ minutes: to.accessMinutes }),
                       stationName(to.station),
-                      'Destination',
+                      '',
                       to.mode,
                   )
                 : null;

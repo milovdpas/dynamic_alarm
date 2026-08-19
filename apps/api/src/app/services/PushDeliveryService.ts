@@ -1,5 +1,5 @@
 import { JourneyStatus, LegType, PUSH_MESSAGE_TYPE } from '@alarm/types';
-import type { Journey, WakeChangeReason } from '@alarm/types';
+import type { Journey, JourneyLeg, WakeChangeReason } from '@alarm/types';
 import { shouldSendWakePush } from '@alarm/core';
 
 import AlarmEvent from '../models/AlarmEvent.entity';
@@ -277,27 +277,58 @@ function replacementFor(occurrence: ScheduleOccurrence): {
         return {};
     }
 
-    const gone = replaced.legs.find((leg) => leg.cancelled) ?? replaced.legs[0];
-    // The first leg that goes somewhere, skipping the walk or cycle to the
-    // station, which is the rule the engine compares departures by.
-    // Compared against `LegType`, not against bare strings. The two happen to
-    // have the same values, so the loose version worked and would have kept
-    // working right up until a member was renamed.
-    const service = journey.legs.find(
-        (leg) => leg.type !== LegType.WALK && leg.type !== LegType.BIKE,
-    );
+    /*
+     * The train that is gone: the leg NS flagged, or failing that the first leg
+     * that actually goes somewhere.
+     *
+     * It used to fall back to `legs[0]`, which for a door-to-door plan is the
+     * walk from the front door. A journey cancelled as a whole flags no single
+     * leg, so that fallback ran, and the walk was announced as the service that
+     * had stopped running.
+     */
+    const gone = replaced.legs.find((leg) => leg.cancelled) ?? serviceLegOf(replaced);
+    // The same rule the engine compares departures by, so the replacement named
+    // in the push is the one the wake time was moved to.
+    const service = serviceLegOf(journey);
 
     return {
-        cancelledService: gone?.name ?? gone?.fromName ?? null,
+        cancelledService: named(gone?.name, gone?.fromName),
         replacement:
             service === undefined
                 ? null
                 : {
-                      service: service.name ?? null,
+                      service: named(service.name),
                       departureAt: service.actualDeparture,
                       fromName: service.fromName,
                   },
     };
+}
+
+/**
+ * The first leg a timetable owns, skipping the traveller's own walk or ride.
+ *
+ * Compared against `LegType`, not against bare strings. The two happen to have
+ * the same values, so a loose version works and would keep working right up
+ * until a member is renamed.
+ */
+function serviceLegOf(journey: Journey): JourneyLeg | undefined {
+    return journey.legs.find((leg) => leg.type !== LegType.WALK && leg.type !== LegType.BIKE);
+}
+
+/**
+ * A name, or null when the provider did not give one.
+ *
+ * Blank counts as absent. A car route has no service to name, so the car
+ * provider sends empty strings, and `??` alone would pass one straight through
+ * to "{{service}} is not running" on a lock screen.
+ */
+function named(...candidates: (string | undefined | null)[]): string | null {
+    for (const candidate of candidates) {
+        if (candidate !== undefined && candidate !== null && candidate.trim() !== '') {
+            return candidate;
+        }
+    }
+    return null;
 }
 
 /**

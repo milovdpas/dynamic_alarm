@@ -30,7 +30,7 @@ export default {
     },
     ring: {
         no_replacement: 'Your train is not running, and there is nothing else within the hours you set.',
-        your_train: 'Your train',
+        your_journey: 'Your journey',
         delayed: '{{service}} is {{minutes}} minutes late.',
         cancelled: '{{service}} is not running.',
         take_instead: 'Take the {{time}} {{service}} from {{from}} instead.',
@@ -123,7 +123,10 @@ export default {
         cancellation: 'Pretend a cancellation',
         clear: 'Take it back',
         staged: 'Staged. The next check applies it.',
-        cleared: 'Cleared.',
+        cleared: 'Cleared. The next check puts your real journey back.',
+        reset: 'Plan this morning again',
+        reset_help: 'Throws this morning away and works it out again from real travel information. Use it when a test moved your alarm and it stayed moved.',
+        reset_done: 'Planned again from real data.',
     },
     push: {
         title: 'Pushes while you sleep',
@@ -261,6 +264,7 @@ export default {
         checked_on_open: 'Worked out when you opened the app.',
         leg_walk: 'Walk',
         leg_bike: 'Cycle',
+        leg_car: 'Drive',
         journey: 'Your journey',
         journey_summary: '{{time}} {{name}} to {{to}}',
         journey_summary_walk: 'Leaves at {{time}}',

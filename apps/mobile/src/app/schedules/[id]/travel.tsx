@@ -11,9 +11,9 @@ import { Spacing } from '@/assets/Stylesheet';
 import ActionButton from '@/components/buttons/ActionButton';
 import AddressSearch from '@/components/places/AddressSearch';
 import ChoiceRow from '@/components/ui/ChoiceRow';
+import ReplacementSection from '@/components/schedule/ReplacementSection';
 import DetailRow from '@/components/ui/DetailRow';
 import TextField from '@/components/ui/TextField';
-import TimeField from '@/components/ui/TimeField';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import WarningBanner from '@/components/ui/WarningBanner';
@@ -265,42 +265,14 @@ function TravelForm({
             </View>
 
             {publicTransport && (
-                <View style={styles.section}>
-                    <ThemedText type="subtitle">{t('replacement.title')}</ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                        {t('replacement.help')}
-                    </ThemedText>
-
-                    <ChoiceRow
-                        label={t('replacement.preference')}
-                        value={preference}
-                        onChange={setPreference}
-                        choices={[
-                            { value: ReplacementPreference.EARLIER, label: t('replacement.earlier') },
-                            { value: ReplacementPreference.LATER, label: t('replacement.later') },
-                        ]}
-                    />
-
-                    {/*
-                     * Optional on purpose. Empty means any hour is acceptable,
-                     * which is what the app did before these existed, and a
-                     * window nobody has thought about should not silently start
-                     * rejecting trains.
-                     */}
-                    <TimeField
-                        label={t('replacement.window_start')}
-                        value={windowStart}
-                        onChange={setWindowStart}
-                    />
-                    <TimeField
-                        label={t('replacement.window_end')}
-                        value={windowEnd}
-                        onChange={setWindowEnd}
-                    />
-                    <ThemedText type="small" themeColor="textSecondary">
-                        {t('replacement.window_help')}
-                    </ThemedText>
-                </View>
+                <ReplacementSection
+                    preference={preference}
+                    onPreferenceChange={setPreference}
+                    windowStart={windowStart}
+                    onWindowStartChange={setWindowStart}
+                    windowEnd={windowEnd}
+                    onWindowEndChange={setWindowEnd}
+                />
             )}
 
             <ThemedText type="small" themeColor="textSecondary">

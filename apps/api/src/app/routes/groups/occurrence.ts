@@ -54,6 +54,15 @@ export default class OccurrenceRoutes implements IRoute {
             this.controller.simulate,
         );
 
+        // Plans a journey, so it pays the same provider budget as arming.
+        router.post<IdParams>(
+            API_ENDPOINTS.OCCURRENCES.RESET(':id'),
+            deviceAuth,
+            providerLimit,
+            validate({ params: idParamSchema }),
+            this.controller.reset,
+        );
+
         router.get<IdParams>(
             API_ENDPOINTS.OCCURRENCES.EVENTS(':id'),
             deviceAuth,

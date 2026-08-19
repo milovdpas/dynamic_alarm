@@ -58,8 +58,24 @@ export class CarJourneyService implements TransportProvider {
                 legs: [
                     {
                         type: LegType.CAR,
-                        fromName: 'Origin',
-                        toName: 'Destination',
+                        /*
+                         * Empty rather than 'Origin' and 'Destination', which is
+                         * what these were until 2026-08-19.
+                         *
+                         * Those two words are copy, and copy invented by a
+                         * server in one language reaches the screen as copy: a
+                         * cancelled car journey read "Origin is not running", a
+                         * sentence about a station that does not exist, in the
+                         * wrong language, from the one place in this project
+                         * that has no business writing any.
+                         *
+                         * TomTom is given coordinates and returns a route, so
+                         * there is nothing here worth naming. The app already
+                         * knows how to say what a leg is when the provider does
+                         * not name it.
+                         */
+                        fromName: '',
+                        toName: '',
                         plannedDeparture: route.departureAt,
                         actualDeparture: route.departureAt,
                         plannedArrival: route.arrivalAt,
