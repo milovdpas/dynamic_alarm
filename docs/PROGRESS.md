@@ -874,6 +874,16 @@ absent from `affectsPlanning`.
 The lock defaults to every ring, with `appliesTo: 'LAST'` for anyone who finds
 three sums at 07:35 more punishment than help.
 
+**A schedule's reminders are their own section**, not part of "your morning". The
+reason is the data model rather than taste: a routine belongs to the device and
+more than one schedule can share it, which is why deleting one reports the
+schedules standing in the way. Reminders belong to a single schedule, so a
+control for them on the routine screen would change one schedule while everything
+around it changed several, with nothing on screen saying so. It is also a
+different kind of question: the deadline, the journey and the routine are stages
+of the calculation that produces a wake time, and this is what happens when that
+time arrives.
+
 ### Two bugs found while building it
 
 - **Every schedule edit was discarding the armed morning.** `.partial()` makes a

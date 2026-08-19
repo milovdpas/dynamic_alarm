@@ -3,7 +3,10 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+
 import { TransportMode } from '@alarm/types';
+
+import { reminderLeadMinutes } from '@/alarm/reminders';
 import type { WakePlan } from '@alarm/types';
 
 import { armSchedule, planOptions, updateSchedule } from '@/api';
@@ -187,6 +190,30 @@ export default function ScheduleHubScreen() {
                                 onPress={() => {
                                     router.push({
                                         pathname: '/schedules/[id]/routine',
+                                        params: { id },
+                                    });
+                                }}
+                            />
+
+                            {/*
+                             * Last, and deliberately after the three above.
+                             * Those are the stages that produce a wake time,
+                             * counting back from the deadline; this is what
+                             * happens once that time arrives.
+                             */}
+                            <Row
+                                label={t('schedules.section_ringing')}
+                                value={
+                                    reminderLeadMinutes(bundle.schedule.reminders) === 0
+                                        ? t('alarms.reminders_off')
+                                        : t('schedules.rings_summary', {
+                                              count: bundle.schedule.reminders.count,
+                                          })
+                                }
+                                borderColor={border}
+                                onPress={() => {
+                                    router.push({
+                                        pathname: '/schedules/[id]/ringing',
                                         params: { id },
                                     });
                                 }}

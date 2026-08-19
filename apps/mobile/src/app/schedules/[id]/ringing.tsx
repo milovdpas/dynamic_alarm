@@ -3,79 +3,83 @@ import { ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import type { Schedule, Weekday } from '@alarm/types';
+import { DEFAULT_REMINDERS } from '@alarm/types';
+import type { ReminderConfig, Schedule } from '@alarm/types';
 
 import { updateSchedule } from '@/api';
 import { Spacing } from '@/assets/Stylesheet';
+import ReminderPicker from '@/components/alarms/ReminderPicker';
 import ActionButton from '@/components/buttons/ActionButton';
-import TextField from '@/components/ui/TextField';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
-import TimeField from '@/components/ui/TimeField';
 import WarningBanner from '@/components/ui/WarningBanner';
-import WeekdayPicker from '@/components/ui/WeekdayPicker';
 import { useScheduleBundle } from '@/schedule/useScheduleBundle';
 import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { ApiRequestError } from '@/utils/modules/Axios';
 
 /**
- * When you have to be there, and on which days.
+ * How this schedule wakes you, as opposed to when.
  *
- * The deadline the whole calculation counts back from, so it is the one number
- * a user should be able to change without meeting anything else.
+ * Its own section rather than part of "your morning", and the reason is the data
+ * model rather than taste: a routine belongs to the device and **more than one
+ * schedule can share it**, which is why deleting one reports the schedules
+ * standing in the way. Reminders belong to a single schedule. Putting them on
+ * the routine screen would mean one control there changing one schedule while
+ * everything around it changed several, with nothing on screen saying so.
+ *
+ * It is also a different kind of question. The deadline, the journey and the
+ * routine are all stages of the calculation that produces a wake time; this is
+ * what happens when that time arrives, and it changes none of the arithmetic.
+ *
+ * Deliberately somewhere to grow. A per-schedule tone, or a lock that applies to
+ * the commute but not to Saturday, would belong here rather than needing a
+ * section invented for them later.
  */
-export default function DeadlineScreen() {
+export default function RingingScreen() {
     const { t } = useTranslation();
     const { id } = useLocalSearchParams<{ id: string }>();
     const { bundle, errorCode: loadError } = useScheduleBundle(id);
 
-    // The form mounts with its values, rather than being seeded from an effect
-    // afterwards. Seeding meant a reload could overwrite what was being typed,
-    // and it needed a flag to stop it, which is a bug waiting for the day the
-    // flag is wrong.
     return (
         <ThemedView style={styles.flex}>
             <SafeAreaView style={styles.flex} edges={['bottom']}>
-                <ScrollView
-                    contentContainerStyle={styles.content}
-                    keyboardShouldPersistTaps="handled"
-                >
+                <ScrollView contentContainerStyle={styles.content}>
                     {loadError !== null && (
                         <WarningBanner
                             title={t('schedules.failed')}
                             message={apiErrorMessage(t, loadError)}
                         />
                     )}
-                    {bundle !== null && <DeadlineForm id={id} schedule={bundle.schedule} />}
+                    {bundle !== null && <RingingForm id={id} schedule={bundle.schedule} />}
                 </ScrollView>
             </SafeAreaView>
         </ThemedView>
     );
 }
 
-function DeadlineForm({ id, schedule }: { id: string; schedule: Schedule }) {
+function RingingForm({ id, schedule }: { id: string; schedule: Schedule }) {
     const { t } = useTranslation();
     const router = useRouter();
 
-    const [name, setName] = useState(schedule.name);
-    const [arrivalTime, setArrivalTime] = useState(schedule.arrivalTime.slice(0, 5));
-    const [days, setDays] = useState<Weekday[]>(schedule.daysOfWeek);
+    // Mounted with its value rather than seeded from an effect, so a reload
+    // cannot overwrite a change in progress. Same reasoning as the other forms.
+    const [reminders, setReminders] = useState<ReminderConfig>(
+        schedule.reminders ?? DEFAULT_REMINDERS,
+    );
     const [errorCode, setErrorCode] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
-
-    const valid = name.trim() !== '' && /^\d{1,2}:\d{2}$/.test(arrivalTime) && days.length > 0;
 
     const save = useCallback(async () => {
         setSaving(true);
         try {
-            await updateSchedule(id, { name: name.trim(), arrivalTime, daysOfWeek: days });
+            await updateSchedule(id, { reminders });
             router.back();
         } catch (error) {
             setErrorCode(ApiRequestError.from(error).code);
         } finally {
             setSaving(false);
         }
-    }, [arrivalTime, days, id, name, router]);
+    }, [id, reminders, router]);
 
     return (
         <>
@@ -86,32 +90,23 @@ function DeadlineForm({ id, schedule }: { id: string; schedule: Schedule }) {
                 />
             )}
 
-            <TextField
-                label={t('schedules.name')}
-                value={name}
-                onChangeText={setName}
-                editable={!saving}
-            />
-
-            <TimeField
-                label={t('schedule.arrival_time')}
-                value={arrivalTime}
-                onChange={setArrivalTime}
-            />
-
             <ThemedText type="small" themeColor="textSecondary">
-                {t('schedules.days')}
+                {t('schedules.section_ringing_intro')}
             </ThemedText>
-            <WeekdayPicker value={days} onChange={setDays} disabled={saving} />
 
-            <ThemedText type="small" themeColor="textSecondary">
-                {t('schedules.rearm_notice')}
-            </ThemedText>
+            <ReminderPicker value={reminders} onChange={setReminders} disabled={saving} />
+
+            {/*
+             * No re-arm notice here, unlike the other three screens. Nothing on
+             * this page changes the wake time, so the armed morning survives and
+             * telling somebody their alarm is being worked out again would be
+             * false.
+             */}
 
             <ActionButton
                 label={saving ? t('schedules.saving') : t('common.save')}
                 variant="primary"
-                disabled={!valid || saving}
+                disabled={saving}
                 onPress={() => void save()}
             />
         </>

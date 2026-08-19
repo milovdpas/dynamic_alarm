@@ -132,6 +132,10 @@ function RootNavigator() {
                     name="schedules/[id]/routine"
                     options={{ title: t('schedules.section_routine') }}
                 />
+                <Stack.Screen
+                    name="schedules/[id]/ringing"
+                    options={{ title: t('schedules.section_ringing') }}
+                />
                 <Stack.Screen name="journey/[id]" options={{ title: t('home.journey') }} />
                 <Stack.Screen
                     name="settings/language"
