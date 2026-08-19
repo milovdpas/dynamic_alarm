@@ -149,6 +149,41 @@ jobs:
                     fi
                   ENDSSH
 
+            # Ofelia reads container labels when *it* starts, not when a
+            # labelled container appears. A job it has already registered
+            # survives its container being recreated, which is why the neighbour
+            # app's hourly job has kept running since July. What it never picks
+            # up is a job that did not exist the last time it started.
+            #
+            # That is this API exactly. The tick never ran once in production
+            # until the evening of 2026-08-19: the labels were correct the whole
+            # time, and the scheduler had last read them on 2026-07-19, a month
+            # before this API first deployed. From a phone it was
+            # indistinguishable from push being broken.
+            #
+            # Strictly this is only needed when the labels change, and a deploy
+            # is the only moment they can. Doing it every time costs seconds and
+            # removes the need to remember which kind of change this was. The
+            # restart re-scans every labelled container on the host, so it
+            # restores other apps' jobs rather than only this one.
+            - name: Re-register the monitor tick with the scheduler
+              run: |
+                  ssh -o StrictHostKeyChecking=accept-new                     ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
+                    set -e
+                    docker restart scheduler
+                    sleep 5
+
+                    # Verified rather than assumed. A scheduler that came back
+                    # without this job is a deploy that looks green and quietly
+                    # stops moving alarms.
+                    if ! docker logs scheduler 2>&1 | tail -20 | grep -q 'monitor-tick'; then
+                      echo "The scheduler restarted without registering monitor-tick."
+                      docker logs scheduler --tail=20
+                      exit 1
+                    fi
+                    echo "monitor-tick registered."
+                  ENDSSH
+
             # After the container is up, not before: the image is what carries
             # the migrations, and running them from anywhere else would mean a
             # second copy of the schema history.

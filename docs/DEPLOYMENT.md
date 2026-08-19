@@ -245,6 +245,46 @@ Push for occurrence <id>: NO_TOKEN
 That is the pair to remember: if alarms are not moving, the scheduler log says
 whether the tick ran at all, and the api log says what it found when it did.
 
+### The first question is whether the job exists at all
+
+Ofelia reads container labels **when the scheduler itself starts**, not when a
+labelled container appears. The precise rule, both halves of it observed on this
+host:
+
+- A job it has **already registered survives its container being recreated**.
+  The neighbouring app's hourly job was registered on 2026-07-19, its container
+  was recreated on 2026-07-22, and it has run every hour since.
+- A job that **did not exist when the scheduler last started is never picked
+  up**, however correct its labels are.
+
+This is not hypothetical. The tick never ran once in production until the evening
+of 2026-08-19: the labels on `dynamic-alarm-api` were correct the whole time, and
+the scheduler had last read them on **2026-07-19**, a month before this API first
+deployed. Its log had one job in it, belonging to a different app.
+
+From a phone the symptom is indistinguishable from push being broken. The alarm
+simply never moves, and every device-side explanation looks plausible, which is
+how it cost an evening of looking at the app instead of the server.
+
+```bash
+docker logs scheduler 2>&1 | grep 'job registered'
+```
+
+Two lines, one of them `monitor-tick`, means the job exists. One line, or none,
+means the tick has not been running however healthy everything else looks.
+
+The deploy now restarts the scheduler after the container is up and fails if
+`monitor-tick` does not come back, so this cannot recur silently. To fix it by
+hand, on a host where an old scheduler is still running:
+
+```bash
+docker restart scheduler
+docker logs scheduler --tail=20 | grep 'job registered'
+```
+
+The restart re-scans every labelled container on the host, so it restores other
+apps' jobs at the same time rather than only this one.
+
 A quiet night is `claimed 0` every minute, with a non-zero disruption count: NS
 almost always has something active somewhere, and `promoted 0` means none of it
 touches a station anybody's alarm travels through. That is correct rather than broken:

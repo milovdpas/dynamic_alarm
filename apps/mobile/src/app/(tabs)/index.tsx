@@ -49,7 +49,9 @@ export default function HomeScreen() {
     const border = useThemeColor({}, 'border');
 
     const { connection } = useApiConnection();
-    const { next, busy, refresh } = useNextAlarm();
+    // No `refresh` any more: the hook reloads on focus, so leaving the tab and
+    // coming back is the gesture, and there is no button to press instead.
+    const { next, busy } = useNextAlarm();
 
     /*
      * The disruption switches, so the banner can say which one would have let the
@@ -257,25 +259,24 @@ export default function HomeScreen() {
                             )}
 
                             {/*
-                             * Manual until M2. The monitor loop and its pushes
-                             * are what will keep this current; saying so is
-                             * better than implying the number looks after
-                             * itself overnight.
+                             * Says when this was worked out, and nothing more.
+                             *
+                             * It used to say the alarm "does not yet update
+                             * itself while you sleep", which was written before
+                             * the monitor and the push path existed. Both exist
+                             * now and no phone has been watched receiving one,
+                             * so the honest line is neither the old denial nor a
+                             * promise: it is what is certainly true.
                              */}
                             <ThemedText type="small" themeColor="textSecondary">
-                                {busy ? t('home.working') : t('home.manual_refresh')}
+                                {busy ? t('home.working') : t('home.checked_on_open')}
                             </ThemedText>
-                            <ActionButton
-                                label={t('home.refresh')}
-                                onPress={refresh}
-                                disabled={busy}
-                            />
 
                             {/*
-                             * A refresh that failed while a morning is on
-                             * screen. Quiet, because nothing is broken and the
-                             * alarm is still armed, but never silent: somebody
-                             * pressed a button and it did not do what it said.
+                             * A reload that failed while a morning is on screen.
+                             * Quiet, because nothing is broken and the alarm is
+                             * still armed, but never silent: the times above are
+                             * from the last answer rather than from this one.
                              */}
                             {next.state === 'ready' && next.errorCode !== null && !busy && (
                                 <ThemedText type="small" themeColor="warning">
@@ -285,12 +286,6 @@ export default function HomeScreen() {
                         </View>
                     )}
 
-                    <ActionButton
-                        label={t('settings.title')}
-                        onPress={() => {
-                            router.push('/settings');
-                        }}
-                    />
                 </ScrollView>
             </SafeAreaView>
         </ThemedView>
