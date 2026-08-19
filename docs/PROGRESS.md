@@ -956,6 +956,12 @@ branch it now takes has to be checked too.
   every three. Banded to five minutes.
 - **`GET /api/v1/ip` is behind `IP_DIAGNOSTIC`**, off by default. "Temporary"
   written in a comment is not a mechanism.
+- **The rate limiter swept every window on every request**, so the cost of an
+  unauthenticated route grew with the number of callers seen inside it, and
+  registration holds an entry for a full hour. The sweep runs past a threshold
+  and then not again until the map has doubled, which makes it amortised
+  constant and bounds the map at roughly twice what is live. Insurance rather
+  than a fix: at this scale it was microseconds.
 
 Noted and **not** fixed, because it predates all of this: `applyWakeChange`
 stores its disruption note with `minutes: 0` hardcoded, so the ring screen reads

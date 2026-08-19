@@ -49,17 +49,39 @@ export interface RateLimitOptions {
 }
 
 /**
- * Callers are pruned lazily, on the request that notices they are stale.
+ * Callers are pruned lazily, never on a timer.
  *
- * A sweep on a timer would be a second thing to shut down cleanly, and the map
- * only grows with distinct callers inside one window. A caller whose window has
- * passed is dropped the next time anything touches the limiter.
+ * A timer would be a second thing to shut down cleanly. A caller's own entry is
+ * checked for expiry on the request that touches it, and callers who never come
+ * back are reclaimed by a sweep that runs only once the map has grown past
+ * {@link SWEEP_THRESHOLD}, then not again until it has doubled.
  */
 const buckets = new Map<string, Map<string, Window>>();
+
+/**
+ * How many callers one limiter tracks before a sweep is worth doing.
+ *
+ * Far above anything this deployment sees, so in practice the sweep never runs
+ * and the map holds a handful of entries. It exists so that the cost of an
+ * unauthenticated route cannot be made to grow by whoever calls it.
+ */
+const SWEEP_THRESHOLD = 1024;
 
 export function rateLimit(options: RateLimitOptions): RequestHandler {
     const windows = new Map<string, Window>();
     buckets.set(options.name, windows);
+
+    /**
+     * The size at which a full sweep is worth its cost, doubling after each one.
+     *
+     * Sweeping on every request made the per-request cost grow with the number
+     * of callers seen inside a window, and `registrationLimit` is the one that
+     * matters: unauthenticated, keyed on address, and holding an entry for a
+     * full hour. Doubling means a sweep happens once per n/2 new callers rather
+     * than once per request, so the amortised cost is constant and the map stays
+     * bounded by roughly twice what is genuinely live.
+     */
+    let sweepAbove = SWEEP_THRESHOLD;
 
     return (req: Request, res: Response, next: NextFunction) => {
         const key = options.key(req);
@@ -69,8 +91,13 @@ export function rateLimit(options: RateLimitOptions): RequestHandler {
         }
 
         const now = Date.now();
-        prune(windows, now);
+        if (windows.size > sweepAbove) {
+            prune(windows, now);
+            sweepAbove = Math.max(SWEEP_THRESHOLD, windows.size * 2);
+        }
 
+        // This caller's own entry is always checked for expiry below, so the
+        // sweep above is only ever about reclaiming callers who never came back.
         const existing = windows.get(key);
         const window: Window =
             existing === undefined || existing.resetAt <= now
