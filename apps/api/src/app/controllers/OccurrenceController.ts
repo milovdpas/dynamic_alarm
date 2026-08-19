@@ -116,8 +116,11 @@ export default class OccurrenceController {
      * which is what makes the test worth running: every step after the invented
      * timetable is the real one.
      *
-     * `kind: null` clears a simulation that has not been applied yet, for
-     * changing your mind before the tick arrives.
+     * `kind: null` takes one back, whether or not it has already been applied.
+     * Clearing the fields is only half of that: an applied simulation has left
+     * an invented journey and a moved wake time behind it, and those are undone
+     * by planning against reality again, which is the monitor's job rather than
+     * this request's.
      */
     simulate: Handler<BodyOf<typeof simulateOccurrenceSchema>, IdParams> = async (req, res) => {
         const occurrence = await this.occurrences.findOwned(req.device.id, req.params.id);
@@ -130,11 +133,18 @@ export default class OccurrenceController {
             this.simulations.clear(occurrence);
         } else {
             this.simulations.stage(occurrence, req.body.kind, req.body.minutes ?? 15);
-            // Due now, so the next tick picks it up rather than the next band.
-            // Waiting half an hour to see whether a test worked is how a test
-            // tool stops being used.
-            occurrence.nextCheckAt = new Date();
         }
+
+        /*
+         * Due now either way, and the "either way" is the part that was missing.
+         *
+         * Staging has always done this, so a test does not wait half an hour to
+         * begin. Taking one back did not, so an already-applied simulation kept
+         * its invented cancellation and its moved alarm until the next band
+         * check, and the button reported success while the screen disagreed with
+         * it for the next thirty minutes.
+         */
+        occurrence.nextCheckAt = new Date();
 
         const saved = await occurrence.save();
         const schedule = await Schedule.findOneBy({ id: saved.scheduleId });

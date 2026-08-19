@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    API_ENDPOINTS,
     JourneyStatus,
     LegType,
     OccurrenceState,
@@ -22,6 +23,7 @@ import { RoutineService } from '../src/app/services/RoutineService';
 import { ScheduleService } from '../src/app/services/ScheduleService';
 import type { PushOutcome } from '../src/app/services/PushService';
 import { StubNsModule, disruption, stationlessDisruption } from './support/disruptions';
+import { asDevice } from './support/client';
 import { seedCommute, seedOccurrence, seedSchedule } from './support/factories';
 
 const MINUTE = 60 * 1000;
@@ -669,5 +671,47 @@ describe('what the sweep costs when nothing is armed', () => {
         await counting.sweep(new Date());
 
         expect(asked).toBe(0);
+    });
+});
+
+describe('taking a simulation back', () => {
+    /**
+     * The button says "take it back", and until 2026-08-19 it only did half of
+     * that: the fields were cleared and the invented cancellation stayed on
+     * screen, because nothing scheduled a check to plan against reality again.
+     *
+     * Staging has always marked the occurrence due immediately. Clearing did
+     * not, so an applied simulation kept its invented journey and its moved wake
+     * time until the next band check, up to half an hour of the app disagreeing
+     * with the message that said it had been cleared.
+     */
+    it('makes the occurrence due now, so the real journey comes back', async () => {
+        const { device, token, home, work, routine } = await seedCommute();
+        const schedule = await seedSchedule(device, {
+            origin: home,
+            destination: work,
+            routine,
+        });
+        const occurrence = await seedOccurrence(schedule, {
+            simulationKind: SimulationKind.CANCELLATION,
+            simulationMinutes: null,
+            simulationExpiresAt: new Date(Date.now() + 30 * MINUTE),
+            // Already applied, which is the case that was broken. A staged one
+            // that nothing has consumed had nothing to undo.
+            simulationAppliedAt: new Date(),
+            nextCheckAt: new Date(Date.now() + 30 * MINUTE),
+        });
+
+        const response = await asDevice(token)
+            .post(API_ENDPOINTS.OCCURRENCES.SIMULATE(occurrence.id))
+            .send({ kind: null });
+
+        expect(response.status).toBe(200);
+
+        const saved = await ScheduleOccurrence.findOneByOrFail({ id: occurrence.id });
+        expect(saved.simulationKind).toBeNull();
+        expect(saved.simulationAppliedAt).toBeNull();
+        // Due, rather than merely sooner: the next tick is what re-plans.
+        expect(saved.nextCheckAt?.getTime()).toBeLessThanOrEqual(Date.now());
     });
 });
