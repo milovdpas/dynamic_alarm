@@ -179,6 +179,18 @@ export async function canUseFullScreenIntent(): Promise<boolean> {
     return (await AlarmSound?.canUseFullScreenIntent()) ?? false;
 }
 
+/**
+ * Whether the app may be drawn over the lock screen.
+ *
+ * True only while an alarm is on screen. MainActivity sets it from the launch
+ * intent so the alarm case is right before the first frame; this is how the ring
+ * screen gives it back afterwards, because an activity left with the permission
+ * shows the app instead of the lock screen the next time the phone is locked.
+ */
+export async function setShowWhenLocked(enabled: boolean): Promise<void> {
+    await AlarmSound?.setShowWhenLocked(enabled);
+}
+
 export async function openFullScreenIntentSettings(): Promise<void> {
     await AlarmSound?.openFullScreenIntentSettings();
 }

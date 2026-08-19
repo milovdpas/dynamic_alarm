@@ -246,6 +246,16 @@ class AlarmSoundModule : Module() {
           putExtra(NativeAlarmScheduler.EXTRA_ALARM_ID, id)
         }
       )
+      // `startService` answers with a ComponentName, and a lambda that ends on
+      // one hands Expo a value it has no rule for. The intent is delivered
+      // first, so the alarm really does go quiet, and then the promise rejects
+      // anyway: the screen says the alarm could not be switched off while
+      // sitting in silence, and stays up with no way out but the notification.
+      //
+      // Ending on Unit is the entire fix. Same shape as the valueless
+      // `return@AsyncFunction` trap in CONVENTIONS.md: what these lambdas
+      // evaluate to is not incidental.
+      Unit
     }
 
     AsyncFunction("snoozeRingingAlarm") { id: String ->
@@ -255,6 +265,16 @@ class AlarmSoundModule : Module() {
           putExtra(NativeAlarmScheduler.EXTRA_ALARM_ID, id)
         }
       )
+      // `startService` answers with a ComponentName, and a lambda that ends on
+      // one hands Expo a value it has no rule for. The intent is delivered
+      // first, so the alarm really does go quiet, and then the promise rejects
+      // anyway: the screen says the alarm could not be switched off while
+      // sitting in silence, and stays up with no way out but the notification.
+      //
+      // Ending on Unit is the entire fix. Same shape as the valueless
+      // `return@AsyncFunction` trap in CONVENTIONS.md: what these lambdas
+      // evaluate to is not incidental.
+      Unit
     }
 
     AsyncFunction("canScheduleExactAlarms") {
@@ -283,6 +303,30 @@ class AlarmSoundModule : Module() {
      *
      * Always true below API 34, where the permission is granted at install.
      */
+    /**
+     * Whether this activity may cover the lock screen, from now until told
+     * otherwise.
+     *
+     * MainActivity sets this from the launch intent, so an alarm arrives with it
+     * already true and everything else with it false. This exists for the other
+     * end: once the alarm is dismissed the activity is still allowed over the
+     * keyguard, and the next time the phone is locked the app would appear
+     * instead of the lock screen. The ring screen clears it on the way out.
+     *
+     * Silently does nothing below API 27, where the flags do not exist and the
+     * manifest attributes are the only way. Nothing to report: those devices get
+     * the old behaviour rather than a broken one.
+     */
+    AsyncFunction("setShowWhenLocked") { enabled: Boolean ->
+      val activity = appContext.activityProvider?.currentActivity
+      if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+        activity.runOnUiThread {
+          activity.setShowWhenLocked(enabled)
+          activity.setTurnScreenOn(enabled)
+        }
+      }
+    }
+
     // Expressed as if/else rather than an early `return@AsyncFunction`: the
     // lambda's return type is inferred through a reified generic, and labelled
     // returns make that inference needlessly fragile.

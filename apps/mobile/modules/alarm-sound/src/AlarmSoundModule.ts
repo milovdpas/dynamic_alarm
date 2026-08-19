@@ -18,6 +18,8 @@ declare class AlarmSoundModule extends NativeModule {
     isPlaying(): Promise<boolean>;
     getAlarmVolume(): Promise<AlarmVolumeInfo>;
     canUseFullScreenIntent(): Promise<boolean>;
+    /** Lets this activity cover the lock screen, or stops it. */
+    setShowWhenLocked(enabled: boolean): Promise<void>;
     scheduleAlarm(config: NativeAlarmConfig): Promise<void>;
     cancelAlarm(id: string): Promise<void>;
     cancelAllAlarms(): Promise<void>;

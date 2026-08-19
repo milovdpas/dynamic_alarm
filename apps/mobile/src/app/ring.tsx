@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 
 import { APP_CONSTANTS } from '@alarm/types';
-import { moveAppToBackground } from '@modules/alarm-sound';
+import { moveAppToBackground, setShowWhenLocked } from '@modules/alarm-sound';
 
 import { dismissAlarm, snoozeAlarm } from '@/alarm/alarmActions';
 import {
@@ -153,6 +153,22 @@ export default function RingScreen() {
     useEffect(() => {
         const timer = setInterval(() => setNow(new Date()), 1000);
         return () => clearInterval(timer);
+    }, []);
+
+    /*
+     * Covering the lock screen is this screen's privilege and nobody else's.
+     *
+     * MainActivity turns it on from the launch intent, which is what makes the
+     * alarm visible before the first frame when the process was dead. Turning it
+     * off here is the other half: an activity that keeps the permission shows
+     * the app instead of the lock screen the next time the phone is locked, so
+     * a locked phone would read out somebody's schedule to anyone holding it.
+     */
+    useEffect(() => {
+        void setShowWhenLocked(true);
+        return () => {
+            void setShowWhenLocked(false);
+        };
     }, []);
 
     useEffect(() => {
