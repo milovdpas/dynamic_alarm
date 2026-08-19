@@ -11,7 +11,13 @@ import {
     UpdateDateColumn,
 } from 'typeorm';
 import { OccurrenceState } from '@alarm/types';
-import type { Journey, OccurrenceDto, SimulationKind, WakePlan } from '@alarm/types';
+import type {
+    Journey,
+    OccurrenceDto,
+    ReminderConfig,
+    SimulationKind,
+    WakePlan,
+} from '@alarm/types';
 
 import Device from './Device.entity';
 import Schedule from './Schedule.entity';
@@ -206,7 +212,14 @@ export default class ScheduleOccurrence extends BaseEntity {
      * armed. That is a bug rather than a state to render: every path that
      * creates an occurrence computes a plan in the same breath.
      */
-    toDto(scheduleName: string): OccurrenceDto {
+    /**
+     * The wire shape of one morning.
+     *
+     * Takes the reminders rather than defaulting them, so a call site that
+     * forgets is a compile error instead of a phone that quietly stops making
+     * the two extra noises somebody asked for.
+     */
+    toDto(scheduleName: string, reminders: ReminderConfig): OccurrenceDto {
         if (this.planSnapshot === null || this.anchorWakeAt === null) {
             throw new Error(`Occurrence ${this.id} has no plan, so it was never armed`);
         }
@@ -215,6 +228,7 @@ export default class ScheduleOccurrence extends BaseEntity {
             id: this.id,
             scheduleId: this.scheduleId,
             scheduleName,
+            reminders,
             date: this.date,
             state: this.state,
             anchorWakeAt: this.anchorWakeAt.toISOString(),

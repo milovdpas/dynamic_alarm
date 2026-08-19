@@ -3,8 +3,16 @@ import { API_ENDPOINTS, DEFAULT_BUFFERS, TransportMode, Weekday } from '@alarm/t
 import type { ScheduleResponse } from '@alarm/types';
 
 import Schedule from '../src/app/models/Schedule.entity';
+import ScheduleOccurrence from '../src/app/models/ScheduleOccurrence.entity';
 import { asDevice, data } from './support/client';
-import { seedCommute, seedDevice, seedPlace, seedRoutine, seedSchedule } from './support/factories';
+import {
+    seedCommute,
+    seedDevice,
+    seedOccurrence,
+    seedPlace,
+    seedRoutine,
+    seedSchedule,
+} from './support/factories';
 
 /** A valid body, so each test can change only the field it is about. */
 function body(overrides: Record<string, unknown>): Record<string, unknown> {
@@ -246,5 +254,110 @@ describe('updating schedules', () => {
         expect(data<ScheduleResponse>(response).buffers.arrivalMinutes).toBe(
             DEFAULT_BUFFERS.arrivalMinutes,
         );
+    });
+});
+
+describe('reminder alarms on a schedule', () => {
+    it('defaults to one ring, which is what every schedule did before', async () => {
+        const { token, home, work, routine } = await seedCommute();
+
+        const response = await asDevice(token).post(
+            API_ENDPOINTS.SCHEDULES.CREATE,
+            body({ originPlaceId: home.id, destinationPlaceId: work.id, routineId: routine.id }),
+        );
+
+        expect(data<ScheduleResponse>(response).reminders.count).toBe(1);
+    });
+
+    it('round-trips a chain', async () => {
+        const { token, home, work, routine } = await seedCommute();
+
+        const response = await asDevice(token).post(
+            API_ENDPOINTS.SCHEDULES.CREATE,
+            body({
+                originPlaceId: home.id,
+                destinationPlaceId: work.id,
+                routineId: routine.id,
+                reminders: { count: 3, intervalMinutes: 5 },
+            }),
+        );
+
+        expect(data<ScheduleResponse>(response).reminders).toEqual({
+            count: 3,
+            intervalMinutes: 5,
+        });
+    });
+
+    it('refuses a chain long enough to wake somebody the previous evening', async () => {
+        const { token, home, work, routine } = await seedCommute();
+
+        const response = await asDevice(token).post(
+            API_ENDPOINTS.SCHEDULES.CREATE,
+            body({
+                originPlaceId: home.id,
+                destinationPlaceId: work.id,
+                routineId: routine.id,
+                reminders: { count: 99, intervalMinutes: 5 },
+            }),
+        );
+
+        expect(response.status).toBe(422);
+    });
+
+});
+
+describe('which edits are allowed to throw away an armed morning', () => {
+    /*
+     * `affectsPlanning` decides this by asking which keys the request carries,
+     * which made it quietly wrong for a long time: `.partial()` makes a key
+     * optional but does not stop a `.default()` inside it from firing, so every
+     * update arrived carrying `originAccess`, `destinationAccess` and
+     * `journeyOffset` whether or not anybody sent them. All three are on the
+     * planning list, so every edit discarded the armed morning and spent an NS
+     * request rebuilding an identical plan.
+     */
+    async function armedMorning() {
+        const { device, token, home, work, routine } = await seedCommute();
+        const schedule = await seedSchedule(device, {
+            origin: home,
+            destination: work,
+            routine,
+        });
+        return { token, schedule, occurrence: await seedOccurrence(schedule) };
+    }
+
+    it('keeps it when only the name changed', async () => {
+        // The case the planning list was written for, quoted in its own comment.
+        const { token, schedule, occurrence } = await armedMorning();
+
+        await asDevice(token).patch(API_ENDPOINTS.SCHEDULES.DETAIL(schedule.id), {
+            name: 'Renamed',
+        });
+
+        expect(await ScheduleOccurrence.countBy({ id: occurrence.id })).toBe(1);
+    });
+
+    it('keeps it when only the ringing changed', async () => {
+        // Reminders change nothing the server computes: the wake time is still
+        // the last ring, so the plan and the cadence are identical.
+        const { token, schedule, occurrence } = await armedMorning();
+
+        await asDevice(token).patch(API_ENDPOINTS.SCHEDULES.DETAIL(schedule.id), {
+            reminders: { count: 3, intervalMinutes: 5 },
+        });
+
+        expect(await ScheduleOccurrence.countBy({ id: occurrence.id })).toBe(1);
+    });
+
+    it('still throws it away when the deadline moves', async () => {
+        // The other half. An armed morning computed from an old arrival time
+        // wakes somebody for a schedule that no longer says that.
+        const { token, schedule, occurrence } = await armedMorning();
+
+        await asDevice(token).patch(API_ENDPOINTS.SCHEDULES.DETAIL(schedule.id), {
+            arrivalTime: '09:15',
+        });
+
+        expect(await ScheduleOccurrence.countBy({ id: occurrence.id })).toBe(0);
     });
 });

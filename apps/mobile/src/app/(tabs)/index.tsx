@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { LegType } from '@alarm/types';
 import type { Journey } from '@alarm/types';
 
+import { reminderLeadMinutes, reminderTimes } from '@/alarm/reminders';
 import DisruptionBanner from '@/components/home/DisruptionBanner';
 import PermissionBanner from '@/components/home/PermissionBanner';
 import StaleNotice from '@/components/ui/StaleNotice';
@@ -49,9 +50,11 @@ export default function HomeScreen() {
     const border = useThemeColor({}, 'border');
 
     const { connection } = useApiConnection();
-    // No `refresh` any more: the hook reloads on focus, so leaving the tab and
-    // coming back is the gesture, and there is no button to press instead.
-    const { next, busy } = useNextAlarm();
+    // `reload` rather than `refresh`: the hook reloads on focus, so leaving the
+    // tab and coming back is the gesture, and there is no Refresh button. What
+    // is needed here is the free re-read after the alarm is moved by hand, which
+    // must not send every schedule back through the planner.
+    const { next, busy, reload } = useNextAlarm();
 
     /*
      * The disruption switches, so the banner can say which one would have let the
@@ -163,6 +166,29 @@ export default function HomeScreen() {
                             </ThemedText>
 
                             {/*
+                             * With reminders on, the phone makes its first noise
+                             * before the time above. The big number stays the
+                             * wake time, because that is the one the whole
+                             * calculation is about and the one that has to be
+                             * met, but a screen that promised 07:45 and went off
+                             * at 07:35 would be wrong about the only thing
+                             * anybody reads it for.
+                             */}
+                            {reminderLeadMinutes(next.occurrence.reminders) > 0 && (
+                                <ThemedText type="small" themeColor="textSecondary">
+                                    {t('home.first_ring', {
+                                        time: clock(
+                                            reminderTimes(
+                                                next.occurrence.currentWakeAt,
+                                                next.occurrence.reminders,
+                                            )[0] ?? next.occurrence.currentWakeAt,
+                                        ),
+                                        count: next.occurrence.reminders.count,
+                                    })}
+                                </ThemedText>
+                            )}
+
+                            {/*
                              * Why this phone will not ring, if it will not, with
                              * the fix attached. Above everything else on the
                              * screen: a wake time nothing is holding is worse
@@ -205,7 +231,11 @@ export default function HomeScreen() {
                              * reason the time is what it is, which is the first
                              * question anyone has when it changes.
                              */}
-                            <DisruptionBanner occurrence={next.occurrence} device={device} />
+                            <DisruptionBanner
+                                occurrence={next.occurrence}
+                                device={device}
+                                onApplied={reload}
+                            />
 
                             <View style={[styles.card, { borderColor: border }]}>
                                 <DetailRow

@@ -10,6 +10,7 @@ import { dismissAlarm, snoozeAlarm } from '@/alarm/alarmActions';
 import {
     generateChallenge,
     isCorrect,
+    locksThisRing,
     readLockSetting,
     type Challenge,
 } from '@/alarm/alarmLock';
@@ -175,13 +176,20 @@ export default function RingScreen() {
         let cancelled = false;
         void readLockSetting().then((setting) => {
             if (!cancelled) {
-                setChallenge(generateChallenge(setting));
+                // A reminder may be exempt, if that is what its owner asked for.
+                // The ring on the real wake time never is.
+                setChallenge(
+                    locksThisRing(setting, params.alarmId) ? generateChallenge(setting) : null,
+                );
             }
         });
         return () => {
             cancelled = true;
         };
-    }, []);
+        // Re-read when the alarm changes. A reminder and the wake time it
+        // precedes are two arrivals at this screen, and whether the puzzle
+        // applies is a question about which one is ringing.
+    }, [params.alarmId]);
 
     /**
      * Hands the phone back the way the alarm found it.

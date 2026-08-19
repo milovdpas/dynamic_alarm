@@ -63,6 +63,30 @@ export default class OccurrenceRoutes implements IRoute {
             this.controller.reset,
         );
 
+        // No `providerLimit`: it applies a plan that is already stored, so it
+        // asks NS nothing.
+        router.post<IdParams>(
+            API_ENDPOINTS.OCCURRENCES.APPLY_PLAN(':id'),
+            deviceAuth,
+            validate({ params: idParamSchema }),
+            this.controller.applyPlan,
+        );
+
+        // Neither plans anything, so neither pays the provider budget.
+        router.post<IdParams>(
+            API_ENDPOINTS.OCCURRENCES.SKIP(':id'),
+            deviceAuth,
+            validate({ params: idParamSchema }),
+            this.controller.skip,
+        );
+
+        router.post<IdParams>(
+            API_ENDPOINTS.OCCURRENCES.UNSKIP(':id'),
+            deviceAuth,
+            validate({ params: idParamSchema }),
+            this.controller.unskip,
+        );
+
         router.get<IdParams>(
             API_ENDPOINTS.OCCURRENCES.EVENTS(':id'),
             deviceAuth,

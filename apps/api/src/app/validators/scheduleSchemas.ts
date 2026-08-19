@@ -49,6 +49,21 @@ const scheduleFields = {
     // preference nothing can ever show it.
     journeyOffset: z.number().int().min(0).max(MAX_JOURNEY_OPTIONS - 1).default(0),
     fixedTravelMinutes: z.number().int().min(0).max(24 * 60).optional(),
+    /*
+     * Bounded so a reminder chain cannot walk an alarm into the previous
+     * evening. Optional with a default of one ring, so a client that predates
+     * reminders keeps exactly the behaviour it was written against.
+     */
+    reminders: z
+        .object({
+            count: z.number().int().min(1).max(APP_CONSTANTS.ALARM.REMINDERS.MAX_COUNT),
+            intervalMinutes: z
+                .number()
+                .int()
+                .min(1)
+                .max(APP_CONSTANTS.ALARM.REMINDERS.MAX_INTERVAL_MINUTES),
+        })
+        .optional(),
     buffers: bufferConfigSchema,
     timezone: z.string().min(1).max(64),
 };
@@ -78,5 +93,30 @@ export const createScheduleSchema = z
  * two are merged. That check lives in `ScheduleService.update`.
  */
 export const updateScheduleSchema = z
-    .object({ ...scheduleFields, active: z.boolean() })
+    .object({
+        ...scheduleFields,
+        /*
+         * The defaulted fields, re-declared without their defaults.
+         *
+         * `.partial()` makes a key optional but does **not** stop a
+         * `.default()` inside it from firing, so parsing `{ name: 'Gym' }`
+         * came back with `originAccess`, `destinationAccess` and
+         * `journeyOffset` filled in. Harmless for storage, since they were
+         * given the values already held, but `affectsPlanning` decides on the
+         * presence of a key, and every one of these is on its list.
+         *
+         * So every edit looked like a planning change: renaming a schedule
+         * threw away its armed morning and spent an NS request rebuilding an
+         * identical plan. That list exists precisely so renaming would not do
+         * that, and its own comment says so.
+         *
+         * A default is right for creation, where an older client genuinely
+         * omits the field and something has to be stored. On an update, an
+         * absent key means "leave it alone", which is not a value.
+         */
+        originAccess: z.enum(AccessMode),
+        destinationAccess: z.enum(AccessMode),
+        journeyOffset: z.number().int().min(0).max(MAX_JOURNEY_OPTIONS - 1),
+        active: z.boolean(),
+    })
     .partial();

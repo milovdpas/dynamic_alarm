@@ -145,4 +145,22 @@ export enum WakeChangeReason {
     TRAFFIC_WORSE = 'TRAFFIC_WORSE',
     TRAFFIC_BETTER = 'TRAFFIC_BETTER',
     USER_EDITED = 'USER_EDITED',
+    /**
+     * An emergency move was released, so the alarm went back towards its anchor.
+     *
+     * Distinct from `DELAY_RESOLVED`, which says the timetable recovered. This
+     * says something about the alarm itself: it was dragged earlier because a
+     * train was cancelled, that is no longer true, and the time somebody
+     * originally agreed to has been given back to them.
+     */
+    RETURNED_TO_ANCHOR = 'RETURNED_TO_ANCHOR',
+    /**
+     * Somebody asked for the current plan by hand.
+     *
+     * Distinct from `USER_EDITED`, which follows a change to the schedule. Here
+     * nothing about the morning changed: the app had already worked out a
+     * better time, the opt-in switches said not to apply it unasked, and its
+     * owner said go on.
+     */
+    USER_APPLIED = 'USER_APPLIED',
 }

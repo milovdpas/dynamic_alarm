@@ -1,5 +1,6 @@
 import type { Response } from 'express';
 import { In } from 'typeorm';
+import { DEFAULT_REMINDERS } from '@alarm/types';
 import type {
     ListAlarmEventsResponse,
     ListOccurrencesResponse,
@@ -39,7 +40,7 @@ export default class OccurrenceController {
         }
 
         const schedule = await Schedule.findOneBy({ id: occurrence.scheduleId });
-        sendSuccess<OccurrenceResponse>(res, occurrence.toDto(schedule?.name ?? ''));
+        sendSuccess<OccurrenceResponse>(res, occurrence.toDto(schedule?.name ?? '', schedule?.reminders ?? DEFAULT_REMINDERS));
     };
 
     /**
@@ -51,11 +52,17 @@ export default class OccurrenceController {
      */
     list: Handler = async (req, res) => {
         const occurrences = await this.occurrences.findArmed(req.device.id);
-        const names = await this.scheduleNames(occurrences);
+        const schedules = await this.schedulesFor(occurrences);
 
         sendSuccess<ListOccurrencesResponse>(
             res,
-            occurrences.map((occurrence) => occurrence.toDto(names.get(occurrence.scheduleId) ?? '')),
+            occurrences.map((occurrence) => {
+                const schedule = schedules.get(occurrence.scheduleId);
+                return occurrence.toDto(
+                    schedule?.name ?? '',
+                    schedule?.reminders ?? DEFAULT_REMINDERS,
+                );
+            }),
         );
     };
 
@@ -82,7 +89,7 @@ export default class OccurrenceController {
             return;
         }
 
-        sendSuccess<OccurrenceResponse>(res, result.occurrence.toDto(result.scheduleName));
+        sendSuccess<OccurrenceResponse>(res, result.occurrence.toDto(result.schedule.name, result.schedule.reminders));
     };
 
     /**
@@ -94,9 +101,11 @@ export default class OccurrenceController {
      * but restoring the original time is a move *later*, which the opt-in
      * switches govern, so a device that has not opted in keeps the early alarm.
      *
-     * That asymmetry is a real bug for real cancellations too, and it is not
-     * fixed by this endpoint: this is the escape hatch for whoever is testing,
-     * not the rule. See PROGRESS.md.
+     * That asymmetry was a real bug for real cancellations too, and the fix is
+     * the anchor-return rule in `MonitorService`, not this endpoint: an alarm
+     * below its anchor is now given the anchor back on the next check. This
+     * stays as the escape hatch for whoever is testing, which is a different
+     * job: it throws the whole morning away rather than releasing one move.
      *
      * Discard and re-arm rather than "undo": there is no record of what the plan
      * was before, and inventing one would be worse than planning the morning
@@ -124,7 +133,73 @@ export default class OccurrenceController {
             return;
         }
 
-        sendSuccess<OccurrenceResponse>(res, result.occurrence.toDto(result.scheduleName));
+        sendSuccess<OccurrenceResponse>(res, result.occurrence.toDto(result.schedule.name, result.schedule.reminders));
+    };
+
+    /**
+     * Moves the alarm onto the plan on screen, because somebody tapped.
+     *
+     * The counterpart to the opt-in switches rather than a way around them.
+     * With them off, a delay that would buy twelve minutes in bed is noticed,
+     * explained, and then deliberately not acted on, which leaves the app
+     * knowing something useful and doing nothing with it. This is how its owner
+     * says go on, once, for this morning.
+     *
+     * No provider call and no `providerLimit`: the plan is the one the last
+     * check already stored.
+     */
+    applyPlan: Handler<unknown, IdParams> = async (req, res) => {
+        const occurrence = await this.occurrences.findOwned(req.device.id, req.params.id);
+        if (occurrence === null) {
+            sendNotFound(res, 'Occurrence');
+            return;
+        }
+
+        const result = await this.occurrences.applyStoredPlan(occurrence);
+        if (!result.ok) {
+            // 409 rather than 422: nothing about the request is wrong, the
+            // morning simply is not in a state where there is anything to
+            // apply, and the app decides what to say from that.
+            sendConflict(res, result.problem);
+            return;
+        }
+
+        const schedule = await Schedule.findOneBy({ id: result.occurrence.scheduleId });
+        sendSuccess<OccurrenceResponse>(res, result.occurrence.toDto(schedule?.name ?? '', schedule?.reminders ?? DEFAULT_REMINDERS));
+    };
+
+    /**
+     * Sits one morning out without touching the schedule behind it.
+     *
+     * The pair to the alarms list's toggle rather than a replacement for it. A
+     * toggle turns the standing alarm off, which is a decision about every
+     * morning; this is a decision about one, and it expires by itself when that
+     * morning has passed. Expressing both through the same control would mean a
+     * switch whose meaning depended on whether the row recurred.
+     */
+    skip: Handler<unknown, IdParams> = async (req, res) => {
+        const occurrence = await this.occurrences.findOwned(req.device.id, req.params.id);
+        if (occurrence === null) {
+            sendNotFound(res, 'Occurrence');
+            return;
+        }
+
+        const updated = await this.occurrences.skip(occurrence);
+        const schedule = await Schedule.findOneBy({ id: updated.scheduleId });
+        sendSuccess<OccurrenceResponse>(res, updated.toDto(schedule?.name ?? '', schedule?.reminders ?? DEFAULT_REMINDERS));
+    };
+
+    /** Puts a skipped morning back, due for a check straight away. */
+    unskip: Handler<unknown, IdParams> = async (req, res) => {
+        const occurrence = await this.occurrences.findOwned(req.device.id, req.params.id);
+        if (occurrence === null) {
+            sendNotFound(res, 'Occurrence');
+            return;
+        }
+
+        const updated = await this.occurrences.unskip(occurrence);
+        const schedule = await Schedule.findOneBy({ id: updated.scheduleId });
+        sendSuccess<OccurrenceResponse>(res, updated.toDto(schedule?.name ?? '', schedule?.reminders ?? DEFAULT_REMINDERS));
     };
 
     /**
@@ -143,7 +218,7 @@ export default class OccurrenceController {
 
         const updated = await this.occurrences.acknowledge(occurrence, req.body.ackedWakeAt);
         const schedule = await Schedule.findOneBy({ id: updated.scheduleId });
-        sendSuccess<OccurrenceResponse>(res, updated.toDto(schedule?.name ?? ''));
+        sendSuccess<OccurrenceResponse>(res, updated.toDto(schedule?.name ?? '', schedule?.reminders ?? DEFAULT_REMINDERS));
     };
 
     /**
@@ -190,7 +265,7 @@ export default class OccurrenceController {
 
         const saved = await occurrence.save();
         const schedule = await Schedule.findOneBy({ id: saved.scheduleId });
-        sendSuccess<OccurrenceResponse>(res, saved.toDto(schedule?.name ?? ''));
+        sendSuccess<OccurrenceResponse>(res, saved.toDto(schedule?.name ?? '', schedule?.reminders ?? DEFAULT_REMINDERS));
     };
 
     /** Why this alarm moved, oldest first, so the story reads forwards. */
@@ -211,14 +286,23 @@ export default class OccurrenceController {
         );
     };
 
-    private async scheduleNames(occurrences: ScheduleOccurrence[]): Promise<Map<string, string>> {
+    /**
+     * The schedules behind a set of mornings, by id.
+     *
+     * The whole record rather than the name, since the DTO also carries the
+     * reminder setting. Still one query for the lot: the alternative is a loop
+     * that grows with the number of schedules for no reason.
+     */
+    private async schedulesFor(
+        occurrences: ScheduleOccurrence[],
+    ): Promise<Map<string, Schedule>> {
         const ids = [...new Set(occurrences.map((occurrence) => occurrence.scheduleId))];
         if (ids.length === 0) {
             return new Map();
         }
 
         const schedules = await Schedule.findBy({ id: In(ids) });
-        return new Map(schedules.map((schedule) => [schedule.id, schedule.name]));
+        return new Map(schedules.map((schedule) => [schedule.id, schedule]));
     }
 
     private sendProblem(res: Response, problem: SchedulePlanProblem): void {

@@ -1,7 +1,10 @@
 import { JourneyStatus } from '@alarm/types';
-import type { Journey, JourneyLeg, OccurrenceResponse } from '@alarm/types';
+import type { DeviceResponse, Journey, JourneyLeg, OccurrenceResponse } from '@alarm/types';
 
 import Storage from '@/utils/modules/Storage';
+
+/** Below this, a change is timetable jitter rather than news. */
+export const NOTICEABLE_MINUTES = 2;
 
 /**
  * What is wrong with a morning, in the few facts a screen needs.
@@ -162,6 +165,37 @@ function worstDelay(journey: Journey): { minutes: number; service: string | null
     }
 
     return worst;
+}
+
+/**
+ * Whether this morning was noticed and then deliberately left alone.
+ *
+ * The one state where the button belongs, and the same test that decides the
+ * sentence above it: they have to agree, or the app explains why it did nothing
+ * and then offers no way to change that, or worse, offers one where there is
+ * nothing to apply.
+ *
+ * Three things have to be true. The alarm did not move, which rules out a
+ * morning already dealt with. A switch is off, which rules out the buffers
+ * having absorbed the disruption, since that is the app working as intended and
+ * there is no better time waiting to be applied. And the switch is *known* to be
+ * off: `undefined` means this device's settings never arrived, and offering to
+ * override a preference nobody has read would be a guess.
+ */
+export function wasDeclined(input: {
+    cancelled: boolean;
+    gained: number;
+    device: DeviceResponse | null;
+}): boolean {
+    if (Math.abs(input.gained) >= NOTICEABLE_MINUTES) {
+        return false;
+    }
+
+    const allowed = input.cancelled
+        ? input.device?.allowLaterWakeOnCancellation
+        : input.device?.allowLaterWakeOnDelay;
+
+    return allowed === false;
 }
 
 const KEY = 'lastDisruption';

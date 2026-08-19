@@ -3,10 +3,12 @@ import { ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import type { Schedule, Weekday } from '@alarm/types';
+import { DEFAULT_REMINDERS } from '@alarm/types';
+import type { ReminderConfig, Schedule, Weekday } from '@alarm/types';
 
 import { updateSchedule } from '@/api';
 import { Spacing } from '@/assets/Stylesheet';
+import ReminderPicker from '@/components/alarms/ReminderPicker';
 import ActionButton from '@/components/buttons/ActionButton';
 import TextField from '@/components/ui/TextField';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -60,6 +62,9 @@ function DeadlineForm({ id, schedule }: { id: string; schedule: Schedule }) {
     const [name, setName] = useState(schedule.name);
     const [arrivalTime, setArrivalTime] = useState(schedule.arrivalTime.slice(0, 5));
     const [days, setDays] = useState<Weekday[]>(schedule.daysOfWeek);
+    const [reminders, setReminders] = useState<ReminderConfig>(
+        schedule.reminders ?? DEFAULT_REMINDERS,
+    );
     const [errorCode, setErrorCode] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
 
@@ -68,14 +73,19 @@ function DeadlineForm({ id, schedule }: { id: string; schedule: Schedule }) {
     const save = useCallback(async () => {
         setSaving(true);
         try {
-            await updateSchedule(id, { name: name.trim(), arrivalTime, daysOfWeek: days });
+            await updateSchedule(id, {
+                name: name.trim(),
+                arrivalTime,
+                daysOfWeek: days,
+                reminders,
+            });
             router.back();
         } catch (error) {
             setErrorCode(ApiRequestError.from(error).code);
         } finally {
             setSaving(false);
         }
-    }, [arrivalTime, days, id, name, router]);
+    }, [arrivalTime, days, id, name, reminders, router]);
 
     return (
         <>
@@ -103,6 +113,12 @@ function DeadlineForm({ id, schedule }: { id: string; schedule: Schedule }) {
                 {t('schedules.days')}
             </ThemedText>
             <WeekdayPicker value={days} onChange={setDays} disabled={saving} />
+
+            {/*
+             * Here rather than on its own screen: this is where somebody sets
+             * what time to be woken, and how many times is the same question.
+             */}
+            <ReminderPicker value={reminders} onChange={setReminders} disabled={saving} />
 
             <ThemedText type="small" themeColor="textSecondary">
                 {t('schedules.rearm_notice')}

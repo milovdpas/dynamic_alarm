@@ -16,6 +16,7 @@ import type {
     Journey,
     LocalTimeString,
     Place,
+    ReminderConfig,
     Routine,
     Schedule,
     TimeZone,
@@ -173,6 +174,8 @@ export interface CreateScheduleRequest {
     /** Counting back from the latest on-time departure. Defaults to 0. */
     journeyOffset?: number;
     fixedTravelMinutes?: number;
+    /** Extra rings before the wake time. Omitted means one ring, as before. */
+    reminders?: ReminderConfig;
     buffers: BufferConfig;
     timezone: TimeZone;
 }
@@ -330,6 +333,16 @@ export interface OccurrenceDto {
     id: string;
     scheduleId: string;
     scheduleName: string;
+    /**
+     * The schedule's reminder setting, carried so the device can derive the
+     * earlier rings.
+     *
+     * Copied onto the morning rather than looked up, because the device arms
+     * from this object alone: the read path fetches occurrences and never the
+     * schedules behind them, and the offline path works from a cache of exactly
+     * what was last handed over.
+     */
+    reminders: ReminderConfig;
     date: IsoDateString;
     state: OccurrenceState;
     /**

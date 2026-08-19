@@ -12,6 +12,12 @@ import { useThemeColor } from '@/utils/hooks/useThemeColor';
  * second thing anyone does once the alarm works, and putting it behind a row on
  * the home screen said the opposite.
  *
+ * The middle tab lists **alarms**, not schedules. It used to list the things
+ * that produce alarms, which left "what is set for tomorrow" as something the
+ * reader assembled out of a schedule, whether it was active, and which morning
+ * it had armed. One list of times answers it instead, and hand-set alarms have
+ * somewhere to live.
+ *
  * Each tab draws its own header, so this layout hides the one the tab navigator
  * would add. Two headers is what the onboarding group taught us to avoid.
  */
@@ -45,11 +51,11 @@ export default function TabsLayout() {
                 }}
             />
             <Tabs.Screen
-                name="schedules"
+                name="alarms"
                 options={{
-                    title: t('tabs.schedules'),
+                    title: t('tabs.alarms'),
                     tabBarIcon: ({ color, size }) => (
-                        <MaterialCommunityIcons name="calendar-clock" color={color} size={size} />
+                        <MaterialCommunityIcons name="alarm-multiple" color={color} size={size} />
                     ),
                 }}
             />

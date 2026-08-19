@@ -76,12 +76,46 @@ export async function ackOccurrence(
 }
 
 /**
+ * Sits one morning out, leaving the schedule itself running.
+ *
+ * The distinction the alarms list draws with two different controls: the toggle
+ * turns a standing alarm off for every morning, this is "not tomorrow" and
+ * expires by itself. The server keeps the row, so the list can still show which
+ * morning was skipped rather than having it vanish.
+ */
+export async function skipOccurrence(occurrenceId: string): Promise<OccurrenceResponse> {
+    return Axios.post<OccurrenceResponse>(API_ENDPOINTS.OCCURRENCES.SKIP(occurrenceId));
+}
+
+/** Puts a skipped morning back, and has it checked straight away. */
+export async function unskipOccurrence(occurrenceId: string): Promise<OccurrenceResponse> {
+    return Axios.post<OccurrenceResponse>(API_ENDPOINTS.OCCURRENCES.UNSKIP(occurrenceId));
+}
+
+/**
+ * Moves the alarm onto the plan already on screen, because the user said so.
+ *
+ * The counterpart to the disruption opt-ins rather than a way around them: with
+ * those off, a delay that would buy twelve minutes in bed is noticed, explained,
+ * and deliberately not acted on. That is right for somebody asleep and wrong for
+ * somebody awake reading the sentence about it.
+ *
+ * Costs nothing: the plan is the one the last check already stored, so this is a
+ * write against data the screen is displaying rather than a new journey lookup.
+ * Throws with `CONFLICT` when the stored plan matches the alarm, which is the
+ * app's cue that there is nothing to apply rather than that something failed.
+ */
+export async function applyStoredPlan(occurrenceId: string): Promise<OccurrenceResponse> {
+    return Axios.post<OccurrenceResponse>(API_ENDPOINTS.OCCURRENCES.APPLY_PLAN(occurrenceId));
+}
+
+/**
  * Throws this morning away and plans it again from live data.
  *
  * The way back from a test. Taking a simulation back lets the monitor plan
- * against reality again, but an alarm the emergency path moved *earlier* only
- * returns to its old time if the device opted into later moves, so a test can
- * leave an alarm stuck early with nothing in the app able to undo it.
+ * against reality again, and an alarm the emergency path moved *earlier* is now
+ * given its anchor back on the next check, so this is no longer the only way out
+ * of one. It still exists for a morning that wants starting over entirely.
  *
  * Spends provider calls, since it plans a journey. That is the price of a clean
  * morning and the reason this is not something a screen does on its own.

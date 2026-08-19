@@ -1,3 +1,4 @@
+import { isReminderId } from '@/alarm/reminders';
 import Storage from '@/utils/modules/Storage';
 
 const STORAGE_KEY = 'alarmLock';
@@ -9,9 +10,23 @@ export interface LockSetting {
     kind: LockKind;
     /** Only meaningful for `MATHS`, kept so switching back remembers the level. */
     difficulty: MathsDifficulty;
+    /**
+     * Which rings of a reminder chain demand the puzzle.
+     *
+     * `ALL` is the default and the honest one. Reminders exist to get somebody
+     * out of bed, and a reminder that can be swiped away without waking up
+     * properly is the reflex-dismissal problem the lock was added for, three
+     * times over.
+     *
+     * `LAST` is for anyone who finds three sums at 07:35 more punishment than
+     * help: the earlier rings become a nudge, and only the ring on the real wake
+     * time asks anything. It has no effect at all when reminders are off, since
+     * then every ring is the last one.
+     */
+    appliesTo: 'ALL' | 'LAST';
 }
 
-export const DEFAULT_LOCK: LockSetting = { kind: 'NONE', difficulty: 'EASY' };
+export const DEFAULT_LOCK: LockSetting = { kind: 'NONE', difficulty: 'EASY', appliesTo: 'ALL' };
 
 /** What the ring screen shows and what it will accept. */
 export interface Challenge {
@@ -132,6 +147,9 @@ export async function readLockSetting(): Promise<LockSetting> {
         return {
             kind: isKind(parsed.kind) ? parsed.kind : 'NONE',
             difficulty: isDifficulty(parsed.difficulty) ? parsed.difficulty : 'EASY',
+            // Defaults to every ring, which is also what a setting stored before
+            // reminders existed should mean: the one ring it had was locked.
+            appliesTo: parsed.appliesTo === 'LAST' ? 'LAST' : 'ALL',
         };
     } catch {
         // Unreadable means unlocked. The alternative is an alarm somebody cannot
@@ -139,6 +157,24 @@ export async function readLockSetting(): Promise<LockSetting> {
         // a lock quietly not applying.
         return DEFAULT_LOCK;
     }
+}
+
+/**
+ * Whether this particular ring has to be earned.
+ *
+ * A reminder is skipped only when its owner asked for that. Everything else,
+ * including any ring that is not part of a chain, is treated as the real alarm,
+ * because the failure this guards against is dismissing one in your sleep and
+ * the safe direction is to ask.
+ */
+export function locksThisRing(setting: LockSetting, osAlarmId: string | undefined): boolean {
+    if (setting.kind === 'NONE') {
+        return false;
+    }
+    if (setting.appliesTo === 'ALL') {
+        return true;
+    }
+    return osAlarmId === undefined || !isReminderId(osAlarmId);
 }
 
 export async function writeLockSetting(setting: LockSetting): Promise<void> {

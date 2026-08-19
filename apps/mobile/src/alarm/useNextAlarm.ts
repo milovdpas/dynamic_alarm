@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { API_ENDPOINTS, OccurrenceState } from '@alarm/types';
+import { API_ENDPOINTS, DEFAULT_REMINDERS, OccurrenceState } from '@alarm/types';
 import type { OccurrenceResponse, Routine, Schedule } from '@alarm/types';
 
 import {
@@ -13,6 +13,7 @@ import {
 import { canGuaranteeAlarm, getAlarmScheduler } from '@/alarm';
 import { resolveAlarmSoundUri } from '@/alarm/alarmSound';
 import { readDisruption, rememberDisruption } from '@/alarm/disruption';
+import { baseAlarmId, reminderTimes, ringId } from '@/alarm/reminders';
 import i18n from '@/i18n/i18n';
 import { rememberHeldAlarm } from '@/push/heldAlarm';
 import { computeLocalPlans } from '@/alarm/localPlan';
@@ -78,7 +79,12 @@ const LOADING: NextAlarm = {
  * answer, and someone who moves their arrival time earlier must get an earlier
  * alarm rather than be quietly refused.
  */
-export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () => void } {
+export function useNextAlarm(): {
+    next: NextAlarm;
+    busy: boolean;
+    refresh: () => void;
+    reload: () => void;
+} {
     const [next, setNext] = useState<NextAlarm>(LOADING);
     const [attempt, setAttempt] = useState(0);
     const [busy, setBusy] = useState(true);
@@ -104,7 +110,23 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
             // A refresh skips the read on purpose: the stored plans are exactly
             // what the user is asking to have recomputed.
             const existing = force ? [] : await listOccurrences({ live: true });
-            const occurrences = existing.length > 0 ? existing : await armActiveSchedules();
+            const listed = existing.length > 0 ? existing : await armActiveSchedules();
+
+            /*
+             * Skipped mornings are listed but never acted on here.
+             *
+             * The server keeps them in the list so the alarms tab can show a
+             * morning as skipped rather than having it disappear, which would
+             * read as a deleted schedule. Everything below this line arms,
+             * acknowledges and holds alarms, and doing any of that to a morning
+             * somebody deliberately sat out is the one outcome the skip exists
+             * to prevent. Dropping them here also lets `cancelOrphans` do the
+             * rest: the alarm the OS is still holding for it is not wanted, so
+             * it is cancelled in the ordinary way.
+             */
+            const occurrences = listed.filter(
+                (occurrence) => occurrence.state !== OccurrenceState.SKIPPED,
+            );
 
             // Alarms the OS still holds for mornings that no longer exist. A
             // deleted schedule that keeps ringing is worse than one that never
@@ -320,7 +342,22 @@ export function useNextAlarm(): { next: NextAlarm; busy: boolean; refresh: () =>
         setAttempt((count) => count + 1);
     }, []);
 
-    return { next, busy, refresh };
+    /**
+     * Reads the mornings again and re-arms, without re-planning any of them.
+     *
+     * For a change made through the API that the server has already worked out,
+     * where the app's job is only to notice: moving the alarm by hand is the
+     * case it exists for. `refresh` would be wrong there, because forcing sends
+     * every active schedule back through the planner and spends an NS and a
+     * TomTom request to arrive at the time that was just applied.
+     */
+    const reload = useCallback(() => {
+        setBusy(true);
+        // Deliberately not touching `forceNext`, which is the whole difference.
+        setAttempt((count) => count + 1);
+    }, []);
+
+    return { next, busy, refresh, reload };
 }
 
 /**
@@ -369,6 +406,13 @@ async function armLocally(): Promise<NextAlarm | null> {
         id: `local-${soonest.scheduleId}`,
         scheduleId: soonest.scheduleId,
         scheduleName: soonest.scheduleName,
+        // Read from the cached schedule, so an offline morning still rings the
+        // number of times its owner asked for. Falling back to a single ring
+        // would be a silent downgrade on exactly the mornings where nothing
+        // else can be checked.
+        reminders:
+            schedules.body.find((schedule) => schedule.id === soonest.scheduleId)?.reminders ??
+            DEFAULT_REMINDERS,
         date: soonest.date,
         state: OccurrenceState.ARMED,
         anchorWakeAt: soonest.plan.wakeUpAt,
@@ -451,7 +495,10 @@ async function cancelOrphans(occurrences: OccurrenceResponse[]): Promise<void> {
     const wanted = new Set(occurrences.map((occurrence) => `occurrence-${occurrence.id}`));
 
     for (const id of await scheduler.listScheduled()) {
-        if (id.startsWith('occurrence-') && !wanted.has(id)) {
+        // Compared with any reminder suffix stripped. A chain of rings belongs
+        // to the morning it precedes, and matching the raw id would have found
+        // every reminder unwanted and cancelled the lot on the next refresh.
+        if (id.startsWith('occurrence-') && !wanted.has(baseAlarmId(id))) {
             await scheduler.cancel(id).catch(() => undefined);
         }
     }
@@ -475,22 +522,38 @@ async function arm(occurrence: OccurrenceResponse): Promise<boolean> {
     // Re-arming replaces rather than stacks, and a superseded time cannot
     // survive as a second entry that still fires.
     const id = `occurrence-${occurrence.id}`;
+    const soundUri = await resolveAlarmSoundUri();
 
-    await scheduler.schedule({
-        id,
-        at: occurrence.currentWakeAt,
-        // Carried with the alarm rather than read when it rings. After a reboot
-        // the boot receiver re-arms from native storage with no JavaScript
-        // running, so a sound that lived only in app storage would quietly
-        // revert to the default on the mornings that matter most.
-        soundUri: await resolveAlarmSoundUri(),
-        // The i18n instance rather than the hook: this is not React code, and
-        // i18n is initialised synchronously exactly so it is safe from here.
-        title: i18n.t('alarm.ringing_title'),
-        body: i18n.t('home.alarm_body', { name: occurrence.scheduleName }),
-        occurrenceId: occurrence.id,
-    });
+    /*
+     * The wake time last, and any reminders before it.
+     *
+     * `reminderTimes` always ends on the wake time, so the loop below always
+     * arms the real alarm on its original id, whatever the reminder setting
+     * says. That id is load bearing: `heldByOs`, `cancelOrphans` and the ring
+     * screen all key off `occurrence-<id>`.
+     */
+    const times = reminderTimes(occurrence.currentWakeAt, occurrence.reminders);
+    for (const [index, at] of times.entries()) {
+        const ringsBeforeWake = times.length - 1 - index;
+        await scheduler.schedule({
+            id: ringId(id, ringsBeforeWake),
+            at,
+            // Carried with the alarm rather than read when it rings. After a
+            // reboot the boot receiver re-arms from native storage with no
+            // JavaScript running, so a sound that lived only in app storage
+            // would quietly revert to the default on the mornings that matter
+            // most.
+            soundUri,
+            // The i18n instance rather than the hook: this is not React code,
+            // and i18n is initialised synchronously exactly so it is safe here.
+            title: i18n.t('alarm.ringing_title'),
+            body: i18n.t('home.alarm_body', { name: occurrence.scheduleName }),
+            occurrenceId: occurrence.id,
+        });
+    }
 
+    // Only the real alarm is checked. A reminder that failed to arm costs a
+    // nudge; this one is the morning, and it is the claim the screen makes.
     if (!(await scheduler.listScheduled()).includes(id)) {
         return false;
     }

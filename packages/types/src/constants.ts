@@ -1,4 +1,4 @@
-import type { BufferConfig } from './domain';
+import type { BufferConfig, ReminderConfig } from './domain';
 
 /** Single source of truth for route paths, shared by the API and the app. */
 export const API_ENDPOINTS = {
@@ -52,6 +52,23 @@ export const API_ENDPOINTS = {
         SIMULATE: (id: string) => `/api/v1/occurrences/${id}/simulate`,
         /** Throws this morning away and plans it again from live data. */
         RESET: (id: string) => `/api/v1/occurrences/${id}/reset`,
+        /**
+         * Move the alarm to the plan already stored, because the user said so.
+         *
+         * The opt-in switches decide what may happen while somebody sleeps.
+         * This is the same decision taken awake, so it needs no switch and
+         * spends no provider call: the plan is the one the last check stored.
+         */
+        APPLY_PLAN: (id: string) => `/api/v1/occurrences/${id}/apply-plan`,
+        /**
+         * Sit this one morning out, or put it back.
+         *
+         * About the occurrence rather than the schedule, which is the whole
+         * distinction: pausing a schedule stops it arming anything at all,
+         * while this is "not tomorrow".
+         */
+        SKIP: (id: string) => `/api/v1/occurrences/${id}/skip`,
+        UNSKIP: (id: string) => `/api/v1/occurrences/${id}/unskip`,
     },
     PLAN: {
         PREVIEW: '/api/v1/plan/preview',
@@ -101,6 +118,18 @@ export const DEFAULT_BUFFERS: BufferConfig = {
     wakeSlackMinutes: 0,
 };
 
+/**
+ * One ring, which is the behaviour every schedule had before reminders existed.
+ *
+ * The interval is carried even though a single ring never uses it, so that
+ * turning reminders on in the editor starts from a sensible gap rather than
+ * from zero.
+ */
+export const DEFAULT_REMINDERS: ReminderConfig = {
+    count: 1,
+    intervalMinutes: 5,
+};
+
 /** Starting point for a new user's routine, editable immediately after. */
 export const DEFAULT_ROUTINE_STEPS = [
     { label: 'Shower', minutes: 10 },
@@ -131,6 +160,25 @@ export const APP_CONSTANTS = {
 
         /** Classic snooze length. Only used when {@link SNOOZE_ENABLED}. */
         SNOOZE_MINUTES: 9,
+
+        /**
+         * Reminder alarms: the deterministic answer to the snooze problem above.
+         *
+         * Snooze is dishonest here because it eats the safety margin after the
+         * fact. Reminders take the opposite approach: the rings are decided in
+         * advance, the **last** one lands on the wake time, and the earlier ones
+         * are pulled back before it. Nothing comes out of the margin, because
+         * the margin still starts where it always did.
+         *
+         * Bounded so a reminder chain cannot walk an alarm into the previous
+         * evening. Five rings twenty minutes apart is already an hour and a
+         * half of alarms, which is past the point of being a kindness.
+         */
+        REMINDERS: {
+            MAX_COUNT: 5,
+            MAX_INTERVAL_MINUTES: 20,
+            DEFAULT_INTERVAL_MINUTES: 5,
+        },
     },
 
     ROUTINE: {

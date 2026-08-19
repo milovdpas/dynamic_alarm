@@ -400,7 +400,7 @@ export class MonitorService {
         occurrence.lastCheckedAt = now;
         occurrence.nextCheckAt = this.occurrences.nextCheck(plan, schedule.timezone, now);
 
-        const reason = this.reasonFor(previousPlan.journey, refreshed, schedule.mode, gone);
+        const detected = this.reasonFor(previousPlan.journey, refreshed, schedule.mode, gone);
         const held = occurrence.currentWakeAt ?? occurrence.anchorWakeAt ?? now;
         const current = held.toISOString();
         /**
@@ -426,22 +426,78 @@ export class MonitorService {
          * they would be with no app at all.
          */
         const emergencyEarlier =
-            reason === WakeChangeReason.CANCELLATION && plannedWake.getTime() < held.getTime();
+            detected === WakeChangeReason.CANCELLATION && plannedWake.getTime() < held.getTime();
 
-        const allowed = emergencyEarlier || this.allowedBy(device, reason, schedule.mode);
+        const optedIn = emergencyEarlier || this.allowedBy(device, detected, schedule.mode);
+
+        /**
+         * The alarm may always move back towards the anchor, never past it.
+         *
+         * Every comparison here is against `held`, wherever the alarm is now,
+         * and that left the emergency path one-directional: it overrides every
+         * opt-in to drag somebody earlier, and nothing could put them back.
+         * A cancellation moved an alarm from 07:43 to 07:29, the cancellation
+         * cleared, and 07:43 then read as a *later* move and was refused by the
+         * very setting that had just been overridden. The user was woken
+         * fourteen minutes early every morning until the row was re-armed by
+         * hand.
+         *
+         * The opt-in was never a promise about `currentWakeAt`. It is a promise
+         * about the **anchor**: you will not be woken later than the time you
+         * agreed to without saying so. Anything at or below the anchor is
+         * ground the user accepted when the morning was armed, so giving it
+         * back is not moving them later, it is releasing an emergency that no
+         * longer applies.
+         *
+         * **Clamped, not gated.** A `target <= anchor` test would be brittle in
+         * exactly the common case: the anchor is a pessimistic estimate, so a
+         * recompute landing a minute past it is ordinary, and a gate would
+         * leave the alarm stuck at 07:29 over one minute. Clamping reproduces
+         * the counterfactual instead, the time they would have had if the
+         * cancellation had never happened.
+         *
+         * In the steady state `held` **is** the anchor, so the clamp equals
+         * `held` and nothing moves. This branch is unreachable unless the
+         * server itself has pulled the alarm below its anchor, which is what
+         * makes it incapable of changing any behaviour that is already right.
+         */
+        const anchor = occurrence.anchorWakeAt;
+        const returning =
+            !optedIn &&
+            anchor !== null &&
+            Math.min(plannedWake.getTime(), anchor.getTime()) > held.getTime();
+
+        const targetAt =
+            returning && anchor !== null
+                ? new Date(Math.min(plannedWake.getTime(), anchor.getTime()))
+                : plannedWake;
+
+        /**
+         * What the trail and the phone are told.
+         *
+         * A return is named for what it is rather than borrowing whatever the
+         * timetable happened to be doing, because "the delay cleared" is not
+         * what happened to this alarm. `detected` stays the truth about the
+         * journey and is still what decides the settings and the replacement
+         * below.
+         */
+        const reason = returning ? WakeChangeReason.RETURNED_TO_ANCHOR : detected;
 
         const worthMoving =
-            allowed &&
-            shouldPushWakeChange(current, plan.wakeUpAt, schedule.timezone, {
+            (optedIn || returning) &&
+            shouldPushWakeChange(current, targetAt.toISOString(), schedule.timezone, {
                 // Earlier is routine for traffic, and permitted for a
                 // cancellation only because not moving would be worse.
                 //
                 // A recomputed fixed-travel morning may also move earlier. It
                 // has no disruption to be careful about, and refusing would mean
                 // an alarm that knows it should ring sooner and does not.
+                //
+                // Never for a return, which only ever moves later by
+                // definition, so it needs no permission in this direction.
                 allowEarlier:
-                    reason === WakeChangeReason.TRAFFIC_WORSE ||
-                    reason === WakeChangeReason.ROUTE_CHANGED ||
+                    detected === WakeChangeReason.TRAFFIC_WORSE ||
+                    detected === WakeChangeReason.ROUTE_CHANGED ||
                     emergencyEarlier,
             });
 
@@ -469,7 +525,17 @@ export class MonitorService {
         }
 
         const from = occurrence.currentWakeAt;
-        occurrence.currentWakeAt = DateTime.fromISO(plan.wakeUpAt, { setZone: true }).toJSDate();
+        /*
+         * The clamped time, which is the plan's own except on a return.
+         *
+         * `departHomeAt` and the snapshot keep the plan's values either way.
+         * They describe the journey, and the journey has not been clamped: only
+         * the moment somebody is woken has, deliberately on the early side. The
+         * two disagreeing by a minute or two is not new either, it is what
+         * already happens every night to anyone whose live plan drifts later
+         * than a wake time they did not opt into moving.
+         */
+        occurrence.currentWakeAt = targetAt;
         occurrence.departHomeAt = DateTime.fromISO(plan.departHomeAt, {
             setZone: true,
         }).toJSDate();
@@ -477,7 +543,9 @@ export class MonitorService {
         occurrence.ctxRecon = plan.journey?.ctxRecon ?? null;
         occurrence.watchedStationCodes = plan.journey?.watchedStationCodes ?? null;
 
-        if (reason === WakeChangeReason.CANCELLATION && previousPlan.journey !== null) {
+        // `detected`, not `reason`: a return that happens to be a cancellation
+        // still has a train nobody should be left waiting for.
+        if (detected === WakeChangeReason.CANCELLATION && previousPlan.journey !== null) {
             // Remember what was lost. The new plan is a different train, and a
             // screen that shows only the replacement leaves someone looking for
             // a service that is not coming.
@@ -491,15 +559,18 @@ export class MonitorService {
         // indistinguishable from the product being wrong.
         await AlarmEvent.create({
             occurrenceId: occurrence.id,
+            // The time actually written, not the one the plan asked for. On a
+            // return those differ, and the trail has to record the move that
+            // happened rather than the one that was proposed.
             type:
-                from !== null && plannedWake.getTime() < from.getTime()
+                from !== null && targetAt.getTime() < from.getTime()
                     ? AlarmEventType.MOVED_EARLIER
                     : AlarmEventType.MOVED_LATER,
             fromAt: from,
             toAt: occurrence.currentWakeAt,
             reason,
             simulated: simulated !== undefined,
-            message: this.describe(reason, plan, simulated !== undefined),
+            message: this.describe(reason, targetAt, schedule.timezone, simulated !== undefined),
         }).save();
 
         // After the event, deliberately. The trail is what makes a wrong wake
@@ -661,8 +732,20 @@ export class MonitorService {
      * English whatever language its reader chose. This one exists for whoever is
      * reading the table at 09:00 trying to explain a wake time.
      */
-    private describe(reason: WakeChangeReason, plan: WakePlan, simulated: boolean): string {
-        const at = DateTime.fromISO(plan.wakeUpAt, { setZone: true }).toFormat('HH:mm');
+    private describe(
+        reason: WakeChangeReason,
+        wakeAt: Date,
+        timezone: string,
+        simulated: boolean,
+    ): string {
+        // The time the alarm was actually set to. Taking it from the plan was
+        // right until the anchor clamp existed, and would now report a time
+        // nothing is holding on exactly the moves that need explaining most.
+        //
+        // Zoned explicitly. The plan carried its own offset, a `Date` does not,
+        // and a server in UTC would otherwise write "05:43" into the one line
+        // somebody reads to explain a 07:43 alarm.
+        const at = DateTime.fromJSDate(wakeAt).setZone(timezone).toFormat('HH:mm');
         const prefix = simulated ? 'SIMULATED: ' : '';
         switch (reason) {
             case WakeChangeReason.CANCELLATION:
@@ -671,6 +754,8 @@ export class MonitorService {
                 return `${prefix}Traffic is heavier than planned, so the alarm moved to ${at}.`;
             case WakeChangeReason.DELAY_RESOLVED:
                 return `${prefix}The delay cleared, so the alarm moved to ${at}.`;
+            case WakeChangeReason.RETURNED_TO_ANCHOR:
+                return `${prefix}The earlier wake-up is no longer needed, so the alarm went back to ${at}.`;
             case WakeChangeReason.ROUTE_CHANGED:
                 return `${prefix}The plan was recomputed, so the alarm moved to ${at}.`;
             default:

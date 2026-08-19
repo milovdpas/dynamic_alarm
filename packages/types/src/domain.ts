@@ -85,6 +85,26 @@ export interface BufferConfig {
     wakeSlackMinutes: number;
 }
 
+/**
+ * Extra rings before the real one, in place of a snooze button.
+ *
+ * The **last** ring is the wake time, and the earlier ones are pulled back
+ * before it: three rings five minutes apart on an 07:45 wake time means 07:35,
+ * 07:40 and 07:45. So the wake time itself never moves, and neither does the
+ * safety margin computed from it. Somebody who gets up on the first ring has
+ * simply given themselves ten minutes they did not have to use.
+ *
+ * Derived on the device rather than stored per morning. The engine's answer is
+ * still "be up by 07:45", and nothing on the server needs to know that the phone
+ * intends to say so three times.
+ */
+export interface ReminderConfig {
+    /** Rings in total, the final one included. One means no reminders. */
+    count: number;
+    /** Minutes between consecutive rings. Ignored when `count` is one. */
+    intervalMinutes: number;
+}
+
 export interface Schedule {
     id: string;
     name: string;
@@ -137,6 +157,8 @@ export interface Schedule {
     journeyOffset: number;
     /** Travel duration in minutes. Only used when `mode` is `FIXED`. */
     fixedTravelMinutes?: number;
+    /** Extra rings before the wake time. See {@link ReminderConfig}. */
+    reminders: ReminderConfig;
     buffers: BufferConfig;
     timezone: TimeZone;
     active: boolean;

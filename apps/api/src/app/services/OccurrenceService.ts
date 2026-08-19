@@ -1,18 +1,25 @@
 import { DateTime } from 'luxon';
-import { MoreThanOrEqual } from 'typeorm';
+import { In, MoreThanOrEqual } from 'typeorm';
 import { APP_CONSTANTS, AlarmEventType, OccurrenceState, WakeChangeReason } from '@alarm/types';
 import type { WakePlan } from '@alarm/types';
 import { computeNextCheckAt } from '@alarm/core';
 
 import AlarmEvent from '../models/AlarmEvent.entity';
-import type Schedule from '../models/Schedule.entity';
+import Schedule from '../models/Schedule.entity';
 import ScheduleOccurrence from '../models/ScheduleOccurrence.entity';
 import { SchedulePlanService } from './SchedulePlanService';
 import type { SchedulePlanProblem } from './SchedulePlanService';
 
 export type ArmResult =
-    | { ok: true; occurrence: ScheduleOccurrence; scheduleName: string }
+    // The schedule itself rather than only its name: the morning's DTO carries
+    // the reminder setting, and the caller that renders it has no other way to
+    // reach the schedule this was armed from.
+    | { ok: true; occurrence: ScheduleOccurrence; schedule: Schedule }
     | { ok: false; problem: SchedulePlanProblem };
+
+export type ApplyPlanResult =
+    | { ok: true; occurrence: ScheduleOccurrence }
+    | { ok: false; problem: 'NO_PLAN' | 'ALREADY_APPLIED' };
 
 /**
  * Turns a schedule into one morning's armed occurrence.
@@ -52,7 +59,22 @@ export class OccurrenceService {
              * Bounded by the simulation's own expiry, so this cannot become a
              * way for a morning to stop tracking reality.
              */
-            return { ok: true, occurrence: simulated, scheduleName: schedule.name };
+            return { ok: true, occurrence: simulated, schedule };
+        }
+
+        /**
+         * A morning its owner has skipped stays skipped.
+         *
+         * Checked here, before anything is planned, for two reasons. The app
+         * re-arms every active schedule whenever Today is focused, and `arm`
+         * sets `state = ARMED` on whatever row it finds, so without this the
+         * next glance at the app would quietly undo the skip. And planning
+         * first would spend an NS request working out a journey for a morning
+         * nobody is travelling on.
+         */
+        const skipped = await this.skippedNext(schedule);
+        if (skipped !== null) {
+            return { ok: true, occurrence: skipped, schedule };
         }
 
         const planned = await this.plans.forSchedule(schedule);
@@ -112,7 +134,114 @@ export class OccurrenceService {
 
         await this.record(occurrence, previous, plan);
 
-        return { ok: true, occurrence, scheduleName: planned.response.scheduleName };
+        return { ok: true, occurrence, schedule };
+    }
+
+    /**
+     * Moves the alarm onto the plan already stored, because its owner asked.
+     *
+     * The opt-in switches decide what may happen to somebody who is asleep, and
+     * that is the only reason they are cautious. Awake and tapping a button is
+     * not that situation: the app has already worked the better time out, said
+     * so on screen, and been told to go on. Refusing there would be the app
+     * knowing the answer and withholding it.
+     *
+     * **Both directions.** An explicit request is honoured whichever way it
+     * points, the same rule the home screen's refresh already follows. The
+     * monotonic guarantee protects against silent moves, not against people.
+     *
+     * Costs no provider call. The plan being applied is the one the last check
+     * stored, which is also the one whose breakdown is on screen, so this
+     * cannot apply a time the user was not looking at.
+     */
+    async applyStoredPlan(occurrence: ScheduleOccurrence): Promise<ApplyPlanResult> {
+        const plan = occurrence.planSnapshot;
+        if (plan === null) {
+            return { ok: false, problem: 'NO_PLAN' };
+        }
+
+        const from = occurrence.currentWakeAt;
+        const to = instant(plan.wakeUpAt);
+
+        // The same floor the monitor pushes under. Below it there is nothing to
+        // apply, and a button that reports success while changing nothing is
+        // worse than one that says there is nothing to do.
+        const minutes = Math.abs(to.getTime() - (from?.getTime() ?? to.getTime())) / 60_000;
+        if (from !== null && minutes < APP_CONSTANTS.MONITOR.MIN_PUSH_DELTA_MINUTES) {
+            return { ok: false, problem: 'ALREADY_APPLIED' };
+        }
+
+        occurrence.currentWakeAt = to;
+        occurrence.departHomeAt = instant(plan.departHomeAt);
+        await occurrence.save();
+
+        await AlarmEvent.create({
+            occurrenceId: occurrence.id,
+            type:
+                from !== null && to.getTime() < from.getTime()
+                    ? AlarmEventType.MOVED_EARLIER
+                    : AlarmEventType.MOVED_LATER,
+            fromAt: from,
+            toAt: to,
+            reason: WakeChangeReason.USER_APPLIED,
+            // The plan may well have come from a simulation, and the trail has
+            // to keep saying so or a test looks like the product being wrong.
+            simulated: occurrence.simulationKind !== null,
+            message: `Applied by hand, so the alarm moved to ${clock(plan.wakeUpAt)}.`,
+        }).save();
+
+        return { ok: true, occurrence };
+    }
+
+    /**
+     * The next morning for this schedule, if its owner has skipped it.
+     *
+     * Matched on the exact date rather than "the soonest skipped row", so a
+     * skip left behind on a morning that has already passed cannot shadow the
+     * one being armed now.
+     */
+    private async skippedNext(schedule: Schedule): Promise<ScheduleOccurrence | null> {
+        const date = this.plans.nextDate(schedule);
+        if (date === null) {
+            return null;
+        }
+
+        return ScheduleOccurrence.findOneBy({
+            scheduleId: schedule.id,
+            date,
+            state: OccurrenceState.SKIPPED,
+        });
+    }
+
+    /**
+     * Sits this one morning out, leaving the schedule itself alone.
+     *
+     * The difference the alarms list draws: pausing a schedule stops it arming
+     * anything, while this is "not tomorrow". The row stays, so the list can
+     * show which morning was skipped and what the next real one is, and the
+     * plan stays with it so nothing has to be recomputed to change your mind.
+     *
+     * `nextCheckAt` is cleared along with the state, because the monitor claims
+     * on both. A row left due is a row claimed on every tick for a morning that
+     * is not happening.
+     */
+    async skip(occurrence: ScheduleOccurrence): Promise<ScheduleOccurrence> {
+        occurrence.state = OccurrenceState.SKIPPED;
+        occurrence.nextCheckAt = null;
+        return occurrence.save();
+    }
+
+    /**
+     * Puts a skipped morning back, and asks the monitor to look at it now.
+     *
+     * Due immediately rather than on the usual ladder: the stored plan is as old
+     * as the skip, and somebody undoing one is usually doing it the night
+     * before, well inside the window where the timetable matters.
+     */
+    async unskip(occurrence: ScheduleOccurrence): Promise<ScheduleOccurrence> {
+        occurrence.state = OccurrenceState.ARMED;
+        occurrence.nextCheckAt = new Date();
+        return occurrence.save();
     }
 
     /**
@@ -165,7 +294,17 @@ export class OccurrenceService {
      */
     async findArmed(deviceId: string): Promise<ScheduleOccurrence[]> {
         return ScheduleOccurrence.find({
-            where: { deviceId, state: OccurrenceState.ARMED },
+            /*
+             * Skipped mornings included, which is why this is not just "armed".
+             * The alarms list has to show a skipped row as skipped: dropping it
+             * would make the morning vanish from the list entirely, which reads
+             * as the schedule having been deleted rather than sat out once.
+             *
+             * Callers that *act* on these must filter on `state` themselves. The
+             * device does, because arming a skipped morning is precisely what
+             * the skip is meant to prevent.
+             */
+            where: { deviceId, state: In([OccurrenceState.ARMED, OccurrenceState.SKIPPED]) },
             order: { currentWakeAt: 'ASC' },
         });
     }

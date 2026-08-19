@@ -71,4 +71,6 @@ const KEYS: Record<WakeChangeReason, string> = {
     [WakeChangeReason.TRAFFIC_WORSE]: 'traffic_worse',
     [WakeChangeReason.TRAFFIC_BETTER]: 'traffic_better',
     [WakeChangeReason.USER_EDITED]: 'user_edited',
+    [WakeChangeReason.RETURNED_TO_ANCHOR]: 'returned_to_anchor',
+    [WakeChangeReason.USER_APPLIED]: 'user_applied',
 };

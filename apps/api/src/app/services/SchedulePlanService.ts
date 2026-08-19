@@ -177,7 +177,15 @@ export class SchedulePlanService {
         return { ok: true, input, date };
     }
 
-    private nextDate(schedule: Schedule): string | null {
+    /**
+     * The date this schedule would arm next, with no provider call.
+     *
+     * Public because arming has to know which morning it is about to plan
+     * before it plans it: a skipped morning must cost nothing, and asking NS
+     * for a journey only to throw the answer away is exactly the call this
+     * project counts.
+     */
+    nextDate(schedule: Schedule): string | null {
         const next = nextOccurrenceDate(
             schedule.daysOfWeek,
             schedule.arrivalTime.slice(0, 5),

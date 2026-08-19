@@ -796,6 +796,107 @@ Plus a timezone bug behind all of it: `created_at` defaulted to the database
 server's `CURRENT_TIMESTAMP`, which is local, while everything else is UTC. See
 CONVENTIONS.md.
 
+## M2.6: the alarm answers to its owner, 2026-08-20
+
+Four related pieces, all circling one gap: the app decided when to wake you and
+you had almost no way to overrule it.
+
+### The alarm could get stuck early, and now returns to its anchor
+
+Every comparison in `MonitorService.check` was against `held`, wherever the alarm
+is *now*. The emergency-earlier path overrides every opt-in to drag somebody
+earlier, and nothing could move them back: returning to 07:43 from 07:29 read as a
+*later* move and was refused by the very setting that had just been overridden.
+With the opt-ins off, which is the default, that alarm stayed fourteen minutes
+early every morning until the row was re-armed by hand.
+
+**The rule: the alarm may always move back towards the anchor, never past it.**
+The opt-in was never a promise about `currentWakeAt`; it is a promise about the
+anchor, and anything at or below the anchor is ground its owner accepted when the
+morning was armed.
+
+Clamped rather than gated. A `target <= anchor` test is brittle in the common
+case: the anchor is a pessimistic estimate, so a recompute landing a minute past
+it is ordinary, and a gate would leave the alarm stuck over that minute. Clamping
+to `min(target, anchor)` reproduces the counterfactual, the time they would have
+had if the cancellation had never happened.
+
+The property that made it safe to add: in the steady state `held` **is** the
+anchor, so the clamp equals `held` and nothing moves. The branch is unreachable
+unless the server has itself pulled the alarm below its anchor, so it cannot
+change any behaviour that was already right. `RETURNED_TO_ANCHOR` names it in the
+trail rather than borrowing `DELAY_RESOLVED`, which is about the timetable.
+
+### A declined move can be applied by hand
+
+With the opt-ins off, a delay that would buy twelve minutes in bed was noticed,
+explained on screen, and then deliberately not acted on. `POST
+/occurrences/:id/apply-plan` is how its owner says go on: it writes the stored
+plan, which costs no provider call because the last check already computed it.
+
+Both directions, because it is an explicit request, the same position the home
+screen's refresh already took. The monotonic rule guards against silent moves,
+not against people.
+
+### Schedules became alarms
+
+The Schedules tab listed the things that *produce* alarms, so "what is set for
+tomorrow" was assembled by the reader out of a schedule, whether it was active,
+and whichever morning it had armed. It is one list of times now, with hand-set
+one-off alarms in it.
+
+- **The switch is the standing alarm**, on or off. Skipping one morning is a
+  separate control, because it expires by itself and no switch can say that, and
+  because a switch meaning "off for good" on one row and "off for tomorrow" on the
+  next is one nobody can predict.
+- `OccurrenceState.SKIPPED` already existed, unused, commented "User skipped this
+  day". The trap was that the app re-arms every active schedule on focus, and
+  `arm` set `state = ARMED` on whatever row it found, so opening the app would
+  have undone the skip. The guard runs **before** planning, using
+  `nextOccurrenceDate`, so a skipped morning also costs no NS request.
+- **One-off alarms are stored on the device only.** They have no journey, no
+  monitor and no push, so the server would hold a row it could do nothing with,
+  and it would buy no durability either: the device token lives in SecureStore,
+  which Android clears on uninstall.
+
+### Reminder alarms, which is what this app has instead of snooze
+
+Snooze is dishonest on a journey-derived alarm: the wake time is already the
+latest that still gets you there, so every snoozed minute comes out of the safety
+margin. Reminders invert it. The rings are chosen in advance, the **last** one is
+the real wake time, and the earlier ones are pulled back before it, so nothing
+touches the margin and the extra time is paid for by getting up sooner.
+
+Derived on the device from the wake time it already has. Nothing on the server
+reads the two new columns beyond storing them, and `reminders` is deliberately
+absent from `affectsPlanning`.
+
+The lock defaults to every ring, with `appliesTo: 'LAST'` for anyone who finds
+three sums at 07:35 more punishment than help.
+
+### Two bugs found while building it
+
+- **Every schedule edit was discarding the armed morning.** `.partial()` makes a
+  key optional but does **not** stop a `.default()` inside it from firing, so
+  every update arrived carrying `originAccess`, `destinationAccess` and
+  `journeyOffset` whether or not anybody sent them. All three are on the planning
+  list, so renaming a schedule threw away its occurrence and spent an NS request
+  rebuilding an identical plan. The list exists precisely to prevent that, and its
+  own comment said so. Defaults are right for creation, where a field is genuinely
+  absent; on an update an absent key means "leave it alone", which is not a value.
+- **Reminder ids keyed on the wrong moment.** Identifying each ring by the day's
+  wake time left every id unchanged when the interval changed, so the
+  reconciliation saw them as already held and the OS kept the old times for ever.
+  Each ring carries its own moment now.
+
+### Not verified on hardware
+
+Everything here passes locally: 170 API tests, 144 app tests, 76 engine tests,
+types and lint clean, with the anchor clamp, the skip guard, the schedule-edit
+scope and the reminder ids each mutation-tested. **None of it has rung on a
+phone.** Reminders firing in sequence on a locked device, a skipped morning
+staying silent, and a one-off alarm surviving a reboot all need a `preview` build.
+
 ## What an API review found, 2026-08-19
 
 Nine findings, all fixed. Two of them were silent: the code reported success and
@@ -1193,6 +1294,11 @@ Reversals and corrections worth remembering. Rationale lives in PLAN.md.
 
 | Date | Decision |
 |---|---|
+| 2026-08-20 | **An override that only works in one direction is half a bug.** The emergency-earlier path ignored every opt-in to pull an alarm earlier, and nothing could put it back, because the return was measured against where the alarm had been dragged rather than against what its owner agreed to. A setting is a promise about the anchor, not about the current value. |
+| 2026-08-20 | **Clamp where a gate would be brittle.** Returning to the anchor only if the recomputed time is at or below it fails whenever the pessimistic estimate is beaten by a minute, which is the ordinary case. `min(target, anchor)` has no such edge, and reproduces exactly the counterfactual. |
+| 2026-08-20 | **`.partial()` does not disable `.default()`.** Every schedule update arrived carrying three fields nobody sent, all of them on the list that decides whether to discard an armed morning, so every edit spent a provider call rebuilding an identical plan. A default answers "what should be stored when this is absent", which is a creation question; on an update, absent means leave it alone. |
+| 2026-08-20 | **An id used for reconciliation has to encode everything that can change.** Reminder rings keyed on the day's wake time kept identical ids when the interval changed, so a set comparison found nothing to do and the phone kept the old times. |
+| 2026-08-20 | **A list of the things that produce alarms is not a list of alarms.** The Schedules tab made the reader assemble "what is set for tomorrow" out of three facts. One list of times, with the switch meaning the standing alarm and skipping as its own control, answers it directly. |
 | 2026-08-19 | **Renaming a reason moves it to a different branch, and that branch needs checking too.** Calling a fixed-travel recomputation `ROUTE_CHANGED` instead of a cancellation was correct and quietly cost it `emergencyEarlier`, so an alarm that knew it should ring sooner was refused. Routing the car through `REPLAN` was correct and quietly reached the delay branch, which had no service name and borrowed a hardcoded `fromName`. Both were introduced by a change whose whole purpose was to stop misreporting these modes. |
 | 2026-08-19 | **`satisfies readonly Union[]` is not an exhaustiveness check.** It verifies each element belongs to the union, never that the union is covered, so the array that was supposed to prevent a dropped push kind would have permitted the next one. `Record<Union, true>` is the construct that fails to compile. |
 | 2026-08-19 | **A payload guard should ask for what it needs to act, not for everything it expects.** Requiring `message` lost every wake push the day the server stopped sending prose; requiring its replacement would fail the same way. It asks for the occurrence and the time, and the consumers default the rest. This is the last place a message disappears without anything saying so. |

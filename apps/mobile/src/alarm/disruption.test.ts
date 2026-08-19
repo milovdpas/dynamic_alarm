@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { JourneyStatus, LegType, SimulationKind } from '@alarm/types';
-import type { Journey, JourneyLeg, OccurrenceResponse } from '@alarm/types';
+import type { DeviceResponse, Journey, JourneyLeg, OccurrenceResponse } from '@alarm/types';
 
 const store = new Map<string, string>();
 
@@ -19,7 +19,7 @@ vi.mock('@/utils/modules/Storage', () => ({
     isPersistent: () => true,
 }));
 
-const { readDisruption, readRememberedDisruption, rememberDisruption } = await import(
+const { readDisruption, readRememberedDisruption, rememberDisruption, wasDeclined } = await import(
     '@/alarm/disruption'
 );
 
@@ -259,5 +259,64 @@ describe('the note the ring screen reads at 06:00', () => {
         store.set('lastDisruption', '{{{');
 
         expect(await readRememberedDisruption('morning-a')).toBeNull();
+    });
+});
+
+describe('offering to move the alarm by hand', () => {
+    /*
+     * One predicate decides two things: the sentence explaining why nothing
+     * happened, and whether the button that would change that is on screen.
+     * Splitting them would drift, and the drift looks like the app saying "your
+     * alarm has not moved, because sleeping longer is switched off" with nothing
+     * beside it to do about that.
+     */
+    const nothingAllowed = {
+        allowLaterWakeOnDelay: false,
+        allowLaterWakeOnCancellation: false,
+    } as DeviceResponse;
+
+    it('offers when a delay was noticed and the switch is off', () => {
+        expect(wasDeclined({ cancelled: false, gained: 0, device: nothingAllowed })).toBe(true);
+    });
+
+    it('reads the switch that matches the disruption, not the other one', () => {
+        // Both are off by default, so crossing them wires up a button that works
+        // by coincidence and stops the moment somebody changes one of them.
+        const allowsDelays = {
+            allowLaterWakeOnDelay: true,
+            allowLaterWakeOnCancellation: false,
+        } as DeviceResponse;
+
+        expect(wasDeclined({ cancelled: false, gained: 0, device: allowsDelays })).toBe(false);
+        expect(wasDeclined({ cancelled: true, gained: 0, device: allowsDelays })).toBe(true);
+    });
+
+    it('stays quiet once the alarm has actually moved', () => {
+        // Twelve minutes already gained, so there is nothing left to apply and
+        // the button would move the alarm nowhere.
+        expect(wasDeclined({ cancelled: false, gained: 12, device: nothingAllowed })).toBe(false);
+    });
+
+    it('stays quiet when the alarm was pulled earlier instead', () => {
+        // The emergency path, which overrides the switches. Offering to move it
+        // anyway over a move that already happened reads as an undo, and it is
+        // not one.
+        expect(wasDeclined({ cancelled: true, gained: -14, device: nothingAllowed })).toBe(false);
+    });
+
+    it('stays quiet when the buffers absorbed it and no switch is to blame', () => {
+        const permissive = {
+            allowLaterWakeOnDelay: true,
+            allowLaterWakeOnCancellation: true,
+        } as DeviceResponse;
+
+        expect(wasDeclined({ cancelled: false, gained: 0, device: permissive })).toBe(false);
+    });
+
+    it('stays quiet when the settings for this device never arrived', () => {
+        // Never read, rather than assumed off. Offering to override a preference
+        // nobody has fetched is a guess, about the one thing this app should
+        // never guess at.
+        expect(wasDeclined({ cancelled: false, gained: 0, device: null })).toBe(false);
     });
 });

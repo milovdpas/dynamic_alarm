@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+    AlarmEventType,
     LegType,
     OccurrenceState,
     PUSH_MESSAGE_TYPE,
@@ -53,6 +54,15 @@ class StubProvider implements TransportProvider {
     refresh(): Promise<RefreshResult> {
         return Promise.resolve(this.result);
     }
+}
+
+/** The occurrence's own journey, unchanged, which is an ordinary morning. */
+function runningNormally(occurrence: ScheduleOccurrence): void {
+    const journey = occurrence.planSnapshot?.journey ?? null;
+    if (journey === null) {
+        throw new Error('The factory is meant to seed a journey.');
+    }
+    useProvider({ status: 'CURRENT', journey });
 }
 
 /** A tick that asks NS nothing: the sweep is not what these tests are about. */
@@ -360,6 +370,103 @@ describe('a rail morning whose trip really has gone', () => {
             throw new Error('The alarm should have been moved to a replacement.');
         }
         expect(moved.cancelledService).toBe('Intercity 3052');
+    });
+});
+
+describe('an alarm an emergency dragged below its anchor', () => {
+    /*
+     * The stuck case, end to end.
+     *
+     * Every comparison the monitor makes is against wherever the alarm is now,
+     * which made the emergency path one-directional: it overrides every opt-in
+     * to pull somebody earlier, and putting them back then read as a *later*
+     * move and was refused by the very setting that had just been overridden.
+     * With the opt-ins off, which is the default, the alarm stayed early every
+     * morning until the row was re-armed by hand.
+     */
+    async function draggedEarly(): Promise<ScheduleOccurrence> {
+        const occurrence = await dueMorning(TransportMode.PUBLIC_TRANSPORT);
+        // Both well before anything a recompute could produce, so the plan is
+        // always later than the anchor and the clamp is what is under test
+        // rather than the fixture's arithmetic.
+        const anchor = new Date(Date.now() + 30 * 60 * 1000);
+        await ScheduleOccurrence.update(occurrence.id, {
+            anchorWakeAt: anchor,
+            currentWakeAt: new Date(anchor.getTime() - 14 * 60 * 1000),
+        });
+        // Its own journey back, running normally. A refresh answering `null`
+        // reads as a fixed travel time, which is allowed to move without any
+        // opt-in and so would never reach the clamp being tested here.
+        runningNormally(occurrence);
+        return occurrence;
+    }
+
+    it('is given its anchor back, with every opt-in still off', async () => {
+        const occurrence = await draggedEarly();
+        recordPushes();
+
+        await monitor().tick();
+
+        const after = await ScheduleOccurrence.findOneBy({ id: occurrence.id });
+        expect(after?.currentWakeAt?.getTime()).toBe(after?.anchorWakeAt?.getTime());
+    });
+
+    it('goes back to the anchor and no further', async () => {
+        // The promise the opt-in actually makes: never later than the time you
+        // agreed to. The recomputed plan is later than the anchor here, so an
+        // unclamped return would sail past it and wake somebody later than they
+        // ever said yes to.
+        const occurrence = await draggedEarly();
+        recordPushes();
+
+        await monitor().tick();
+
+        const after = await ScheduleOccurrence.findOneBy({ id: occurrence.id });
+        const planned = after?.planSnapshot?.wakeUpAt ?? '';
+        expect(new Date(planned).getTime()).toBeGreaterThan(after?.anchorWakeAt?.getTime() ?? 0);
+        expect(after?.currentWakeAt?.getTime()).toBe(after?.anchorWakeAt?.getTime());
+    });
+
+    it('says the earlier wake-up was released, not that a delay cleared', async () => {
+        const occurrence = await draggedEarly();
+        recordPushes();
+
+        await monitor().tick();
+
+        const event = await AlarmEvent.findOne({
+            where: { occurrenceId: occurrence.id },
+            order: { createdAt: 'DESC' },
+        });
+        expect(event?.reason).toBe(WakeChangeReason.RETURNED_TO_ANCHOR);
+        expect(event?.type).toBe(AlarmEventType.MOVED_LATER);
+    });
+});
+
+describe('an alarm sitting exactly on its anchor', () => {
+    it('is left alone, which is what makes the return rule safe to add', async () => {
+        /*
+         * The property that matters more than the feature: in the steady state
+         * the alarm *is* its anchor, so the clamp equals where it already is and
+         * nothing moves. The return branch is unreachable unless the server has
+         * pulled the alarm below its own anchor, so it cannot touch a morning
+         * that is already being handled correctly.
+         */
+        const occurrence = await dueMorning(TransportMode.PUBLIC_TRANSPORT);
+        const anchor = new Date(Date.now() + 30 * 60 * 1000);
+        await ScheduleOccurrence.update(occurrence.id, {
+            anchorWakeAt: anchor,
+            currentWakeAt: anchor,
+        });
+        runningNormally(occurrence);
+        const sent = recordPushes();
+
+        await monitor().tick();
+
+        const after = await ScheduleOccurrence.findOneBy({ id: occurrence.id });
+        expect(after?.currentWakeAt?.getTime()).toBe(anchor.getTime());
+        expect(sent.filter((message) => message.type === PUSH_MESSAGE_TYPE.WAKE_CHANGED)).toEqual(
+            [],
+        );
     });
 });
 

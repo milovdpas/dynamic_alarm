@@ -1,5 +1,5 @@
 import { In } from 'typeorm';
-import { AccessMode, TransportMode } from '@alarm/types';
+import { APP_CONSTANTS, AccessMode, TransportMode } from '@alarm/types';
 import type { CreateScheduleRequest, UpdateScheduleRequest } from '@alarm/types';
 
 import Place from '../models/Place.entity';
@@ -57,6 +57,10 @@ export class ScheduleService {
             destinationAccess: input.destinationAccess ?? AccessMode.WALK,
             journeyOffset: input.journeyOffset ?? 0,
             fixedTravelMinutes: input.fixedTravelMinutes ?? null,
+            reminderCount: input.reminders?.count ?? 1,
+            reminderIntervalMinutes:
+                input.reminders?.intervalMinutes ??
+                APP_CONSTANTS.ALARM.REMINDERS.DEFAULT_INTERVAL_MINUTES,
             buffers: input.buffers,
             timezone: input.timezone,
             active: true,
@@ -99,6 +103,10 @@ export class ScheduleService {
         if (input.buffers !== undefined) schedule.buffers = input.buffers;
         if (input.timezone !== undefined) schedule.timezone = input.timezone;
         if (input.active !== undefined) schedule.active = input.active;
+        if (input.reminders !== undefined) {
+            schedule.reminderCount = input.reminders.count;
+            schedule.reminderIntervalMinutes = input.reminders.intervalMinutes;
+        }
         if (input.fixedTravelMinutes !== undefined) {
             schedule.fixedTravelMinutes = input.fixedTravelMinutes;
         }
@@ -202,6 +210,16 @@ function affectsPlanning(input: UpdateScheduleRequest): boolean {
         'buffers',
         'timezone',
         'active',
+        /*
+         * `reminders` is deliberately not here. Extra rings change nothing the
+         * server computes: the wake time is still the last ring, so the plan,
+         * the buffers and the monitor cadence are all identical. Listing it
+         * would throw away an armed morning and spend a provider call planning
+         * an identical one, every time somebody nudged the count.
+         *
+         * The phone picks the change up on its next arming pass, which is where
+         * the earlier rings are derived in the first place.
+         */
     ];
 
     return planningFields.some((field) => input[field] !== undefined);

@@ -1,15 +1,17 @@
+import { useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import type { DeviceResponse, OccurrenceResponse } from '@alarm/types';
 
-import { readDisruption } from '@/alarm/disruption';
+import { applyStoredPlan } from '@/api';
+import { NOTICEABLE_MINUTES, readDisruption, wasDeclined } from '@/alarm/disruption';
 import { Radius, Spacing } from '@/assets/Stylesheet';
+import ActionButton from '@/components/buttons/ActionButton';
 import { ThemedText } from '@/components/ui/ThemedText';
+import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { useThemeColor } from '@/utils/hooks/useThemeColor';
+import { ApiRequestError } from '@/utils/modules/Axios';
 import { clock } from '@/utils/time';
-
-/** Below this, a change is timetable jitter rather than news. */
-const NOTICEABLE_MINUTES = 2;
 
 /**
  * What is wrong with this morning, and what the alarm did about it.
@@ -32,12 +34,32 @@ const NOTICEABLE_MINUTES = 2;
 export default function DisruptionBanner({
     occurrence,
     device,
+    onApplied,
 }: {
     occurrence: OccurrenceResponse;
     device: DeviceResponse | null;
+    /** Called once the alarm has been moved, so the screen can re-arm it. */
+    onApplied?: () => void;
 }) {
     const { t } = useTranslation();
     const warning = useThemeColor({}, 'warning');
+    const [busy, setBusy] = useState(false);
+    const [failed, setFailed] = useState<string | null>(null);
+
+    const applyByHand = useCallback(() => {
+        setBusy(true);
+        setFailed(null);
+        applyStoredPlan(occurrence.id)
+            .then(() => {
+                onApplied?.();
+            })
+            .catch((error: unknown) => {
+                setFailed(ApiRequestError.from(error).code);
+            })
+            .finally(() => {
+                setBusy(false);
+            });
+    }, [occurrence.id, onApplied]);
 
     const disruption = readDisruption(occurrence);
     if (disruption === null) {
@@ -61,6 +83,8 @@ export default function DisruptionBanner({
             60_000,
     );
 
+    const declined = wasDeclined({ cancelled, gained, device });
+
     return (
         <View style={[styles.banner, { borderColor: warning }]}>
             <ThemedText type="smallBold" style={{ color: warning }}>
@@ -83,6 +107,20 @@ export default function DisruptionBanner({
             {disruption.simulated && (
                 <ThemedText type="small" style={{ color: warning }}>
                     {t('ring.simulated')}
+                </ThemedText>
+            )}
+
+            {declined && onApplied !== undefined && (
+                <ActionButton
+                    label={busy ? t('disruption.moving') : t('disruption.move_it_anyway')}
+                    onPress={applyByHand}
+                    disabled={busy}
+                />
+            )}
+
+            {failed !== null && (
+                <ThemedText type="small" themeColor="danger">
+                    {apiErrorMessage(t, failed)}
                 </ThemedText>
             )}
         </View>
@@ -119,11 +157,7 @@ function outcome(
     // Nothing moved, and why is the whole point of this line. A switch that is
     // off is a decision the user made and can revisit; a plan with enough spare
     // time in it is the buffers doing their job.
-    const allowed = input.cancelled
-        ? input.device?.allowLaterWakeOnCancellation
-        : input.device?.allowLaterWakeOnDelay;
-
-    if (allowed === false) {
+    if (wasDeclined(input)) {
         return input.cancelled
             ? t('disruption.not_moved_cancellation_off')
             : t('disruption.not_moved_delay_off');
@@ -131,6 +165,7 @@ function outcome(
 
     return t('disruption.not_moved_absorbed');
 }
+
 
 const styles = StyleSheet.create({
     banner: {

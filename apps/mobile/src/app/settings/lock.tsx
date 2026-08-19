@@ -26,6 +26,9 @@ const KINDS: { value: LockKind; icon: 'lock-open-variant-outline' | 'calculator'
 
 const DIFFICULTIES: MathsDifficulty[] = ['EASY', 'MEDIUM', 'HARD'];
 
+/** Every ring of a reminder chain, or only the one on the real wake time. */
+const APPLIES_TO: LockSetting['appliesTo'][] = ['ALL', 'LAST'];
+
 /**
  * What has to be done before the alarm can be switched off.
  *
@@ -113,6 +116,40 @@ export default function LockScreen() {
                                     >
                                         <ThemedText type="small">
                                             {t(`lock.difficulty_${difficulty}`)}
+                                        </ThemedText>
+                                    </Pressable>
+                                );
+                            })}
+                        </View>
+                    )}
+
+                    {/*
+                     * Only worth asking once a lock exists, and it changes
+                     * nothing until reminders do too. Shown all the same when
+                     * the lock is on, because somebody turning reminders on
+                     * later should find the answer already set rather than
+                     * discover the question at 07:35.
+                     */}
+                    {setting.kind !== 'NONE' && (
+                        <View style={styles.difficulties}>
+                            {APPLIES_TO.map((appliesTo) => {
+                                const chosen = appliesTo === setting.appliesTo;
+                                return (
+                                    <Pressable
+                                        key={appliesTo}
+                                        onPress={() => {
+                                            save({ ...setting, appliesTo });
+                                        }}
+                                        accessibilityRole="radio"
+                                        accessibilityState={{ selected: chosen }}
+                                        style={[
+                                            styles.difficulty,
+                                            { borderColor: chosen ? primary : border },
+                                            chosen && { backgroundColor: selected },
+                                        ]}
+                                    >
+                                        <ThemedText type="small">
+                                            {t(`lock.applies_to_${appliesTo}`)}
                                         </ThemedText>
                                     </Pressable>
                                 );

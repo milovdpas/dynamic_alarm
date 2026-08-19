@@ -10,7 +10,12 @@ import {
     UpdateDateColumn,
 } from 'typeorm';
 import { AccessMode, ReplacementPreference, TransportMode } from '@alarm/types';
-import type { BufferConfig, Schedule as ScheduleDto, Weekday } from '@alarm/types';
+import type {
+    BufferConfig,
+    ReminderConfig,
+    Schedule as ScheduleDto,
+    Weekday,
+} from '@alarm/types';
 
 import Device from './Device.entity';
 import Place from './Place.entity';
@@ -132,6 +137,28 @@ export default class Schedule extends BaseEntity {
     fixedTravelMinutes!: number | null;
 
     /**
+     * Extra rings before the wake time, in place of a snooze button.
+     *
+     * Stored and handed back, and read by nothing else on this server. The wake
+     * time the engine computes is still the last ring, so no plan, buffer or
+     * cadence changes; the device pulls the earlier rings back from it. They
+     * live here rather than on the phone because the rest of a schedule's
+     * settings do, and one screen's settings split across two stores drift.
+     *
+     * A count of one means no reminders.
+     */
+    @Column({ name: 'reminder_count', type: 'int', default: 1 })
+    reminderCount!: number;
+
+    @Column({ name: 'reminder_interval_minutes', type: 'int', default: 5 })
+    reminderIntervalMinutes!: number;
+
+    /** The two columns above as the shape everything else passes around. */
+    get reminders(): ReminderConfig {
+        return { count: this.reminderCount, intervalMinutes: this.reminderIntervalMinutes };
+    }
+
+    /**
      * The four buffers, stored together as JSON.
      *
      * They are read and written as a unit and never queried individually, so
@@ -173,6 +200,10 @@ export default class Schedule extends BaseEntity {
             travelWindowStart: this.travelWindowStart?.slice(0, 5) ?? null,
             travelWindowEnd: this.travelWindowEnd?.slice(0, 5) ?? null,
             fixedTravelMinutes: this.fixedTravelMinutes ?? undefined,
+            reminders: {
+                count: this.reminderCount,
+                intervalMinutes: this.reminderIntervalMinutes,
+            },
             buffers: this.buffers,
             timezone: this.timezone,
             active: this.active,
