@@ -1010,21 +1010,38 @@ means off for the flag and the production default of 1 for the hops. A value tha
 is not a number refuses to start rather than becoming `NaN` and quietly trusting
 nothing.
 
-**The procedure on the real deployment:**
+**Measured against the real deployment on 2026-08-19. The answer is one, and
+the variable stays unset.**
 
-1. Set the repository variable `IP_DIAGNOSTIC` to `true` and redeploy. The
-   workflow prints a warning when it renders, and the API logs one when it
-   mounts the route.
-2. Open `https://<api>/api/v1/ip` on a phone using mobile data, not wifi. Find
-   the entry in `candidates` whose `resolvedIp` is that phone's own public
-   address.
-3. Set `TRUST_PROXY_HOPS` to the `hops` beside it and redeploy.
-4. Call it once more sending `X-Forwarded-For: 1.2.3.4`. `resolvedIp` must not
-   change. If it does, the setting trusts more hops than exist and every rate
-   limit can be sidestepped with a header.
-5. Set `IP_DIAGNOSTIC` back to `false` and redeploy. A diagnostic that outlives
-   its question is a permanent description of the infrastructure for anyone who
-   asks for it.
+```
+socket            ::ffff:172.18.0.2   private, Docker network: this is nginx
+X-Forwarded-For   85.223.68.38        one entry
+hops 1            85.223.68.38        public, and what resolved
+envValue          ""                  unset, so the production default applied
+```
+
+Then the check that actually settles it, sending `X-Forwarded-For: test`:
+
+```
+arrived as   "test, 85.223.68.38"     nginx appended the peer it saw
+resolvedIp   85.223.68.38             unchanged
+candidates   [nginx, 85.223.68.38, test]
+```
+
+nginx uses `$proxy_add_x_forwarded_for`, so a caller's value lands on the left of
+the chain where nothing reads it. One appending proxy means one hop, and the
+production default of 1 is both correct and not spoofable, so `TRUST_PROXY_HOPS`
+is deliberately left unconfigured rather than restating a value the code already
+holds. `IP_DIAGNOSTIC` goes back to `false`.
+
+That run also found the diagnostic contradicting itself. `isPrivate('test')` is
+false, because it is not a private address, it is not an address at all, and the
+prose counted it as a second public entry and announced that the count "cannot be
+settled from this response alone" in exactly the response that settled it.
+Candidates carry `valid` now, the ambiguity warning counts only real addresses,
+and an entry that is not an address produces the finding that matters directly:
+infrastructure appends addresses, so a caller wrote that one, and whether it is
+what resolved is the whole answer in a single call.
 
 ## Agreed, not yet scheduled
 

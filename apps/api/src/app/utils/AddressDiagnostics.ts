@@ -83,6 +83,7 @@ export function describeAddress(req: Request): IpDebugResponse {
         resolvedIp: value,
         current: hops_ === configuredHops,
         private: isPrivate(value),
+        valid: isIP(normalise(value)) !== 0,
     }));
 
     return {
@@ -123,7 +124,7 @@ export function describeAddress(req: Request): IpDebugResponse {
             originalUrl: req.originalUrl,
             httpVersion: req.httpVersion,
         },
-        findings: findings(socketAddress, hops, candidates, configuredHops),
+        findings: findings(socketAddress, hops, candidates, configuredHops, req.ip ?? ''),
         timestamp: new Date().toISOString(),
     };
 }
@@ -165,6 +166,7 @@ function findings(
     hops: ForwardedHop[],
     candidates: HopCandidate[],
     configuredHops: number,
+    resolved: string,
 ): string[] {
     const notes: string[] = [];
 
@@ -235,13 +237,40 @@ function findings(
         );
     }
 
-    const publicFromRight = candidates.filter((candidate) => !candidate.private);
-    if (publicFromRight.length > 1) {
+    /**
+     * An entry that is not an address was written by whoever called.
+     *
+     * Infrastructure appends addresses. So a chain containing one of these is a
+     * spoof test in progress, and whether the resolved address is that entry
+     * answers the question this endpoint exists for, outright and in one call.
+     */
+    const invented = candidates.find((candidate) => !candidate.valid);
+    if (invented !== undefined) {
         notes.push(
-            'More than one entry in the chain is public, so the count cannot be settled from ' +
-                'this response alone. The correct one is whichever matches the calling ' +
-                "device's own address. Do not simply take the first public entry: a caller " +
-                'can put a public address at the front of the chain themselves.',
+            resolved === invented.resolvedIp
+                ? `The chain contains "${invented.resolvedIp}", which is not an address, so a ` +
+                      'caller wrote it, and it is what resolved. This setting believes ' +
+                      'caller-supplied values and every rate limit can be sidestepped with a ' +
+                      'header. Lower it, or fix the proxy so it appends rather than forwards.'
+                : `The chain contains "${invented.resolvedIp}", which is not an address, so a ` +
+                      'caller wrote it. It was not what resolved, which means the proxy ' +
+                      'appends the peer it actually saw and this setting reads that rather ' +
+                      'than anything the caller supplied. That is the answer: this hop count ' +
+                      'is correct and not spoofable.',
+        );
+        return notes;
+    }
+
+    // Only counts entries that are addresses. A string that is not one is not a
+    // public address, and treating it as a second candidate said the question
+    // could not be settled in exactly the response that settled it.
+    const plausible = candidates.filter((candidate) => candidate.valid && !candidate.private);
+    if (plausible.length > 1) {
+        notes.push(
+            'More than one entry in the chain is a public address, so the count cannot be ' +
+                'settled from this response alone. The correct one is whichever matches the ' +
+                "calling device's own address. Do not simply take the first public entry: a " +
+                'caller can put a public address at the front of the chain themselves.',
         );
     }
 

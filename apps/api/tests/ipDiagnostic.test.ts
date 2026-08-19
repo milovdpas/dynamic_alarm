@@ -215,6 +215,49 @@ describe('what it refuses to hand back', () => {
     });
 });
 
+describe('reading the spoof test back in words', () => {
+    it('says outright that the setting resisted an invented value', async () => {
+        /*
+         * The check that ends the exercise. Infrastructure appends addresses, so
+         * an entry that is not one was written by the caller, and whether it is
+         * what resolved answers the whole question in a single call.
+         */
+        const body = await ask({ 'x-forwarded-for': 'test' });
+
+        expect(body.resolvedIp).not.toBe('test');
+        expect(body.findings.join(' ')).toContain('not spoofable');
+    });
+
+    it('does not claim the question is unsettled because of a value nobody could route to', async () => {
+        /*
+         * `isPrivate('test')` is false, because it is not a private address; it
+         * is not an address at all. Counting it as a second public entry made
+         * the response say the count "cannot be settled from this response
+         * alone" in exactly the response that settled it.
+         */
+        const body = await ask({ 'x-forwarded-for': 'test' });
+
+        expect(body.findings.join(' ')).not.toContain('cannot be settled');
+    });
+
+    it('marks which chain entries are addresses at all', async () => {
+        // Two entries here, not the three production shows: nothing in front of
+        // this server appends, so the chain is the socket plus what was sent.
+        const body = await ask({ 'x-forwarded-for': 'test' });
+
+        expect(body.candidates.map((candidate) => candidate.valid)).toEqual([true, false]);
+        expect(body.candidates.at(-1)).toMatchObject({ resolvedIp: 'test', valid: false });
+    });
+
+    it('still warns when two real public addresses leave it ambiguous', async () => {
+        // Both plausible, neither obviously the caller's. That genuinely cannot
+        // be resolved without knowing the phone's own address.
+        const body = await ask({ 'x-forwarded-for': '203.0.113.7, 198.51.100.9' });
+
+        expect(body.findings.join(' ')).toContain('cannot be settled');
+    });
+});
+
 describe('the sentences, so the JSON does not have to be interpreted', () => {
     it('explains what the current setting resolves to', async () => {
         const body = await ask({ 'x-forwarded-for': '203.0.113.7' });

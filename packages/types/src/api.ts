@@ -444,6 +444,16 @@ export interface HopCandidate {
     current: boolean;
     /** A public address here is the shape of a correct answer. */
     private: boolean;
+    /**
+     * Whether this parses as an address at all.
+     *
+     * Carried because `private` alone cannot tell a public address from a
+     * string that is simply not a private one. Infrastructure writes addresses,
+     * so an entry that is not one was written by the caller, which is the most
+     * direct evidence in the whole response about where the trusted part of the
+     * chain begins.
+     */
+    valid: boolean;
 }
 
 /**
