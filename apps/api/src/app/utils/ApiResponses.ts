@@ -76,11 +76,31 @@ export function sendValidationFailed(res: Response, message: string, details?: u
 }
 
 /**
- * Understood and refused, such as deleting a place a schedule still points at.
+ * Understood and refused, such as arming a schedule that is paused.
  *
  * Distinct from a 422: nothing about the payload is wrong, so telling the app
  * to fix its input would send it in circles.
+ *
+ * The `message` is for whoever is reading a log or a failing test. The app never
+ * shows it: it renders from the code, in the language its owner chose.
  */
 export function sendConflict(res: Response, message: string): void {
     sendError(res, ERROR_CODES.VALIDATION_FAILED, message, 409);
+}
+
+/**
+ * Refused because something still depends on it.
+ *
+ * The names travel in `details` rather than inside a sentence. "Place is still
+ * used by: Work mornings" told the user what to do next and could only ever say
+ * it in English, so the names are data now and the wording belongs to the app.
+ */
+export function sendInUse(res: Response, what: string, blockedBy: string[]): void {
+    sendError(
+        res,
+        ERROR_CODES.RESOURCE_IN_USE,
+        `${what} is still used by: ${blockedBy.join(', ')}`,
+        409,
+        { blockedBy },
+    );
 }

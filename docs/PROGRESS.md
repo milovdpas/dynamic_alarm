@@ -796,6 +796,236 @@ Plus a timezone bug behind all of it: `created_at` defaulted to the database
 server's `CURRENT_TIMESTAMP`, which is local, while everything else is UTC. See
 CONVENTIONS.md.
 
+## What an API review found, 2026-08-19
+
+Nine findings, all fixed. Two of them were silent: the code reported success and
+the user heard nothing.
+
+### `refresh` answered null for three different situations
+
+The worst of them, and invisible because no test drove the monitor's `check`
+end to end. `TransportProvider.refresh` returned `Journey | null`, and null meant
+both "this trip no longer exists" and "I have no way to re-fetch one trip, plan
+it again". Rail means the first. The car provider only ever meant the second, and
+a fixed travel time has no journey to refresh at all.
+
+The monitor believed the first reading in every case, so:
+
+- **every car and fixed-travel morning was announced to its owner as a cancelled
+  service** on the first check of the night, on a commute with no service in it;
+- the re-plan that followed went through `chooseReplacement`, which refuses a
+  candidate departing at the same moment as the one it replaces. A drive whose
+  forecast had not moved produced no replacement, took the `OUTSIDE_WINDOW`
+  branch, and returned **without recomputing the wake time at all**. A car alarm
+  could stop following traffic, which is the only thing car mode is for.
+
+`refresh` now answers `CURRENT`, `GONE` or `REPLAN`, the monitor resolves
+`REPLAN` into a fresh journey before anything reasons about it, and `gone` is
+passed explicitly rather than inferred from a null. `tests/monitorCheck.test.ts`
+drives a full pass per mode, which is the coverage whose absence let this sit.
+
+### The one notice that must never be silent, was
+
+`notifyNoReplacement` sends `kind: 'NO_REPLACEMENT'`: the train is cancelled,
+nothing runs inside the hours its owner said they would travel, the alarm is
+deliberately staying put. The server calls this the case where silence is the
+only wrong answer.
+
+The app's `isDisruptionNotice` guard accepted `DELAY` and `CANCELLATION` only, so
+every one of these was discarded on arrival. The server then wrote
+`noticeKey = 'NO_REPLACEMENT'` and never sent it again. Nothing on either side
+logged a thing. The guard now checks against the full union in `@alarm/types`,
+with a `satisfies` so adding a kind there fails to compile here.
+
+### The health check could not see a dead database
+
+It read `AppDataSource.isInitialized`, which is set once at startup and stays
+true however dead the connection becomes. The one state the endpoint exists to
+report was the one state it could not. It runs a bounded `SELECT 1` now.
+
+### Registration was the way in to the NS budget
+
+Autosuggest sits behind `deviceAuth` because it spends from a ceiling of 300
+requests per 5 minutes shared by every user. Registration is unauthenticated by
+necessity, was unlimited, and hands out a device token, so that protection cost
+one request to bypass. There is now a small in-memory limiter: 20 registrations
+an hour per address, and 60 provider-spending requests per 5 minutes per device
+across autosuggest, plan preview, plan options, schedule plan and arming.
+
+In memory like `ProviderUsage`, and for the same reason: a second instance would
+count separately, and a counter in MySQL would spend a write per request to
+measure requests. NS's own 429 remains the number that binds.
+
+### An impossible row took a claim slot every five minutes
+
+`check` returned early for an occurrence armed with no plan, after `claim` had
+already pushed its `nextCheckAt` five minutes out on a lease. So it came back due
+five minutes later, and again, until its morning passed. Both dead-end branches
+now cancel the row and clear `nextCheckAt`.
+
+### Everything else
+
+- **No graceful shutdown.** Node is PID 1 in the container and gets no default
+  signal handling, so `docker stop` waited out its grace period and `SIGKILL`ed,
+  possibly mid-pass with a lease written and an occurrence half updated. There is
+  a `SIGTERM` handler now: stop accepting, drain for 20s, close the pool. The
+  compose file adds `init: true` and a 30s `stop_grace_period` so the clean path
+  finishes first.
+- **Routine steps were replaced outside a transaction.** The delete has to
+  precede the insert, and a failure in between left a routine with no steps,
+  which makes every wake time computed from it as early as a morning with nothing
+  in it. One transaction now.
+- **`discardUpcoming` compared against today in the server's zone**, not the
+  schedule's. Near midnight those disagree, and the failure is silent in both
+  directions. `armedWithSimulation` had no date floor either, so a stale armed
+  row from last week could shadow the morning being armed.
+- **Smaller:** `checkReferences` did up to three sequential lookups, now one
+  `In()` and a `Promise.all`. A bad `PORT` became `NaN` and bound a random port,
+  now refused at startup. `lastSeenAt` was written on every authenticated request,
+  now at most once a minute per device. The `!worthMoving` branch wrote the same
+  row three times to record one decision, now once. `x-powered-by` is off and two
+  headers are set.
+
+### Copy stopped being written on the server
+
+`AlarmEventDto.message` and `WakeChangedPush.message` carried finished English
+sentences, rendered by the API and displayed verbatim: as the notification body
+that wakes somebody at 03:00, and as the timeline in the journey screen. They
+were the only user-facing strings in the product that ignored the language their
+reader had chosen, and they could not be translated on arrival because by then
+they were prose with a time baked into them.
+
+Both now carry `reason` and `simulated`, and `wakeChangeCopy.ts` writes the
+sentence from the app's own translations. One function serves the push and the
+timeline, because a notification and its matching entry wording the same event
+differently is how a screen stops being believed. `SIMULATED: ` stopped being a
+prefix the phone matched with `startsWith` and became a column; the migration
+backfills it from the prefix.
+
+The event row keeps its English sentence for whoever is reading the table trying
+to explain a wake time. It is no longer part of the DTO.
+
+The API's own error strings turned out not to be user-facing at all: the app maps
+`ApiRequestError.code` through `api.error.*` and never shows the server's
+message. The exception was the delete conflict, whose sentence carried the names
+of the schedules in the way. That is `RESOURCE_IN_USE` now with the names in
+`details.blockedBy`, so the app can say which two things to change first, in
+Dutch.
+
+### What a second pass over that diff found
+
+Nine more, all fixed. Three were regressions the first pass introduced, which is
+the useful lesson: naming a thing honestly changes which branch it takes, and the
+branch it now takes has to be checked too.
+
+- **Car journeys reached the delay branch for the first time**, and it had
+  nowhere to get a service name from, so it borrowed the leg's hardcoded
+  `fromName` and told people who drive to work that "Origin is 12 minutes late".
+  A car leg is skipped now: its `delaySeconds` is congestion against free flow,
+  which is the ordinary state of a road at 07:30 and already priced into the
+  plan. What a driver needs is the wake change, which is worded for a road.
+- **Fixed-travel mornings moved onto the wrong opt-in, silently.** Reporting them
+  as `ROUTE_CHANGED` instead of a cancellation was right, and it cost them
+  `emergencyEarlier`: an alarm that had worked out it should ring sooner was
+  refused and said nothing. `ROUTE_CHANGED` is exempt from the opt-ins now, and
+  may move earlier. The settings govern whether a *disruption* may move an alarm,
+  and this mode has none.
+- **`TRUST_PROXY_HOPS` used a bare `Number()`**, in the same file as the `port()`
+  validator written to prevent exactly that. A typo gives `NaN`, Express compares
+  `i < NaN`, nothing is trusted, and every caller shares one bucket keyed on
+  nginx. Both settings go through one `integer()` now.
+- **`.env.example` shipped `TRUST_PROXY_HOPS=0`** two lines below a comment
+  saying production defaults to 1. Copying the file, which is the documented
+  procedure, would have made the registration limit deployment-wide. Commented
+  out now, so copying leaves the default alone.
+- **`satisfies readonly Kind[]` gave no exhaustiveness**, only element-type
+  checking, so a fourth disruption kind would compile and be silently dropped:
+  the `NO_REPLACEMENT` bug again, one release later. It is a `Record<Kind, true>`
+  now, which has to name them all.
+- **The wake-change guard was strict in the other direction.** It required
+  `message` until the server stopped sending one; requiring what replaced it
+  fails the same way next time. It asks for the id and the time now, and the
+  consumers default the rest. This guard is the last place a push can be lost
+  with nothing anywhere saying so, so it errs toward acting.
+- **`RESOURCE_IN_USE` interpolated `{{blockedBy}}`** and no caller passed it, so
+  i18next would have rendered the placeholder. There is a `_named` variant used
+  only when the names arrive, and `apiErrorMessage` refuses any copy still
+  carrying braces.
+- **Disruption notices deduplicated on the exact minute**, which deduplicates
+  nothing: a reported delay drifts a minute either way and the monitor looks
+  every three. Banded to five minutes.
+- **`GET /api/v1/ip` is behind `IP_DIAGNOSTIC`**, off by default. "Temporary"
+  written in a comment is not a mechanism.
+
+Noted and **not** fixed, because it predates all of this: `applyWakeChange`
+stores its disruption note with `minutes: 0` hardcoded, so the ring screen reads
+"Your train is 0 minutes late" after any non-cancellation wake push.
+
+### Ship the app before the API, not after
+
+Dropping `message` from `WakeChangedPush` is the one change here with an ordering
+hazard, and the relaxed guard does not remove it: a build running the old
+JavaScript still demands the field, so it would reject every new push, never
+acknowledge, and let its alarm stop moving. The relaxed guard protects the *next*
+payload change, not this one.
+
+The order fixes it. The new guard asks only for the occurrence and the time, so
+it reads the **current** server's payload perfectly well: `message` is simply
+ignored and `simulated` defaults to false. That makes the app update backward
+compatible, and publishing it first leaves no window at all.
+
+1. `npx eas update --branch preview --environment preview`. The locally built
+   APK carries `expo-channel-name: preview` and `runtimeVersion` follows
+   `appVersion`, so it is reachable as long as `version` in `app.json` still
+   matches the installed build.
+2. **Open the app twice.** `EXPO_UPDATES_LAUNCH_WAIT_MS` is 0, so the first
+   launch downloads the bundle in the background and the second runs it.
+   Overnight pushes are handled by a headless task using whatever bundle is
+   current, so an unopened app is still on the old one.
+3. Deploy the API.
+
+Doing it the other way round costs however long it takes to remember to open the
+app, during which alarms ring at their anchor time and stop tracking. Nothing is
+late, but nothing moves either.
+
+### `TRUST_PROXY_HOPS` is measured, not argued about
+
+`addressOf` keys the rate limiters on `req.ip`, which is the real caller only
+when `trust proxy` names the exact number of proxies in front. The number was a
+guess: one nginx is the documented topology, but a guess in the trusting
+direction means a caller picks their own rate-limit key by sending a header, and
+a guess in the other means everybody behind the proxy shares one bucket.
+
+`GET /api/v1/ip` answers it instead. It returns the socket address, the forwarded
+chain split and indexed from both ends, and a `candidates` table saying what
+`req.ip` would be at every possible setting, plus plain sentences about what that
+implies. Unauthenticated, because the caller that matters is a phone on mobile
+data; limited on the socket address, which is the one part of a request nobody
+can choose; credentials stripped from the echoed headers.
+
+Both settings are repository **variables**, not secrets, so neither needs a code
+change to move. CI renders them into `.env` through `.env.dist`, and an unset
+variable substitutes to an empty string, which the API reads as unset: empty
+means off for the flag and the production default of 1 for the hops. A value that
+is not a number refuses to start rather than becoming `NaN` and quietly trusting
+nothing.
+
+**The procedure on the real deployment:**
+
+1. Set the repository variable `IP_DIAGNOSTIC` to `true` and redeploy. The
+   workflow prints a warning when it renders, and the API logs one when it
+   mounts the route.
+2. Open `https://<api>/api/v1/ip` on a phone using mobile data, not wifi. Find
+   the entry in `candidates` whose `resolvedIp` is that phone's own public
+   address.
+3. Set `TRUST_PROXY_HOPS` to the `hops` beside it and redeploy.
+4. Call it once more sending `X-Forwarded-For: 1.2.3.4`. `resolvedIp` must not
+   change. If it does, the setting trusts more hops than exist and every rate
+   limit can be sidestepped with a header.
+5. Set `IP_DIAGNOSTIC` back to `false` and redeploy. A diagnostic that outlives
+   its question is a permanent description of the infrastructure for anyone who
+   asks for it.
+
 ## Agreed, not yet scheduled
 
 Both decided 2026-08-16, both written up in PLAN.md.
@@ -940,6 +1170,14 @@ Reversals and corrections worth remembering. Rationale lives in PLAN.md.
 
 | Date | Decision |
 |---|---|
+| 2026-08-19 | **Renaming a reason moves it to a different branch, and that branch needs checking too.** Calling a fixed-travel recomputation `ROUTE_CHANGED` instead of a cancellation was correct and quietly cost it `emergencyEarlier`, so an alarm that knew it should ring sooner was refused. Routing the car through `REPLAN` was correct and quietly reached the delay branch, which had no service name and borrowed a hardcoded `fromName`. Both were introduced by a change whose whole purpose was to stop misreporting these modes. |
+| 2026-08-19 | **`satisfies readonly Union[]` is not an exhaustiveness check.** It verifies each element belongs to the union, never that the union is covered, so the array that was supposed to prevent a dropped push kind would have permitted the next one. `Record<Union, true>` is the construct that fails to compile. |
+| 2026-08-19 | **A payload guard should ask for what it needs to act, not for everything it expects.** Requiring `message` lost every wake push the day the server stopped sending prose; requiring its replacement would fail the same way. It asks for the occurrence and the time, and the consumers default the rest. This is the last place a message disappears without anything saying so. |
+| 2026-08-19 | **A provider's `refresh` answers three things, not two.** `Journey \| null` collapsed "the trip is gone" and "I cannot re-fetch one trip, plan it again" into the same null, and the monitor read both as a cancellation. Every car and fixed-travel morning was announced as a cancelled service, and the re-plan went through the replacement chooser, which rejects a candidate leaving at the same moment as the one it replaces, so an unchanged forecast produced no replacement and the alarm stopped tracking traffic. `RefreshResult` is `CURRENT`, `GONE` or `REPLAN` now. The general lesson: null is not a return type when the caller has to tell two absences apart. |
+| 2026-08-19 | **The server sends facts; the app writes the sentence.** `AlarmEventDto.message` and `WakeChangedPush.message` were pre-rendered English, shown as the notification body and the journey timeline, and untranslatable on arrival. Both carry `reason` and `simulated` now. The event row keeps its English line for operators and it is no longer on the wire. The rule this makes explicit: copy crossing the network as prose has already chosen a language, and that choice is the reader's. |
+| 2026-08-19 | **`NO_REPLACEMENT` was declared in `@alarm/types`, sent by the server, and rejected by the app's own guard.** A shared union is only shared where something checks against it: the guard listed two of the three kinds by hand. The notice the server documents as the case where silence is the only wrong answer was dropped silently, and marked delivered. Runtime guards over a shared union now derive from it with `satisfies`. |
+| 2026-08-19 | **A health check that reads its own memory is not a health check.** `isInitialized` is true from startup until the process dies, so the endpoint could not report the one state it exists for. It runs a bounded `SELECT 1`. |
+| 2026-08-19 | **Authentication is not a rate limit.** Autosuggest sat behind `deviceAuth` to protect the NS budget, and registration handed out tokens to anyone, unauthenticated and unlimited. Guarding the expensive route while leaving the credential free is a lock on a door with no wall. Both are limited now, in memory, keyed on address and on device. |
 | 2026-08-19 | **`connected` requires a read that refuses the cache, which took two attempts.** The first replaced "a token is stored" with "`getDevice()` resolved", and `Axios.get` answers from the cache on an unreachable server, so the false positive survived with a new source: a phone with no network and a cached `/devices/me` still reported a healthy connection. `getDevice` now takes `live`, and only `ensureDeviceRegistered` passes it, because the settings screen legitimately wants the stored copy while the connection check must not have one. The lesson is narrower than "add `live`": a claim about *now* cannot be built on any call that is allowed to answer from *before*, and this app has two such layers, the token and the cache. |
 | 2026-08-19 | **The connection check costs one read per consumer, and that is accepted rather than hidden.** `useApiConnection` keeps per-component state, so Home and the debug panel each run `ensureDeviceRegistered` and each spend a `getDevice`. Sharing a result would make the second consumer read a cached judgement about reachability, which is the bug above wearing a different hat; sharing only the in-flight promise would fix nothing, since the two mount minutes apart. Today did drop its own duplicate `getDevice` for the disruption switches, which now travel on `ApiConnection`. |
 | 2026-08-19 | **A failed dismiss keeps the ring screen up.** Isolating "silence the alarm" from "leave the screen" was right, but they were also made independent, so a failure to silence set the message and then left anyway: `router.replace` plus `moveAppToBackground` rendered "use Dismiss in the notification" onto a route that was gone, on a backgrounded app, while the alarm kept sounding. Leaving is now conditional on silencing having worked. An error message is only worth writing if the code lets somebody read it. |

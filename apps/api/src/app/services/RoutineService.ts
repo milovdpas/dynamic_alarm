@@ -1,5 +1,6 @@
 import type { CreateRoutineRequest, UpdateRoutineRequest } from '@alarm/types';
 
+import { AppDataSource } from '../../database/typeorm-db';
 import Routine from '../models/Routine.entity';
 import RoutineStep from '../models/RoutineStep.entity';
 import { OccurrenceService } from './OccurrenceService';
@@ -44,24 +45,41 @@ export class RoutineService {
             routine.name = input.name;
         }
 
-        if (input.steps !== undefined) {
-            await RoutineStep.delete({ routineId: routine.id });
-            routine.steps = input.steps.map((step, index) => buildStep(step, index));
+        const steps = input.steps;
+        if (steps === undefined) {
+            return routine.save();
         }
 
-        const saved = await routine.save();
+        /**
+         * The delete and the insert are one transaction, because half of them is
+         * a routine that takes no time at all.
+         *
+         * The old steps have to go before the new ones arrive: position in the
+         * array is the order, so a diff would have to reconstruct which of
+         * reorder, rename and delete happened, and it would get it wrong. That
+         * leaves a moment where the routine has no steps, and a failure inside
+         * it used to be permanent: every wake time computed afterwards would be
+         * as early as a morning with nothing in it, which is late.
+         */
+        const saved = await AppDataSource.transaction(async (manager) => {
+            await manager.delete(RoutineStep, { routineId: routine.id });
+            routine.steps = steps.map((step, index) => buildStep(step, index));
+            return manager.save(routine);
+        });
 
-        if (input.steps !== undefined) {
-            // The routine is half the arithmetic: the journey says when to leave,
-            // the routine says how long before that to wake. Changing it while an
-            // alarm is armed leaves that alarm computed from a morning that no
-            // longer exists, so everything built on it is discarded and the next
-            // arming works it out again.
-            const schedules = await Schedule.findBy({ routineId: saved.id });
-            for (const schedule of schedules) {
-                await this.occurrences.discardUpcoming(schedule.id);
-            }
-        }
+        // The routine is half the arithmetic: the journey says when to leave,
+        // the routine says how long before that to wake. Changing it while an
+        // alarm is armed leaves that alarm computed from a morning that no
+        // longer exists, so everything built on it is discarded and the next
+        // arming works it out again.
+        //
+        // Outside the transaction on purpose. A discard that fails leaves an
+        // alarm on a stale time, which the next arming corrects; rolling the
+        // routine back over it would lose the edit the user watched succeed.
+        const schedules = await Schedule.findBy({ routineId: saved.id });
+        await Promise.all(
+            schedules.map((schedule) => this.occurrences.discardUpcoming(schedule)),
+        );
 
         return saved;
     }

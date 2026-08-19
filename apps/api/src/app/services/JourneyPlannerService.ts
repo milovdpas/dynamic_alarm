@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon';
 import { AccessMode, JourneyStatus, LegType } from '@alarm/types';
 import type { GeoPoint, Journey, JourneyLeg } from '@alarm/types';
-import type { PlanRequest, TransportProvider } from '@alarm/core';
+import type { PlanRequest, RefreshResult, TransportProvider } from '@alarm/core';
 
 import { NsModule } from '../modules/NsModule';
 import type { NsStation } from '../modules/NsModule';
@@ -91,23 +91,28 @@ export class JourneyPlannerService implements TransportProvider {
      * again. The stored journey already carries its walks, which are read back
      * off it rather than re-fetched, keeping a refresh to a single NS call.
      */
-    async refresh(journey: Journey): Promise<Journey | null> {
+    async refresh(journey: Journey): Promise<RefreshResult> {
         if (journey.ctxRecon === null) {
-            return null;
+            // Nothing to reconstruct from, and rail is the mode where that means
+            // the trip is beyond reach rather than merely un-refetchable.
+            return { status: 'GONE' };
         }
         const refreshed = await this.ns.refreshTrip(journey.ctxRecon);
         if (refreshed === null) {
-            return null;
+            return { status: 'GONE' };
         }
 
         const leading = journey.legs[0];
         const trailing = journey.legs[journey.legs.length - 1];
 
-        return this.reattachAccessLegs(
-            refreshed,
-            leading !== undefined && isAccessLeg(leading) ? leading : null,
-            trailing !== undefined && isAccessLeg(trailing) ? trailing : null,
-        );
+        return {
+            status: 'CURRENT',
+            journey: this.reattachAccessLegs(
+                refreshed,
+                leading !== undefined && isAccessLeg(leading) ? leading : null,
+                trailing !== undefined && isAccessLeg(trailing) ? trailing : null,
+            ),
+        };
     }
 
     /** Nearest station plus the time to reach it, cached. */

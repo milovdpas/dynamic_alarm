@@ -171,9 +171,14 @@ describe('the shape a drive is expressed in', () => {
         expect(journey?.ctxRecon).toBeNull();
     });
 
-    it('re-plans rather than refreshing, because a road route has no identity', async () => {
+    it('asks to be re-planned rather than reporting the drive as gone', async () => {
         const { service } = stubbed({});
 
-        expect(await service.refresh()).toBeNull();
+        // `REPLAN`, never `GONE`. These were the same null until the monitor was
+        // found announcing every car morning to its owner as a cancellation on
+        // the first check of the night, and then declining to move the alarm
+        // because the replacement chooser rejects a candidate leaving at the
+        // same moment as the one it is replacing.
+        expect(await service.refresh()).toEqual({ status: 'REPLAN' });
     });
 });

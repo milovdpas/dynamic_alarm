@@ -4,6 +4,7 @@ import { API_ENDPOINTS } from '@alarm/types';
 import type { IdParams } from '../../../interfaces/IHttp';
 import type { IRoute } from '../../../interfaces/IRouter';
 import OccurrenceController from '../../controllers/OccurrenceController';
+import { providerLimit } from '../../middleware/ApiLimits';
 import { deviceAuth } from '../../middleware/DeviceAuth';
 import { validate } from '../../middleware/ValidateRequest';
 import { idParamSchema } from '../../validators/commonSchemas';
@@ -32,6 +33,8 @@ export default class OccurrenceRoutes implements IRoute {
         router.post<IdParams>(
             API_ENDPOINTS.SCHEDULES.ARM(':id'),
             deviceAuth,
+            // Arming plans a journey, so it spends the same budget as a preview.
+            providerLimit,
             validate({ params: idParamSchema }),
             this.controller.arm,
         );

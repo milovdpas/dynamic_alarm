@@ -4,6 +4,7 @@ import { API_ENDPOINTS } from '@alarm/types';
 import type { IdParams } from '../../../interfaces/IHttp';
 import type { IRoute } from '../../../interfaces/IRouter';
 import PlaceController from '../../controllers/PlaceController';
+import { providerLimit } from '../../middleware/ApiLimits';
 import { deviceAuth } from '../../middleware/DeviceAuth';
 import { validate } from '../../middleware/ValidateRequest';
 import { idParamSchema } from '../../validators/commonSchemas';
@@ -30,6 +31,10 @@ export default class PlaceRoutes implements IRoute {
         router.get(
             API_ENDPOINTS.PLACES.AUTOSUGGEST,
             deviceAuth,
+            // The only route a keystroke reaches, and it spends NS budget. The
+            // client debounces and the schema demands three characters; this is
+            // what holds when neither is true.
+            providerLimit,
             validate({ query: autosuggestQuerySchema }),
             this.controller.autosuggest,
         );

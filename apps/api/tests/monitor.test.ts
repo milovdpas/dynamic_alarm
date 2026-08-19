@@ -7,7 +7,7 @@ import {
     SimulationKind,
     WakeChangeReason,
 } from '@alarm/types';
-import type { PushMessage } from '@alarm/types';
+import type { Journey, PushMessage } from '@alarm/types';
 
 import AlarmEvent from '../src/app/models/AlarmEvent.entity';
 import type Device from '../src/app/models/Device.entity';
@@ -202,21 +202,21 @@ describe('claiming, with more than one worker', () => {
     });
 });
 
-describe('push delivery', () => {
-    /** Records what it was asked to send, and answers with `outcome`. */
-    class RecordingPushService extends PushService {
-        readonly sent: PushMessage[] = [];
+/** Records what it was asked to send, and answers with `outcome`. */
+class RecordingPushService extends PushService {
+    readonly sent: PushMessage[] = [];
 
-        constructor(private readonly outcome: PushOutcome) {
-            super();
-        }
-
-        override send(_device: Device, message: PushMessage): Promise<PushOutcome> {
-            this.sent.push(message);
-            return Promise.resolve(this.outcome);
-        }
+    constructor(private readonly outcome: PushOutcome) {
+        super();
     }
 
+    override send(_device: Device, message: PushMessage): Promise<PushOutcome> {
+        this.sent.push(message);
+        return Promise.resolve(this.outcome);
+    }
+}
+
+describe('push delivery', () => {
     async function deliverFor(
         occurrence: ScheduleOccurrence,
         outcome: PushOutcome = 'SENT',
@@ -229,7 +229,7 @@ describe('push delivery', () => {
             occurrence,
             device as Device,
             'Europe/Amsterdam',
-            { reason: WakeChangeReason.DELAY, message: 'A service is delayed.' },
+            { reason: WakeChangeReason.DELAY, simulated: false },
         );
         return { result, push };
     }
@@ -306,9 +306,9 @@ describe('push delivery', () => {
         expect(push.sent).toHaveLength(1);
     });
 
-    it('reuses the recorded sentence on a retry rather than inventing one', async () => {
-        // The delay that caused the change may have moved on since. Describing
-        // the timetable as it looks now would explain a different morning.
+    it('reuses the recorded reason on a retry rather than deriving a new one', async () => {
+        // The delay that caused the change may have moved on since. Reading the
+        // timetable as it looks now would explain a different morning.
         const occurrence = await armedMorning({
             deviceAckedWakeAt: new Date(Date.now() + 2 * 60 * MINUTE),
         });
@@ -318,7 +318,8 @@ describe('push delivery', () => {
             fromAt: null,
             toAt: occurrence.currentWakeAt,
             reason: WakeChangeReason.CANCELLATION,
-            message: 'A service was cancelled, so the alarm moved to 07:05.',
+            simulated: true,
+            message: 'SIMULATED: A service was cancelled, so the alarm moved to 07:05.',
         }).save();
 
         const push = new RecordingPushService('SENT');
@@ -338,8 +339,10 @@ describe('push delivery', () => {
         const sent = push.sent[0];
         expect(sent?.type).toBe(PUSH_MESSAGE_TYPE.WAKE_CHANGED);
         if (sent?.type === PUSH_MESSAGE_TYPE.WAKE_CHANGED) {
-            expect(sent.message).toBe('A service was cancelled, so the alarm moved to 07:05.');
             expect(sent.reason).toBe(WakeChangeReason.CANCELLATION);
+            // Read off the row rather than recomputed, which is the whole point
+            // of a retry reusing the recorded event.
+            expect(sent.simulated).toBe(true);
         }
     });
 
@@ -374,6 +377,64 @@ describe('push delivery', () => {
 
         expect(result).toBe('NOT_NEEDED');
         expect(push.sent).toHaveLength(0);
+    });
+});
+
+describe('how often the same news is repeated', () => {
+    /** A rail journey running `minutes` late, which is what a notice reads. */
+    function delayed(minutes: number): Journey {
+        return {
+            id: 'j', ctxRecon: 'ctx', status: JourneyStatus.DISRUPTION,
+            departureAt: '', arrivalAt: '', transferCount: 0, source: 'NS',
+            watchedStationCodes: ['UT'],
+            legs: [{
+                type: LegType.TRAIN, name: 'IC 3051', fromName: 'Utrecht', toName: 'Amsterdam',
+                plannedDeparture: '', actualDeparture: '', plannedArrival: '', actualArrival: '',
+                delaySeconds: minutes * 60, cancelled: false,
+            }],
+        };
+    }
+
+    async function notifyWith(
+        occurrence: ScheduleOccurrence,
+        push: PushService,
+        minutes: number,
+    ): Promise<string> {
+        const device = await AppDataSource.getRepository('devices').findOneBy({
+            id: occurrence.deviceId,
+        });
+        return new PushDeliveryService(push).notify(
+            occurrence,
+            device as Device,
+            delayed(minutes),
+            false,
+            false,
+        );
+    }
+
+    it('says nothing new when a delay only breathes', async () => {
+        /*
+         * A reported delay drifts a minute either way between checks, and near
+         * the alarm the monitor looks every three minutes. Deduplicating on the
+         * exact number deduplicated nothing: the same news woke the radio all
+         * morning. TomTom's traffic figure wobbles harder still.
+         */
+        const occurrence = await armedMorning();
+        const push = new RecordingPushService('SENT');
+
+        expect(await notifyWith(occurrence, push, 12)).toBe('SENT');
+        expect(await notifyWith(occurrence, push, 13)).toBe('NOT_NEEDED');
+        expect(await notifyWith(occurrence, push, 11)).toBe('NOT_NEEDED');
+        expect(push.sent).toHaveLength(1);
+    });
+
+    it('says so when it grows into something worth knowing', async () => {
+        const occurrence = await armedMorning();
+        const push = new RecordingPushService('SENT');
+
+        expect(await notifyWith(occurrence, push, 12)).toBe('SENT');
+        expect(await notifyWith(occurrence, push, 21)).toBe('SENT');
+        expect(push.sent).toHaveLength(2);
     });
 });
 

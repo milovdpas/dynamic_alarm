@@ -11,6 +11,15 @@ services:
         # part of the nginx configuration rather than a label.
         container_name: dynamic-alarm-api
         restart: unless-stopped
+        # Node is PID 1 without this, and PID 1 gets no default signal handling,
+        # so a `SIGTERM` the process does not explicitly listen for is discarded.
+        # The API does install a handler, and this makes sure it is reached even
+        # if that ever regresses. It also reaps the zombies `job-exec` leaves.
+        init: true
+        # Longer than the API's own 20s drain, so the clean shutdown finishes
+        # before Docker resorts to SIGKILL. Killing mid-pass leaves a claimed
+        # occurrence unclaimable for the five minutes its lease has left.
+        stop_grace_period: 30s
         # expose, never ports: the proxy owns ingress. Publishing 3000 on the
         # host would put the API on the internet beside its own HTTPS front door.
         expose:

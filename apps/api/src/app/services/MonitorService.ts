@@ -42,6 +42,21 @@ import { TransportProviderFactory } from './TransportProviderFactory';
  */
 const CLAIM_LEASE_MINUTES = 5;
 
+/**
+ * What the monitor managed to learn about a journey this pass.
+ *
+ * Narrower than the provider's own answer: `REPLAN` has already been resolved
+ * into a fresh journey by the time anything here sees it, so the rest of the
+ * check reasons about three states rather than four.
+ */
+type JourneyNow =
+    /** The journey in force. Null only for a fixed travel time, which has none. */
+    | { status: 'CURRENT'; journey: Journey | null }
+    /** The itinerary has stopped existing, so a replacement is needed. */
+    | { status: 'GONE' }
+    /** A provider could not answer. Nothing may move on a pass that learned nothing. */
+    | { status: 'UNAVAILABLE' };
+
 /** What one pass over an occurrence did, for the tick's log line. */
 export interface TickResult {
     /** Provider calls in the rate-limit window, and in this pass alone. */
@@ -205,6 +220,62 @@ export class MonitorService {
     }
 
     /**
+     * The journey as it stands now, or why it cannot be known.
+     *
+     * Three answers rather than a nullable journey, because the providers give
+     * three and two of them used to collapse into null. Rail can say a trip has
+     * stopped existing; the car provider can only ever say "route it again"; a
+     * fixed travel time has nothing to ask anyone. Reading all three as
+     * "cancelled" is what told car and fixed-time users their service had been
+     * cancelled on the first check of every night.
+     */
+    private async currentJourney(
+        schedule: Schedule,
+        date: string,
+        previousPlan: WakePlan,
+    ): Promise<JourneyNow> {
+        const journey = previousPlan.journey;
+        if (journey === null) {
+            // A fixed travel time. There is no itinerary to be delayed and no
+            // provider to ask, so nothing about the travel time has changed.
+            return { status: 'CURRENT', journey: null };
+        }
+
+        const provider = TransportProviderFactory.forMode(schedule.mode);
+        if (provider === null) {
+            return { status: 'CURRENT', journey };
+        }
+
+        const result = await provider.refresh(journey);
+        if (result.status === 'CURRENT') {
+            return { status: 'CURRENT', journey: result.journey };
+        }
+        if (result.status === 'GONE') {
+            return { status: 'GONE' };
+        }
+
+        /**
+         * `REPLAN`: the provider has no handle on one particular trip, which is
+         * the road. Routing it again is the only way to learn anything, and what
+         * comes back is an ordinary current journey rather than a replacement
+         * for a cancelled one.
+         */
+        try {
+            const planned = await this.plans.forDate(schedule, date);
+            if (!planned.ok) {
+                console.error(`Re-route for ${date} could not be planned: ${planned.problem}`);
+                return { status: 'UNAVAILABLE' };
+            }
+            return { status: 'CURRENT', journey: planned.response.plan.journey };
+        } catch (error) {
+            // A provider outage. The alarm keeps the time it has, which came
+            // from the last answer that worked, and the next tick tries again.
+            console.error(`Re-route failed for ${date}:`, error);
+            return { status: 'UNAVAILABLE' };
+        }
+    }
+
+    /**
      * Re-checks one occurrence, and returns whether its wake time moved.
      *
      * The refresh asks the provider to reconstruct *this* itinerary with current
@@ -214,29 +285,52 @@ export class MonitorService {
      */
     private async check(id: string, now: Date): Promise<boolean> {
         const occurrence = await ScheduleOccurrence.findOneBy({ id });
-        if (occurrence === null || occurrence.planSnapshot === null) {
+        if (occurrence === null) {
             return false;
+        }
+
+        if (occurrence.planSnapshot === null) {
+            /**
+             * Armed with nothing to keep current, which every path that arms an
+             * occurrence makes impossible. Worth stopping rather than skipping:
+             * claiming had already pushed this row five minutes out on a lease,
+             * so returning here left it due again five minutes later, and again,
+             * all night. One impossible row took a claim slot on every tick.
+             */
+            console.error(`Occurrence ${occurrence.id} is armed with no plan. Cancelling it.`);
+            return this.abandon(occurrence);
         }
 
         const schedule = await Schedule.findOneBy({ id: occurrence.scheduleId });
         const device = await Device.findOneBy({ id: occurrence.deviceId });
         if (schedule === null || device === null) {
             // The schedule was deleted under us. Nothing left to keep current.
-            occurrence.state = OccurrenceState.CANCELLED;
-            occurrence.nextCheckAt = null;
-            await occurrence.save();
-            return false;
+            return this.abandon(occurrence);
         }
 
         const previousPlan = occurrence.planSnapshot;
-        const live = await this.refresh(previousPlan.journey, schedule.mode);
+        const live = await this.currentJourney(schedule, occurrence.date, previousPlan);
+
+        if (live.status === 'UNAVAILABLE') {
+            // Nothing was learned, so nothing may change. Re-checked on the
+            // cadence the existing plan implies, which keeps a provider outage
+            // from either moving an alarm or stranding the row on its lease.
+            occurrence.lastCheckedAt = now;
+            occurrence.nextCheckAt = this.occurrences.nextCheck(
+                previousPlan,
+                schedule.timezone,
+                now,
+            );
+            await occurrence.save();
+            return false;
+        }
 
         // A staged simulation replaces what the provider appears to have said,
         // and nothing else. Everything below this line is the real path: the
         // same engine, the same opt-in settings, the same push, the same rule on
         // the phone. That is the whole point of testing it this way.
-        const simulated = this.simulation.apply(occurrence, live, now);
-        const refreshed = simulated === undefined ? live : simulated;
+        const seen = live.status === 'GONE' ? null : live.journey;
+        const simulated = this.simulation.apply(occurrence, seen, now);
         if (simulated !== undefined) {
             // Marked used, and saved with the plan it produced, so a second
             // check plans against reality again. The record stays until it
@@ -245,12 +339,24 @@ export class MonitorService {
             console.warn(`Occurrence ${occurrence.id} checked against a SIMULATED disruption.`);
         }
 
+        /**
+         * Whether the trip has stopped existing, which is the one thing worth
+         * reporting as a cancellation.
+         *
+         * A simulated cancellation produces the same null the provider would, so
+         * a test drives this branch rather than a shortcut around it.
+         */
+        const gone = simulated === undefined ? live.status === 'GONE' : simulated === null;
+        const refreshed = simulated === undefined ? seen : simulated;
+
         // A trip that can no longer be reconstructed has not been delayed, it
         // has stopped existing, and the useful answer is a different journey to
         // the same deadline. Without this a cancellation left the occurrence
         // with no journey at all: a wake time computed from nothing, and a
         // screen showing a train that vanished with no replacement under it.
-        const replacement = await this.replan(schedule, occurrence.date, refreshed, previousPlan);
+        const replacement: ReplacementResult = gone
+            ? await this.replan(schedule, occurrence.date, previousPlan)
+            : { found: false, reason: 'NOTHING_PLANNED' };
         const replanned = replacement.found ? replacement.plan : null;
 
         if (!replacement.found && replacement.reason === 'OUTSIDE_WINDOW') {
@@ -294,7 +400,7 @@ export class MonitorService {
         occurrence.lastCheckedAt = now;
         occurrence.nextCheckAt = this.occurrences.nextCheck(plan, schedule.timezone, now);
 
-        const reason = this.reasonFor(previousPlan.journey, refreshed, schedule.mode);
+        const reason = this.reasonFor(previousPlan.journey, refreshed, schedule.mode, gone);
         const held = occurrence.currentWakeAt ?? occurrence.anchorWakeAt ?? now;
         const current = held.toISOString();
         /**
@@ -329,14 +435,20 @@ export class MonitorService {
             shouldPushWakeChange(current, plan.wakeUpAt, schedule.timezone, {
                 // Earlier is routine for traffic, and permitted for a
                 // cancellation only because not moving would be worse.
-                allowEarlier: reason === WakeChangeReason.TRAFFIC_WORSE || emergencyEarlier,
+                //
+                // A recomputed fixed-travel morning may also move earlier. It
+                // has no disruption to be careful about, and refusing would mean
+                // an alarm that knows it should ring sooner and does not.
+                allowEarlier:
+                    reason === WakeChangeReason.TRAFFIC_WORSE ||
+                    reason === WakeChangeReason.ROUTE_CHANGED ||
+                    emergencyEarlier,
             });
 
         if (!worthMoving) {
             // The plan is still stored, so the breakdown the user sees stays
             // current even when the wake time itself did not move.
             occurrence.planSnapshot = plan;
-            await occurrence.save();
 
             // A time that moved on an earlier tick may still not have reached
             // the phone. Nothing new was computed here, so this is the only
@@ -347,7 +459,11 @@ export class MonitorService {
             // This is the branch that runs when the user has not opted into
             // being woken later: the time stays, and they still get to know
             // their train is cancelled.
-            await this.delivery.notify(occurrence, device, refreshed, simulated !== undefined);
+            await this.delivery.notify(occurrence, device, refreshed, gone, simulated !== undefined);
+
+            // One write covering everything above. This used to be two saves
+            // with a third inside `deliver`, three writes to record one
+            // decision about one row.
             await occurrence.save();
             return false;
         }
@@ -373,10 +489,6 @@ export class MonitorService {
         // Marked in the trail, not only in the log. Someone woken early by a
         // test has to be able to see that is what happened, or a simulation is
         // indistinguishable from the product being wrong.
-        const message =
-            simulated === undefined
-                ? this.describe(reason, plan)
-                : `SIMULATED: ${this.describe(reason, plan)}`;
         await AlarmEvent.create({
             occurrenceId: occurrence.id,
             type:
@@ -386,44 +498,60 @@ export class MonitorService {
             fromAt: from,
             toAt: occurrence.currentWakeAt,
             reason,
-            message,
+            simulated: simulated !== undefined,
+            message: this.describe(reason, plan, simulated !== undefined),
         }).save();
 
         // After the event, deliberately. The trail is what makes a wrong wake
         // time explainable in the morning, and it must survive a push that
         // fails.
-        await this.delivery.deliver(occurrence, device, schedule.timezone, { reason, message }, now);
+        await this.delivery.deliver(
+            occurrence,
+            device,
+            schedule.timezone,
+            { reason, simulated: simulated !== undefined },
+            now,
+        );
 
         // The reason, separately from the new time. The wake push moves the
         // alarm; this says what happened, and the alarm screen reads it from the
         // device rather than asking the network at 06:00.
-        await this.delivery.notify(occurrence, device, refreshed, simulated !== undefined);
+        await this.delivery.notify(occurrence, device, refreshed, gone, simulated !== undefined);
         await occurrence.save();
 
         return true;
     }
 
     /**
+     * Stops monitoring a row there is nothing left to do for.
+     *
+     * `nextCheckAt` is cleared as well as the state, because the claim query
+     * filters on both and a row left due is a row claimed for ever.
+     */
+    private async abandon(occurrence: ScheduleOccurrence): Promise<boolean> {
+        occurrence.state = OccurrenceState.CANCELLED;
+        occurrence.nextCheckAt = null;
+        await occurrence.save();
+        return false;
+    }
+
+    /**
      * A different journey to the same deadline, when the old one is gone.
      *
-     * Only for the modes that have a provider to ask. A fixed travel time has
-     * nothing to re-plan, and a null refresh there means something else.
+     * Only reached for a genuine cancellation, which in practice means rail: a
+     * road route has no identity to lose and a fixed travel time has no
+     * itinerary at all, so neither arrives here.
      *
-     * Returns null when no re-plan is needed, and also when one was needed and
-     * failed. That second case matters: an NS outage during a cancellation must
-     * leave the alarm on its existing time rather than on a plan computed from
-     * nothing, and the next tick will try again.
+     * Returns `NOTHING_PLANNED` when a re-plan was needed and failed. That case
+     * matters: an NS outage during a cancellation must leave the alarm on its
+     * existing time rather than on a plan computed from nothing, and the next
+     * tick will try again.
      */
     private async replan(
         schedule: Schedule,
         date: string,
-        refreshed: Journey | null,
         previousPlan: WakePlan,
     ): Promise<ReplacementResult> {
-        if (refreshed !== null || schedule.mode === TransportMode.FIXED) {
-            return { found: false, reason: 'NOTHING_PLANNED' };
-        }
-
         try {
             const options = await this.plans.optionsForDate(schedule, date);
 
@@ -451,40 +579,31 @@ export class MonitorService {
     }
 
     /**
-     * The same itinerary with current data, or a fresh plan when it is gone.
+     * What changed, in the terms the user's settings are written in.
      *
-     * A null refresh means the trip can no longer be reconstructed, which is the
-     * provider's way of saying "re-plan" rather than "no change". Treating it as
-     * no change is the failure that leaves someone asleep while their train is
-     * cancelled.
+     * `gone` is passed rather than inferred from a null journey. Those were the
+     * same thing until the car provider turned out to answer null for "ask me
+     * again" and a fixed travel time to have no journey at all, at which point
+     * inferring it reported both as cancellations.
      */
-    private async refresh(journey: Journey | null, mode: TransportMode): Promise<Journey | null> {
-        if (journey === null) {
-            return null;
-        }
-
-        const provider = TransportProviderFactory.forMode(mode);
-        if (provider === null) {
-            // FIXED mode has nothing to ask anyone about.
-            return journey;
-        }
-
-        return provider.refresh(journey);
-    }
-
-    /** What changed, in the terms the user's settings are written in. */
     private reasonFor(
         before: Journey | null,
         after: Journey | null,
         mode: TransportMode,
+        gone: boolean,
     ): WakeChangeReason {
+        if (gone) {
+            // Unreconstructable, which is what a cancellation looks like from
+            // here: the itinerary no longer exists to be delayed.
+            return WakeChangeReason.CANCELLATION;
+        }
         if (mode === TransportMode.CAR) {
             return WakeChangeReason.TRAFFIC_WORSE;
         }
         if (after === null) {
-            // Unreconstructable, which is what a cancellation looks like from
-            // here: the itinerary no longer exists to be delayed.
-            return WakeChangeReason.CANCELLATION;
+            // A fixed travel time. Nothing on the road or the rails can have
+            // moved this, so whatever did came from the schedule or the routine.
+            return WakeChangeReason.ROUTE_CHANGED;
         }
         if (REPLAN_REQUIRED_STATUSES.includes(after.status)) {
             return WakeChangeReason.CANCELLATION;
@@ -506,6 +625,25 @@ export class MonitorService {
      * wrong way round, and the settings screen is where they say otherwise.
      */
     private allowedBy(device: Device, reason: WakeChangeReason, mode: TransportMode): boolean {
+        if (reason === WakeChangeReason.ROUTE_CHANGED) {
+            /**
+             * A fixed travel time, recomputed and different.
+             *
+             * The three settings govern whether a **disruption** may move an
+             * alarm, and this mode has none: no provider, no timetable, nothing
+             * outside the user's own schedule and routine that could change. A
+             * difference here is arithmetic on their own data, so gating it on
+             * an opt-in about trains would leave the plan on screen and the time
+             * the alarm actually rings disagreeing about the same morning.
+             *
+             * Before this, a fixed-travel morning was reported as a cancellation
+             * and gated on the cancellation opt-in, which was wrong for a
+             * different reason. Naming the reason honestly moved it onto the
+             * delay opt-in, which was wrong too, and quietly: a fixed-travel
+             * alarm that needed to ring earlier was refused and said nothing.
+             */
+            return true;
+        }
         if (mode === TransportMode.CAR) {
             return device.allowEarlierWakeOnTraffic;
         }
@@ -516,22 +654,27 @@ export class MonitorService {
     }
 
     /**
-     * The sentence stored with the event.
+     * The operator's line in the event row, which never leaves the server.
      *
-     * Written now rather than rendered later, because it depends on data that
-     * has already changed by the time anyone reads it.
+     * The app builds its own sentence from `reason` and `toAt`, because copy
+     * belongs in its translations and a sentence written here would arrive in
+     * English whatever language its reader chose. This one exists for whoever is
+     * reading the table at 09:00 trying to explain a wake time.
      */
-    private describe(reason: WakeChangeReason, plan: WakePlan): string {
+    private describe(reason: WakeChangeReason, plan: WakePlan, simulated: boolean): string {
         const at = DateTime.fromISO(plan.wakeUpAt, { setZone: true }).toFormat('HH:mm');
+        const prefix = simulated ? 'SIMULATED: ' : '';
         switch (reason) {
             case WakeChangeReason.CANCELLATION:
-                return `A service was cancelled, so the alarm moved to ${at}.`;
+                return `${prefix}A service was cancelled, so the alarm moved to ${at}.`;
             case WakeChangeReason.TRAFFIC_WORSE:
-                return `Traffic is heavier than planned, so the alarm moved to ${at}.`;
+                return `${prefix}Traffic is heavier than planned, so the alarm moved to ${at}.`;
             case WakeChangeReason.DELAY_RESOLVED:
-                return `The delay cleared, so the alarm moved to ${at}.`;
+                return `${prefix}The delay cleared, so the alarm moved to ${at}.`;
+            case WakeChangeReason.ROUTE_CHANGED:
+                return `${prefix}The plan was recomputed, so the alarm moved to ${at}.`;
             default:
-                return `A service is delayed, so the alarm moved to ${at}.`;
+                return `${prefix}A service is delayed, so the alarm moved to ${at}.`;
         }
     }
 }

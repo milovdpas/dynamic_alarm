@@ -44,6 +44,18 @@ export async function connectDatabase(): Promise<void> {
 }
 
 /**
+ * Releases the pool, so a stopping process stops rather than lingering.
+ *
+ * Safe to call when nothing was ever opened, which is the case if startup failed
+ * before `connectDatabase`.
+ */
+export async function closeDatabase(): Promise<void> {
+    if (AppDataSource.isInitialized) {
+        await AppDataSource.destroy();
+    }
+}
+
+/**
  * Makes the server's own clock agree with ours.
  *
  * `timezone: 'Z'` above only tells the driver how to read and write values it

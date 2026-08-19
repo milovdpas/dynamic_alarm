@@ -4,6 +4,7 @@ import { API_ENDPOINTS } from '@alarm/types';
 import type { IdParams } from '../../../interfaces/IHttp';
 import type { IRoute } from '../../../interfaces/IRouter';
 import ScheduleController from '../../controllers/ScheduleController';
+import { providerLimit } from '../../middleware/ApiLimits';
 import { deviceAuth } from '../../middleware/DeviceAuth';
 import { validate } from '../../middleware/ValidateRequest';
 import { idParamSchema } from '../../validators/commonSchemas';
@@ -34,6 +35,8 @@ export default class ScheduleRoutes implements IRoute {
         router.get<IdParams>(
             API_ENDPOINTS.SCHEDULES.PLAN(':id'),
             deviceAuth,
+            // Costs a provider call, unlike every other read in this group.
+            providerLimit,
             validate({ params: idParamSchema }),
             this.controller.plan,
         );

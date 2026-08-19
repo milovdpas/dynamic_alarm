@@ -1,3 +1,4 @@
+import { In } from 'typeorm';
 import { AccessMode, TransportMode } from '@alarm/types';
 import type { CreateScheduleRequest, UpdateScheduleRequest } from '@alarm/types';
 
@@ -117,7 +118,7 @@ export class ScheduleService {
             // alone it keeps waking someone at a time their schedule no longer
             // says, which is exactly how this surfaced: an edit that appeared to
             // save and changed nothing.
-            await this.occurrences.discardUpcoming(saved.id);
+            await this.occurrences.discardUpcoming(saved);
         }
 
         return { ok: true, schedule: saved };
@@ -140,20 +141,30 @@ export class ScheduleService {
         deviceId: string,
         input: Partial<CreateScheduleRequest>,
     ): Promise<ScheduleProblem | null> {
-        const placeIds = [input.originPlaceId, input.destinationPlaceId].filter(
-            (id): id is string => id !== undefined,
-        );
+        const placeIds = [...new Set(
+            [input.originPlaceId, input.destinationPlaceId].filter(
+                (id): id is string => id !== undefined,
+            ),
+        )];
 
-        for (const id of placeIds) {
-            if ((await Place.findOneBy({ id, deviceId })) === null) {
-                return 'PLACE_NOT_FOUND';
-            }
+        // One query for the places rather than one per place, and the routine
+        // alongside them rather than after. These are independent questions, and
+        // asking them in sequence made a schedule write three round trips deep
+        // before it wrote anything.
+        const [places, routine] = await Promise.all([
+            placeIds.length === 0
+                ? Promise.resolve<Place[]>([])
+                : Place.findBy({ id: In(placeIds), deviceId }),
+            input.routineId === undefined
+                ? Promise.resolve(null)
+                : Routine.findOneBy({ id: input.routineId, deviceId }),
+        ]);
+
+        if (places.length !== placeIds.length) {
+            return 'PLACE_NOT_FOUND';
         }
-
-        if (input.routineId !== undefined) {
-            if ((await Routine.findOneBy({ id: input.routineId, deviceId })) === null) {
-                return 'ROUTINE_NOT_FOUND';
-            }
+        if (input.routineId !== undefined && routine === null) {
+            return 'ROUTINE_NOT_FOUND';
         }
 
         return null;

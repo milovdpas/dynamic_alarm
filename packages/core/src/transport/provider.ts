@@ -33,6 +33,37 @@ export interface PlanRequest {
     now?: IsoDateTimeString;
 }
 
+/**
+ * What asking a provider about an existing itinerary can tell you.
+ *
+ * Three answers, because `Journey | null` only had room for two and the two it
+ * had were the wrong pair. Null meant both "this trip no longer exists" and
+ * "I have no way to re-fetch a trip, ask me to plan again", which are opposite
+ * instructions. The monitor believed the first, so every car journey was
+ * reported to its owner as a cancellation on the first check of the night, and
+ * the re-plan it triggered was routed through the replacement chooser, which
+ * refuses an option departing at the same moment as the one it is replacing.
+ * The result was a car alarm that stopped tracking traffic and said a train had
+ * been cancelled, on a commute with no train in it.
+ */
+export type RefreshResult =
+    /**
+     * The same itinerary, as it stands now. `journey` carries current realtime
+     * data and may be more delayed, less delayed or identical.
+     */
+    | { status: 'CURRENT'; journey: Journey }
+    /**
+     * The itinerary cannot be reconstructed. This is what a cancellation looks
+     * like from here: the trip has stopped existing rather than slipped.
+     */
+    | { status: 'GONE' }
+    /**
+     * This provider has no way to re-fetch a specific trip, so the only way to
+     * learn anything is to plan the journey again. Not a disruption, and it must
+     * never be reported as one.
+     */
+    | { status: 'REPLAN' };
+
 export interface TransportProvider {
     /** Stable identifier written into `Journey.source`. */
     readonly name: string;
@@ -51,9 +82,10 @@ export interface TransportProvider {
      * Re-fetch this exact itinerary with current realtime data.
      *
      * This is the mechanism that recalculates an actual journey instead of
-     * blindly adding a delay to it. Returns null when the provider cannot
-     * reconstruct the journey (no `ctxRecon`, or it has expired), which the
-     * caller must treat as "re-plan from scratch".
+     * blindly adding a delay to it. The answer is a {@link RefreshResult} rather
+     * than a nullable journey, because "gone" and "I cannot answer this
+     * question, plan again" need opposite responses from the caller and used to
+     * be indistinguishable.
      */
-    refresh(journey: Journey): Promise<Journey | null>;
+    refresh(journey: Journey): Promise<RefreshResult>;
 }

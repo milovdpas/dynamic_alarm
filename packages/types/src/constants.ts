@@ -68,6 +68,19 @@ export const API_ENDPOINTS = {
         TICK: '/api/v1/monitor/tick',
     },
     HEALTH: '/api/v1/health',
+    /**
+     * What this deployment actually sees of a caller's address.
+     *
+     * Diagnostic, and temporary. The rate limiters key on `req.ip`, which is
+     * only the real client when Express has been told exactly how many proxies
+     * sit in front. Guessing that number is unsafe in both directions: too high
+     * and a caller picks their own rate-limit key by sending a header, too low
+     * and everybody shares the proxy's address and one bucket.
+     *
+     * So it is measured rather than guessed. Call this from a phone against the
+     * real deployment and the answer names the hop count to configure.
+     */
+    IP: '/api/v1/ip',
 } as const;
 
 /**
@@ -204,7 +217,24 @@ export const ERROR_CODES = {
     TRANSPORT_PROVIDER_ERROR: 'TRANSPORT_PROVIDER_ERROR',
     /** Upstream rate limit hit, loud on purpose, we cannot see NS's ceiling. */
     TRANSPORT_RATE_LIMITED: 'TRANSPORT_RATE_LIMITED',
+    /**
+     * This caller is asking too often, and the API said so before NS had to.
+     *
+     * Distinct from `TRANSPORT_RATE_LIMITED`, which means the shared upstream
+     * budget is already spent and everybody is affected. This one is about one
+     * device or one address, and waiting fixes it.
+     */
+    RATE_LIMITED: 'RATE_LIMITED',
     NO_FEASIBLE_JOURNEY: 'NO_FEASIBLE_JOURNEY',
+    /**
+     * Understood and refused, because something still points at it.
+     *
+     * Its own code rather than a reused `VALIDATION_FAILED`: nothing about the
+     * request is wrong, so telling the app to fix its input sends it in circles.
+     * `details.blockedBy` names what is in the way, which is the difference
+     * between "cannot delete" and "Work mornings uses this".
+     */
+    RESOURCE_IN_USE: 'RESOURCE_IN_USE',
     INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 

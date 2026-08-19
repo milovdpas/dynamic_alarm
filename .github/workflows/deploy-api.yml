@@ -59,6 +59,13 @@ jobs:
                   NS_SUBSCRIPTION_KEY: ${{ secrets.NS_SUBSCRIPTION_KEY }}
                   TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
                   MONITOR_TOKEN: ${{ secrets.MONITOR_TOKEN }}
+                  # Repository variables rather than secrets: neither is one, and
+                  # a variable can be flipped in the UI and redeployed, which is
+                  # the whole point of the diagnostic being a flag. Unset
+                  # substitutes to empty, and the API reads empty as unset, so
+                  # never configuring either leaves the safe default in place.
+                  TRUST_PROXY_HOPS: ${{ vars.TRUST_PROXY_HOPS }}
+                  IP_DIAGNOSTIC: ${{ vars.IP_DIAGNOSTIC }}
               run: |
                   envsubst < .env.dist > .env
 
@@ -79,6 +86,14 @@ jobs:
                     exit 1
                   fi
                   echo "Rendered .env with $(grep -c '=' .env) values."
+
+                  # Said loudly, because this is the one setting that is meant to
+                  # be temporary and the only thing that would otherwise remember
+                  # it is a person. The route hands the proxy chain and the
+                  # request's headers to an unauthenticated caller.
+                  if grep -q '^IP_DIAGNOSTIC=true$' .env; then
+                    echo "::warning::IP_DIAGNOSTIC is on, so GET /api/v1/ip is public on this deploy. Set the repository variable back to false once TRUST_PROXY_HOPS is settled."
+                  fi
 
             - name: Setup SSH agent
               uses: webfactory/ssh-agent@v0.10.0

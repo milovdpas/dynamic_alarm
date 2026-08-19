@@ -1,6 +1,6 @@
 import { APP_CONSTANTS, JourneyStatus, LegType } from '@alarm/types';
 import type { Journey } from '@alarm/types';
-import type { PlanRequest, TransportProvider } from '@alarm/core';
+import type { PlanRequest, RefreshResult, TransportProvider } from '@alarm/core';
 
 import { TomTomModule, type RouteResult } from '../modules/TomTomModule';
 
@@ -125,15 +125,22 @@ export class CarJourneyService implements TransportProvider {
     }
 
     /**
-     * Always null, which means "plan again" rather than "no change".
+     * Always `REPLAN`, which is a different thing from `GONE`.
      *
      * Rail has `ctxRecon`, so the same itinerary can be re-fetched and asked
-     * whether it still works. A road route has no such identity: the only way
-     * to know what the drive looks like now is to route it again. Returning null
-     * says exactly that, and costs nothing extra, since TomTom is not the
-     * provider whose rate limit binds.
+     * whether it still works. A road route has no such identity: the only way to
+     * know what the drive looks like now is to route it again. Saying so costs
+     * nothing extra, since TomTom is not the provider whose rate limit binds.
+     *
+     * This used to return null, which the monitor read as "the trip no longer
+     * exists". Every car morning was therefore announced to its owner as a
+     * cancellation, and the re-plan went through the replacement chooser, which
+     * rejects a candidate leaving at the same moment as the one it replaces. A
+     * drive whose forecast had not shifted produced no replacement at all, so
+     * the alarm stopped following traffic, which is the only reason car mode
+     * exists.
      */
-    refresh(): Promise<Journey | null> {
-        return Promise.resolve(null);
+    refresh(): Promise<RefreshResult> {
+        return Promise.resolve({ status: 'REPLAN' });
     }
 }

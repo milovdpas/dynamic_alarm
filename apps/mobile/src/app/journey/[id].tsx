@@ -24,6 +24,7 @@ import WarningBanner from '@/components/ui/WarningBanner';
 import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { useThemeColor } from '@/utils/hooks/useThemeColor';
 import { ApiRequestError } from '@/utils/modules/Axios';
+import { describeAlarmEvent } from '@/alarm/wakeChangeCopy';
 import { clock, relativeDay } from '@/utils/time';
 
 /**
@@ -175,10 +176,12 @@ export default function JourneyScreen() {
                             <Breakdown plan={occurrence.plan} borderColor={border} />
 
                             {/*
-                             * Written when each change happened, because the
+                             * Recorded when each change happened, because the
                              * delay that caused it has usually gone by the time
-                             * anyone reads this. Empty on a morning that has not
-                             * moved, which is most of them.
+                             * anyone reads this. The wording is written here
+                             * rather than sent ready-made, so it arrives in the
+                             * language its reader chose. Empty on a morning that
+                             * has not moved, which is most of them.
                              */}
                             {events.length > 0 && (
                                 <>
@@ -190,7 +193,7 @@ export default function JourneyScreen() {
                                             <Step
                                                 key={event.id}
                                                 time={clock(event.createdAt)}
-                                                label={event.message}
+                                                label={describeAlarmEvent(event)}
                                             />
                                         ))}
                                     </View>

@@ -3,6 +3,7 @@ import { API_ENDPOINTS } from '@alarm/types';
 
 import type { IRoute } from '../../../interfaces/IRouter';
 import DeviceController from '../../controllers/DeviceController';
+import { registrationLimit } from '../../middleware/ApiLimits';
 import { deviceAuth } from '../../middleware/DeviceAuth';
 import { validate } from '../../middleware/ValidateRequest';
 import { registerDeviceSchema, updateDeviceSchema } from '../../validators/deviceSchemas';
@@ -21,9 +22,11 @@ export default class DeviceRoutes implements IRoute {
         const router = Router();
 
         // The one route without `deviceAuth`: it creates the credential that
-        // every other route requires.
+        // every other route requires. Which is exactly why it is the one route
+        // with a limit keyed on the caller's address instead.
         router.post(
             API_ENDPOINTS.DEVICES.REGISTER,
+            registrationLimit,
             validate({ body: registerDeviceSchema }),
             this.controller.register,
         );

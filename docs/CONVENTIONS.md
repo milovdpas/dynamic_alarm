@@ -69,6 +69,32 @@ Keys are nested by area (`alarm.*`, `plan.*`, `diagnostics.*`, `harness.*`).
 commuters on NS trains; `nl` and `en` are both maintained from day one, `nl` is
 listed first in `languages.ts`, and `nl` is the initial language.
 
+### The server sends facts, the app writes the sentence
+
+The same rule, extended across the network. `AlarmEventDto` and
+`WakeChangedPush` carried finished English sentences until 2026-08-19, shown as
+the notification body that wakes somebody at 03:00 and as the journey timeline.
+They were the only user-facing strings in the product that ignored the language
+their reader had chosen, and nothing on the device could fix that: by the time
+prose arrives, with a time already interpolated into it, there is nothing left to
+translate.
+
+So a DTO carries the ingredients. A reason code, a time, a boolean. The wording
+lives in `i18n/translations/` beside everything else, and `wakeChangeCopy.ts`
+builds it. One function serves both readers of a change, because a push and its
+matching timeline entry wording the same event differently is how a screen stops
+being believed.
+
+The API keeps English prose in the `alarm_events` row for whoever is reading the
+table trying to explain a wake time. That is an operator's line, and it stays off
+the wire.
+
+An error the app shows is chosen by `code`, never by `message`: `apiErrorMessage`
+looks the code up and falls back rather than rendering a key. Where a refusal
+needs a detail in it, the detail travels as data in `details` and the sentence
+interpolates it, which is what `RESOURCE_IN_USE` does with the names of the
+schedules blocking a delete.
+
 ### Non-React code returns keys, not sentences
 
 Modules outside the React tree, `alarmSupport.ts`, `nativeDiagnostics.ts`, return

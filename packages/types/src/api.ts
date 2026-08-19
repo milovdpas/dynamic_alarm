@@ -382,6 +382,15 @@ export interface AckOccurrenceRequest {
     ackedWakeAt: IsoDateTimeString;
 }
 
+/**
+ * One recorded change to an alarm, as ingredients rather than as a sentence.
+ *
+ * `reason` and `toAt` are everything the wording needs, and the app owns the
+ * wording: its translations are the single home for user-facing copy, and a
+ * sentence rendered on the server would arrive in English whatever language its
+ * reader picked. The server keeps its own prose in the row for operators, and
+ * that copy never leaves the database.
+ */
 export interface AlarmEventDto {
     id: string;
     occurrenceId: string;
@@ -389,9 +398,136 @@ export interface AlarmEventDto {
     fromAt: IsoDateTimeString | null;
     toAt: IsoDateTimeString | null;
     reason: WakeChangeReason;
-    /** Pre-rendered human sentence, e.g. "Your train is delayed by 12 minutes." */
-    message: string;
+    /** True when a staged test produced this change rather than NS. */
+    simulated: boolean;
     createdAt: IsoDateTimeString;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Address diagnostics, temporary                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One address in the chain, and what can be told about it without trusting it.
+ *
+ * `index` counts from the left of `X-Forwarded-For` as sent. `fromRight` is the
+ * number that matters, because a forwarded chain grows on the left: a client can
+ * put anything it likes at the front, and every proxy appends the peer it
+ * actually saw. Only the entries closest to the right were written by
+ * infrastructure this deployment controls.
+ */
+export interface ForwardedHop {
+    index: number;
+    /** Distance from the end of the chain. The last entry is 0. */
+    fromRight: number;
+    value: string;
+    /** `::ffff:1.2.3.4` reduced to `1.2.3.4`, so entries compare sensibly. */
+    normalised: string;
+    /** Loopback, private range, or link local. A real client is none of these. */
+    private: boolean;
+    /** Parses as an address at all. A spoofed header need not. */
+    valid: boolean;
+}
+
+/**
+ * What `req.ip` would be at a given `trust proxy` setting.
+ *
+ * The whole point of the endpoint. Express resolves the client by walking the
+ * chain `[socket, ...forwarded reversed]` and taking the entry `hops` steps in,
+ * so this table turns "which number do we configure" into something read off a
+ * response rather than reasoned about.
+ */
+export interface HopCandidate {
+    hops: number;
+    resolvedIp: string;
+    /** True for the value the deployment is configured for right now. */
+    current: boolean;
+    /** A public address here is the shape of a correct answer. */
+    private: boolean;
+}
+
+/**
+ * Everything needed to decide how many proxies to trust.
+ *
+ * Deliberately verbose, because the cost of another deploy to ask one more
+ * question is far higher than the cost of returning a field nobody reads.
+ *
+ * Sensitive headers are redacted. What is left is the caller's own request
+ * reflected back, which holds no secret from the caller, plus what this
+ * deployment made of it.
+ */
+export interface IpDebugResponse {
+    /**
+     * The address the rate limiters key on today, and the one under suspicion.
+     *
+     * Equal to `socket.address` when nothing is trusted, and to an entry from
+     * the forwarded chain when something is.
+     */
+    resolvedIp: string;
+    /** What `addressOf` in the limiter returns for this request, verbatim. */
+    rateLimitKey: string;
+    /** The TCP peer. Cannot be spoofed, and behind a proxy is the proxy. */
+    socket: {
+        address: string | null;
+        normalised: string | null;
+        port: number | null;
+        family: string | null;
+        private: boolean;
+        /**
+         * The connection came from this machine, which is not the same thing as
+         * arriving through a proxy. On the VPS nginx is a separate container, so
+         * loopback there means the call bypassed it.
+         */
+        loopback: boolean;
+        /** True when Node handed back an IPv4 address inside an IPv6 one. */
+        ipv4Mapped: boolean;
+    };
+    /** How Express is configured, and where that setting came from. */
+    trustProxy: {
+        setting: string;
+        /** `TRUST_PROXY_HOPS`, or the default that applied when it was unset. */
+        configuredHops: number;
+        envValue: string | null;
+        nodeEnv: string;
+    };
+    forwarded: {
+        /** The header exactly as it arrived, or null when there was none. */
+        raw: string | null;
+        /** Split, trimmed, and annotated. Empty when the header is absent. */
+        hops: ForwardedHop[];
+        count: number;
+        /** `req.ips`: what Express itself made of the chain. */
+        expressIps: string[];
+    };
+    /**
+     * The chain Express walks, socket first, forwarded entries right to left.
+     *
+     * `candidates[n].resolvedIp` is what `req.ip` becomes at `trust proxy: n`.
+     */
+    chain: string[];
+    candidates: HopCandidate[];
+    /**
+     * Other headers a proxy or CDN might use to name the client.
+     *
+     * Present so one deploy answers the question even if the answer turns out
+     * not to be `X-Forwarded-For`. A value here that matches the phone's real
+     * address is a simpler configuration than counting hops.
+     */
+    clientHeaders: Record<string, string | null>;
+    /** Every header, minus the ones that carry a credential. */
+    headers: Record<string, string>;
+    request: {
+        method: string;
+        /** `req.protocol`, which `trust proxy` also affects. */
+        protocol: string;
+        secure: boolean;
+        hostname: string;
+        originalUrl: string;
+        httpVersion: string;
+    };
+    /** Plain sentences about what the numbers above imply. */
+    findings: string[];
+    timestamp: IsoDateTimeString;
 }
 
 /* -------------------------------------------------------------------------- */

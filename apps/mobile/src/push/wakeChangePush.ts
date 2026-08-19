@@ -7,6 +7,7 @@ import { ackOccurrence } from '@/api';
 import i18n from '@/i18n/i18n';
 import { resolveAlarmSoundUri } from '@/alarm/alarmSound';
 import { rememberDisruption } from '@/alarm/disruption';
+import { describeWakeChange } from '@/alarm/wakeChangeCopy';
 import { readHeldAlarm, rememberHeldAlarm } from '@/push/heldAlarm';
 import { recordPushOutcome } from '@/push/pushLog';
 
@@ -20,11 +21,14 @@ import { recordPushOutcome } from '@/push/pushLog';
  * no network at 06:00.
  */
 export async function applyDisruptionNotice(push: DisruptionNoticePush): Promise<void> {
+    // Defaulted rather than trusted. The guard admits a payload on its kind and
+    // its occurrence, so a future field that arrives absent should read as
+    // "nothing to say" instead of rendering "undefined minutes late".
     await rememberDisruption(push.occurrenceId, {
         kind: push.kind,
-        minutes: push.minutes,
-        service: push.service,
-        simulated: push.simulated,
+        minutes: typeof push.minutes === 'number' ? push.minutes : 0,
+        service: push.service ?? null,
+        simulated: push.simulated === true,
     });
 
     await recordPushOutcome({
@@ -133,7 +137,11 @@ async function apply(push: WakeChangedPush): Promise<PushApplyOutcome> {
             id,
             at: push.wakeAt,
             title: i18n.t('alarm.ringing_title'),
-            body: push.message,
+            // Written here, from the reason and the time, rather than sent as a
+            // finished sentence. Copy lives in the app's translations, and a
+            // string composed on the server arrives in English however the
+            // phone is set.
+            body: describeWakeChange(push),
             // Re-read here too. This path runs in a headless task with the app
             // closed, and an alarm moved overnight that quietly lost the user's
             // tone would be a strange thing to wake up to.
@@ -161,7 +169,7 @@ async function apply(push: WakeChangedPush): Promise<PushApplyOutcome> {
             // 06:00 with no network, so what the server knew has to travel with
             // the message that woke the task.
             service: push.cancelledService ?? null,
-            simulated: push.message.startsWith('SIMULATED'),
+            simulated: push.simulated === true,
             replacement: push.replacement ?? null,
         }).catch(() => undefined);
         // Only after the read-back. This is the message that stops the server
@@ -210,6 +218,22 @@ function* unwrap(value: unknown, depth: number): Generator<unknown> {
     }
 }
 
+/**
+ * Every kind the server can send, as a table keyed by the union itself.
+ *
+ * A `Record` over the union rather than an array of it, and the difference is
+ * the whole point. `['DELAY', 'CANCELLATION'] satisfies readonly Kind[]`
+ * compiles perfectly: it checks that each element is a kind, never that every
+ * kind is an element. That is precisely how `NO_REPLACEMENT` came to be declared
+ * in `@alarm/types`, sent by the server, and silently dropped here. A `Record`
+ * has to name them all, so the next one added fails to compile.
+ */
+const DISRUPTION_KINDS: Record<DisruptionNoticePush['kind'], true> = {
+    DELAY: true,
+    CANCELLATION: true,
+    NO_REPLACEMENT: true,
+};
+
 function isDisruptionNotice(value: unknown): value is DisruptionNoticePush {
     if (typeof value !== 'object' || value === null) {
         return false;
@@ -218,7 +242,12 @@ function isDisruptionNotice(value: unknown): value is DisruptionNoticePush {
     return (
         record.type === PUSH_MESSAGE_TYPE.DISRUPTION_NOTICE &&
         typeof record.occurrenceId === 'string' &&
-        (record.kind === 'DELAY' || record.kind === 'CANCELLATION')
+        // Every kind the shared type declares. `NO_REPLACEMENT` was missing, so
+        // the one notice the server describes as the case where silence is the
+        // only wrong answer was silently dropped here, and the server recorded
+        // it as delivered and never sent it again.
+        typeof record.kind === 'string' &&
+        Object.hasOwn(DISRUPTION_KINDS, record.kind)
     );
 }
 
@@ -227,10 +256,20 @@ function isWakeChange(value: unknown): value is WakeChangedPush {
         return false;
     }
     const record = value as Record<string, unknown>;
+    /**
+     * Only what is needed to move an alarm, which is the id and the time.
+     *
+     * Everything else is presentation and is defaulted below. This guard is the
+     * last place a push can be lost without anything anywhere saying so, and it
+     * has already happened once in each direction: it required `message` until
+     * the server stopped sending one, and requiring the fields that replaced it
+     * would fail the same way the next time the payload changes. A message that
+     * arrives with an unfamiliar shape and a usable time is still worth acting
+     * on; the alternative is an alarm that quietly stops moving.
+     */
     return (
         record.type === PUSH_MESSAGE_TYPE.WAKE_CHANGED &&
         typeof record.occurrenceId === 'string' &&
-        typeof record.wakeAt === 'string' &&
-        typeof record.message === 'string'
+        typeof record.wakeAt === 'string'
     );
 }

@@ -31,6 +31,14 @@ export const PUSH_MESSAGE_TYPE = {
 
 export type PushMessageType = (typeof PUSH_MESSAGE_TYPE)[keyof typeof PUSH_MESSAGE_TYPE];
 
+/**
+ * The alarm moved, and the device should hold a new time.
+ *
+ * Deliberately carries no prose. `reason` and `wakeAt` are everything the
+ * sentence was built from, and the app owns the wording: all user-facing copy
+ * lives in its translations, and a pre-rendered English string would be the one
+ * message in the product that ignores the language its owner chose.
+ */
 export interface WakeChangedPush {
     type: typeof PUSH_MESSAGE_TYPE.WAKE_CHANGED;
     occurrenceId: string;
@@ -38,11 +46,14 @@ export interface WakeChangedPush {
     wakeAt: IsoDateTimeString;
     reason: WakeChangeReason;
     /**
-     * Already rendered, because the app cannot write this sentence. It depends
-     * on which leg was late and by how much, and the timetable that caused it
-     * has changed by the time anyone reads it.
+     * True when a staged test produced this rather than NS.
+     *
+     * A separate field rather than a marker inside a sentence. The device shows
+     * it on the alarm screen and in the notification, and reading it out of
+     * prose meant the server and the app agreeing on a prefix string, which is
+     * the kind of contract that breaks silently.
      */
-    message: string;
+    simulated: boolean;
     /**
      * True when this moves the alarm **earlier**, which is the emergency path.
      *

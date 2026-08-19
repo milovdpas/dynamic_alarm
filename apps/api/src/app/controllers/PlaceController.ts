@@ -4,7 +4,7 @@ import type { Handler, IdParams } from '../../interfaces/IHttp';
 import { queryOf } from '../middleware/ValidateRequest';
 import type { BodyOf } from '../middleware/ValidateRequest';
 import { PlaceService } from '../services/PlaceService';
-import { sendConflict, sendNotFound, sendSuccess } from '../utils/ApiResponses';
+import { sendInUse, sendNotFound, sendSuccess } from '../utils/ApiResponses';
 import {
     autosuggestQuerySchema,
     createPlaceSchema,
@@ -56,7 +56,7 @@ export default class PlaceController {
 
         const blockedBy = await this.places.remove(place);
         if (blockedBy.length > 0) {
-            sendConflict(res, `Place is still used by: ${blockedBy.join(', ')}`);
+            sendInUse(res, 'Place', blockedBy);
             return;
         }
 

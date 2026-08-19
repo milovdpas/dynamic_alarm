@@ -168,6 +168,9 @@ export default {
             OFFLINE_WRITE:
                 'No connection, so this change was not saved. Changes are never held for later: an alarm that changes hours afterwards changes while you are asleep.',
             TRANSPORT_RATE_LIMITED: 'Travel information is busy right now. It will retry shortly.',
+            RATE_LIMITED: 'That was a lot of requests at once. Wait a moment and try again.',
+            RESOURCE_IN_USE: 'Something else still uses this, so it cannot be removed yet.',
+            RESOURCE_IN_USE_named: 'This is still used by: {{blockedBy}}. Change those first.',
             unknown: 'Something went wrong reaching the API.',
         },
     },
@@ -222,6 +225,18 @@ export default {
         today: 'Today',
         schedules: 'Schedules',
         settings: 'Settings',
+    },
+    event: {
+        initial_plan: 'Alarm set for {{time}}.',
+        delay: 'A service is delayed, so the alarm moved to {{time}}.',
+        delay_resolved: 'The delay cleared, so the alarm moved to {{time}}.',
+        cancellation: 'A service was cancelled, so the alarm moved to {{time}}.',
+        route_changed: 'The plan was worked out again, so the alarm moved to {{time}}.',
+        traffic_worse: 'Traffic is heavier than planned, so the alarm moved to {{time}}.',
+        traffic_better: 'Traffic cleared, so the alarm moved to {{time}}.',
+        user_edited: 'You changed this schedule, so the alarm moved to {{time}}.',
+        changed: 'Your alarm changed.',
+        simulated: 'TEST: {{message}}',
     },
     disruption: {
         delayed: '{{service}} is {{minutes}} minutes late.',

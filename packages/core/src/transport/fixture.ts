@@ -2,7 +2,7 @@ import { JourneyStatus, LegType } from '@alarm/types';
 import type { Journey, JourneyLeg } from '@alarm/types';
 import { DateTime } from 'luxon';
 import { parseInstant, toIso } from '../time';
-import type { PlanRequest, TransportProvider } from './provider';
+import type { PlanRequest, RefreshResult, TransportProvider } from './provider';
 
 /** Shift an ISO instant while keeping its original offset in the output. */
 function shiftPreservingZone(iso: string, minutes: number): DateTime {
@@ -94,9 +94,9 @@ export class FixtureTransportProvider implements TransportProvider {
         return Promise.resolve([this.build(request, 0)]);
     }
 
-    refresh(journey: Journey): Promise<Journey | null> {
+    refresh(journey: Journey): Promise<RefreshResult> {
         if (journey.ctxRecon === null) {
-            return Promise.resolve(null);
+            return Promise.resolve({ status: 'GONE' });
         }
         const status = this.pendingStatus ?? journey.status;
         if (
@@ -106,9 +106,12 @@ export class FixtureTransportProvider implements TransportProvider {
         ) {
             // Mirrors the real contract: a broken itinerary cannot be reconstructed,
             // so the caller must re-plan rather than patch what it already has.
-            return Promise.resolve(null);
+            return Promise.resolve({ status: 'GONE' });
         }
-        return Promise.resolve(this.shift(journey, this.pendingDelayMinutes, status));
+        return Promise.resolve({
+            status: 'CURRENT',
+            journey: this.shift(journey, this.pendingDelayMinutes, status),
+        });
     }
 
     private build(request: PlanRequest, delayMinutes: number): Journey {

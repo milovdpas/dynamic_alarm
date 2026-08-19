@@ -20,6 +20,9 @@ declare global {
     }
 }
 
+/** How stale `lastSeenAt` may get before another write is worth it. */
+const LAST_SEEN_INTERVAL_MS = 60 * 1000;
+
 /**
  * Resolves the bearer token to a device.
  *
@@ -37,8 +40,12 @@ declare global {
  * nothing to do with them, so that case goes to the error handler as the 500 it
  * is.
  *
- * `lastSeenAt` is updated without awaiting. Failed bookkeeping should never turn
- * into a failed request, and nothing reads it synchronously.
+ * `lastSeenAt` is updated without awaiting, and at most once a minute per
+ * device. Failed bookkeeping should never turn into a failed request, and
+ * nothing reads it synchronously. The interval is what stops a screen that
+ * fetches four things on open turning into four writes: the column exists to
+ * spot a device that has gone quiet for days, so a minute's resolution is
+ * already far finer than anything asks of it.
  */
 export async function deviceAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
     const header = req.header('authorization');
@@ -67,9 +74,27 @@ export async function deviceAuth(req: Request, res: Response, next: NextFunction
     }
 
     req.device = device;
-    void Device.update(device.id, { lastSeenAt: new Date() }).catch(() => undefined);
+    touch(device);
 
     next();
 }
 
+/**
+ * Records that this device is alive, unless it very recently did.
+ *
+ * Compared against the value already on the row rather than kept in memory, so
+ * a restart or a second instance does not reset the interval and the check
+ * costs nothing extra: the row was just read.
+ */
+function touch(device: Device): void {
+    const now = new Date();
+    const seen = device.lastSeenAt;
+    if (seen !== null && now.getTime() - seen.getTime() < LAST_SEEN_INTERVAL_MS) {
+        return;
+    }
 
+    // Written to the in-memory copy too, so a handler reading it sees the same
+    // answer the database is about to hold.
+    device.lastSeenAt = now;
+    void Device.update(device.id, { lastSeenAt: now }).catch(() => undefined);
+}

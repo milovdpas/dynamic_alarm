@@ -168,6 +168,9 @@ export default {
             OFFLINE_WRITE:
                 'Geen verbinding, dus deze wijziging is niet opgeslagen. Wijzigingen worden niet bewaard voor later: een wekker die uren later alsnog verandert, verandert terwijl je slaapt.',
             TRANSPORT_RATE_LIMITED: 'Reisinformatie is nu druk. Het probeert het zo opnieuw.',
+            RATE_LIMITED: 'Dat waren veel verzoeken tegelijk. Wacht even en probeer het opnieuw.',
+            RESOURCE_IN_USE: 'Iets anders gebruikt dit nog, dus het kan nog niet weg.',
+            RESOURCE_IN_USE_named: 'Dit wordt nog gebruikt door: {{blockedBy}}. Pas die eerst aan.',
             unknown: 'Er ging iets mis bij het bereiken van de API.',
         },
     },
@@ -222,6 +225,18 @@ export default {
         today: 'Vandaag',
         schedules: 'Schema\'s',
         settings: 'Instellingen',
+    },
+    event: {
+        initial_plan: 'Wekker gezet op {{time}}.',
+        delay: 'Er rijdt iets met vertraging, dus de wekker ging naar {{time}}.',
+        delay_resolved: 'De vertraging is voorbij, dus de wekker ging naar {{time}}.',
+        cancellation: 'Er is een rit uitgevallen, dus de wekker ging naar {{time}}.',
+        route_changed: 'De planning is opnieuw uitgerekend, dus de wekker ging naar {{time}}.',
+        traffic_worse: 'Het is drukker op de weg dan verwacht, dus de wekker ging naar {{time}}.',
+        traffic_better: 'De drukte op de weg is voorbij, dus de wekker ging naar {{time}}.',
+        user_edited: 'Je hebt dit schema aangepast, dus de wekker ging naar {{time}}.',
+        changed: 'Je wekker is veranderd.',
+        simulated: 'TEST: {{message}}',
     },
     disruption: {
         delayed: '{{service}} heeft {{minutes}} minuten vertraging.',

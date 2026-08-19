@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon';
+import { MoreThanOrEqual } from 'typeorm';
 import { APP_CONSTANTS, AlarmEventType, OccurrenceState, WakeChangeReason } from '@alarm/types';
 import type { WakePlan } from '@alarm/types';
 import { computeNextCheckAt } from '@alarm/core';
@@ -114,10 +115,21 @@ export class OccurrenceService {
         return { ok: true, occurrence, scheduleName: planned.response.scheduleName };
     }
 
-    /** An armed morning whose plan came from an unexpired simulation. */
+    /**
+     * An armed morning whose plan came from an unexpired simulation.
+     *
+     * Floored at today in the schedule's own zone. Without the floor this took
+     * the earliest armed row of any date, so a stale morning left behind from
+     * last week could shadow the one actually being armed and hand back its
+     * plan instead.
+     */
     private async armedWithSimulation(schedule: Schedule): Promise<ScheduleOccurrence | null> {
         const armed = await ScheduleOccurrence.findOne({
-            where: { scheduleId: schedule.id, state: OccurrenceState.ARMED },
+            where: {
+                scheduleId: schedule.id,
+                state: OccurrenceState.ARMED,
+                date: MoreThanOrEqual(today(schedule.timezone)),
+            },
             order: { date: 'ASC' },
         });
 
@@ -174,16 +186,24 @@ export class OccurrenceService {
      * guarantees a morning nobody is having, so the honest thing is to let the
      * next arming compute a fresh one.
      *
-     * Only future mornings. A past occurrence records an alarm that already rang,
-     * and rewriting that is a different mistake.
+     * Only future mornings, judged in the schedule's own timezone. A past
+     * occurrence records an alarm that already rang, and rewriting that is a
+     * different mistake.
      */
-    async discardUpcoming(scheduleId: string): Promise<number> {
-        const today = DateTime.now().toISODate() ?? '';
-
+    async discardUpcoming(schedule: Pick<Schedule, 'id' | 'timezone'>): Promise<number> {
+        /**
+         * Today in the schedule's own zone, not the server's.
+         *
+         * The rows are dated in the schedule's zone, so comparing them against a
+         * date computed somewhere else is only correct while the two agree. Near
+         * midnight they do not, and the failure is silent in both directions: a
+         * morning kept that should have gone, or one deleted that had not
+         * happened yet.
+         */
         const result = await ScheduleOccurrence.createQueryBuilder()
             .delete()
-            .where('schedule_id = :scheduleId', { scheduleId })
-            .andWhere('date >= :today', { today })
+            .where('schedule_id = :scheduleId', { scheduleId: schedule.id })
+            .andWhere('date >= :today', { today: today(schedule.timezone) })
             .andWhere('state IN (:...states)', {
                 states: [OccurrenceState.PENDING, OccurrenceState.ARMED],
             })
@@ -270,6 +290,9 @@ export class OccurrenceService {
                 fromAt: null,
                 toAt: to,
                 reason: WakeChangeReason.INITIAL_PLAN,
+                // Arming returns early while a simulation is in force, so
+                // anything recorded here was computed from real data.
+                simulated: false,
                 message: `Alarm set for ${clock(plan.wakeUpAt)}.`,
             }).save();
             return;
@@ -288,6 +311,7 @@ export class OccurrenceService {
             fromAt: previous,
             toAt: to,
             reason: WakeChangeReason.ROUTE_CHANGED,
+            simulated: false,
             message: `Alarm moved to ${clock(plan.wakeUpAt)}.`,
         }).save();
     }
@@ -297,7 +321,17 @@ function instant(iso: string): Date {
     return DateTime.fromISO(iso, { setZone: true }).toJSDate();
 }
 
-/** For the event message, which is written once and read much later. */
+/**
+ * For the operator's line on the event row, which never leaves the server.
+ *
+ * The app writes what its owner reads, from `reason` and `toAt`, in the language
+ * they chose.
+ */
 function clock(iso: string): string {
     return DateTime.fromISO(iso, { setZone: true }).toFormat('HH:mm');
+}
+
+/** Today's date in a given zone, as the `date` column stores it. */
+function today(timezone: string): string {
+    return DateTime.now().setZone(timezone).toISODate() ?? '';
 }

@@ -51,11 +51,26 @@ export default class AlarmEvent extends BaseEntity {
     reason!: WakeChangeReason;
 
     /**
-     * Rendered when the event was recorded, not when it is read.
+     * True when a staged test produced this rather than NS.
      *
-     * The sentence depends on data the app never has: which leg was late, by how
-     * much, which train replaced which. Storing the ingredients instead would
-     * mean keeping a copy of the timetable to explain a past morning.
+     * On the row rather than parsed out of the sentence below. The app shows it,
+     * and a marker inside prose meant the server and the phone agreeing on a
+     * prefix string, which is a contract nothing checks.
+     */
+    @Column({ type: 'boolean', default: false })
+    simulated!: boolean;
+
+    /**
+     * The operator's line, and the one field here that never leaves the server.
+     *
+     * Written when the event was recorded because it depends on data that has
+     * already changed by the time anyone reads it: which leg was late, by how
+     * much, which train replaced which. It is English on purpose, for whoever is
+     * reading the table trying to explain a wake time.
+     *
+     * The app renders its own sentence from `reason` and `toAt`, in the language
+     * its owner chose. All user-facing copy lives in the app's translations, so
+     * this one is deliberately not part of `AlarmEventDto`.
      */
     @Column({ type: 'text' })
     message!: string;
@@ -71,7 +86,7 @@ export default class AlarmEvent extends BaseEntity {
             fromAt: this.fromAt?.toISOString() ?? null,
             toAt: this.toAt?.toISOString() ?? null,
             reason: this.reason,
-            message: this.message,
+            simulated: this.simulated,
             createdAt: this.createdAt.toISOString(),
         };
     }

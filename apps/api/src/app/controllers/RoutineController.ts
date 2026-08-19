@@ -3,7 +3,7 @@ import type { ListRoutinesResponse, RoutineResponse } from '@alarm/types';
 import type { Handler, IdParams } from '../../interfaces/IHttp';
 import type { BodyOf } from '../middleware/ValidateRequest';
 import { RoutineService } from '../services/RoutineService';
-import { sendConflict, sendNotFound, sendSuccess } from '../utils/ApiResponses';
+import { sendInUse, sendNotFound, sendSuccess } from '../utils/ApiResponses';
 import { createRoutineSchema, updateRoutineSchema } from '../validators/routineSchemas';
 
 export default class RoutineController {
@@ -51,7 +51,7 @@ export default class RoutineController {
 
         const blockedBy = await this.routines.remove(routine);
         if (blockedBy.length > 0) {
-            sendConflict(res, `Routine is still used by: ${blockedBy.join(', ')}`);
+            sendInUse(res, 'Routine', blockedBy);
             return;
         }
 

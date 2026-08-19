@@ -3,6 +3,7 @@ import { API_ENDPOINTS } from '@alarm/types';
 
 import type { IRoute } from '../../../interfaces/IRouter';
 import PlanController from '../../controllers/PlanController';
+import { providerLimit } from '../../middleware/ApiLimits';
 import { deviceAuth } from '../../middleware/DeviceAuth';
 import { validate } from '../../middleware/ValidateRequest';
 import { planPreviewSchema } from '../../validators/planSchemas';
@@ -16,6 +17,7 @@ export default class PlanRoutes implements IRoute {
         router.post(
             API_ENDPOINTS.PLAN.PREVIEW,
             deviceAuth,
+            providerLimit,
             validate({ body: planPreviewSchema }),
             this.controller.preview,
         );
@@ -25,6 +27,7 @@ export default class PlanRoutes implements IRoute {
         router.post(
             API_ENDPOINTS.PLAN.OPTIONS,
             deviceAuth,
+            providerLimit,
             validate({ body: planPreviewSchema }),
             this.controller.options,
         );

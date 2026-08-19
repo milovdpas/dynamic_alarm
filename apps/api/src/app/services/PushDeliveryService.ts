@@ -1,4 +1,4 @@
-import { JourneyStatus, PUSH_MESSAGE_TYPE } from '@alarm/types';
+import { JourneyStatus, LegType, PUSH_MESSAGE_TYPE } from '@alarm/types';
 import type { Journey, WakeChangeReason } from '@alarm/types';
 import { shouldSendWakePush } from '@alarm/core';
 
@@ -6,6 +6,18 @@ import AlarmEvent from '../models/AlarmEvent.entity';
 import type Device from '../models/Device.entity';
 import type ScheduleOccurrence from '../models/ScheduleOccurrence.entity';
 import { PushService } from './PushService';
+
+/**
+ * The facts a wake push carries about why it exists.
+ *
+ * No sentence. The app writes that, from its own translations, because a string
+ * rendered here reaches a Dutch phone in English and there is nowhere on the
+ * device to translate it back.
+ */
+export interface WakeChangeSummary {
+    reason: WakeChangeReason;
+    simulated: boolean;
+}
 
 /** What delivery did, so a tick can say so rather than guess. */
 export type DeliveryOutcome =
@@ -45,7 +57,7 @@ export class PushDeliveryService {
         occurrence: ScheduleOccurrence,
         device: Device,
         timezone: string,
-        change: { reason: WakeChangeReason; message: string } | null,
+        change: WakeChangeSummary | null,
         now = new Date(),
     ): Promise<DeliveryOutcome> {
         const wakeAt = occurrence.currentWakeAt;
@@ -66,9 +78,9 @@ export class PushDeliveryService {
             return decision.reason === 'IN_FLIGHT' ? 'IN_FLIGHT' : 'NOT_NEEDED';
         }
 
-        // Null on a retry, where the reason and the sentence come from the
-        // recorded event. Describing the timetable as it looks now would explain
-        // a different morning than the one the alarm was moved for.
+        // Null on a retry, where the reason comes from the recorded event. The
+        // event is what the alarm was actually moved for, and re-deriving it
+        // from the timetable as it looks now would explain a different morning.
         const told = change ?? (await this.recordedChange(occurrence));
         if (told === null) {
             return 'NOTHING_TO_SAY';
@@ -82,7 +94,7 @@ export class PushDeliveryService {
                 occurrenceId: occurrence.id,
                 wakeAt: wakeAt.toISOString(),
                 reason: told.reason,
-                message: told.message,
+                simulated: told.simulated,
                 // Earlier than what the phone holds, so the device applies it
                 // only because the server says not moving is worse.
                 emergency: held !== null && wakeAt.getTime() < held.getTime(),
@@ -117,17 +129,21 @@ export class PushDeliveryService {
      * screen by a native service on a phone that may have no signal, so the news
      * has to be on the device before it is needed.
      *
-     * Deduplicated by state rather than by event. Near the alarm the monitor
-     * re-checks every three minutes; a delay that stays at twelve minutes is not
-     * worth waking the radio for twice, and one that grows to twenty is.
+     * Deduplicated by state rather than by event, and by a band of minutes rather
+     * than by the exact number. Near the alarm the monitor re-checks every three
+     * minutes and a reported delay drifts a minute either way on its own, so an
+     * exact comparison deduplicated nothing and the same news went out on every
+     * pass. A delay growing from twelve to twenty is worth saying; one breathing
+     * between twelve and thirteen is not.
      */
     async notify(
         occurrence: ScheduleOccurrence,
         device: Device,
         journey: Journey | null,
+        gone: boolean,
         simulated: boolean,
     ): Promise<DeliveryOutcome> {
-        const disruption = describeDisruption(journey);
+        const disruption = describeDisruption(journey, gone);
         if (disruption === null) {
             // Running normally. Anything the device was told earlier is stale,
             // so the record is cleared and a later disruption pushes again.
@@ -135,7 +151,7 @@ export class PushDeliveryService {
             return 'NOT_NEEDED';
         }
 
-        const key = `${disruption.kind}:${String(disruption.minutes)}`;
+        const key = `${disruption.kind}:${String(band(disruption.minutes))}`;
         if (occurrence.noticeKey === key) {
             return 'NOT_NEEDED';
         }
@@ -210,19 +226,32 @@ export class PushDeliveryService {
     /**
      * The change being retried, as it was recorded when it happened.
      *
-     * Read back rather than rewritten: the delay that caused it may have
-     * changed since, and a sentence describing the current timetable would
-     * explain a morning nobody's alarm was moved for.
+     * Read back rather than re-derived: the delay that caused it may have
+     * changed since, and describing the current timetable would explain a
+     * morning nobody's alarm was moved for.
      */
-    private async recordedChange(
-        occurrence: ScheduleOccurrence,
-    ): Promise<{ reason: WakeChangeReason; message: string } | null> {
+    private async recordedChange(occurrence: ScheduleOccurrence): Promise<WakeChangeSummary | null> {
         const event = await AlarmEvent.findOne({
             where: { occurrenceId: occurrence.id },
             order: { createdAt: 'DESC' },
         });
-        return event === null ? null : { reason: event.reason, message: event.message };
+        return event === null ? null : { reason: event.reason, simulated: event.simulated };
     }
+}
+
+/**
+ * A delay, rounded down to the band the device has already been told about.
+ *
+ * Deduplicating on the exact minute deduplicated nothing: a reported delay moves
+ * between twelve and thirteen on its own, and near the alarm the monitor looks
+ * every three minutes, so the same news woke the radio all morning. A band means
+ * a delay that grows materially is still worth saying and one that merely
+ * breathes is not.
+ */
+const NOTICE_BAND_MINUTES = 5;
+
+function band(minutes: number): number {
+    return Math.floor(minutes / NOTICE_BAND_MINUTES) * NOTICE_BAND_MINUTES;
 }
 
 /**
@@ -251,7 +280,12 @@ function replacementFor(occurrence: ScheduleOccurrence): {
     const gone = replaced.legs.find((leg) => leg.cancelled) ?? replaced.legs[0];
     // The first leg that goes somewhere, skipping the walk or cycle to the
     // station, which is the rule the engine compares departures by.
-    const service = journey.legs.find((leg) => leg.type !== 'WALK' && leg.type !== 'BIKE');
+    // Compared against `LegType`, not against bare strings. The two happen to
+    // have the same values, so the loose version worked and would have kept
+    // working right up until a member was renamed.
+    const service = journey.legs.find(
+        (leg) => leg.type !== LegType.WALK && leg.type !== LegType.BIKE,
+    );
 
     return {
         cancelledService: gone?.name ?? gone?.fromName ?? null,
@@ -269,17 +303,24 @@ function replacementFor(occurrence: ScheduleOccurrence): {
 /**
  * What is wrong with a journey, in the terms a notice is written in.
  *
- * A journey the provider could not reconstruct at all is a cancellation: that is
- * exactly what NS is saying when a trip stops existing.
+ * `gone` is passed rather than read off a null journey, and the difference is
+ * not academic: a fixed-travel schedule has no journey at all, and the car
+ * provider answers "route it again" rather than handing one back. Both used to
+ * land here as null and be announced to their owners as cancellations.
  *
  * Cancellation beats delay, because a train that is not running is not a train
  * that is late, and a notice saying both buries the one that matters.
  */
 function describeDisruption(
     journey: Journey | null,
+    gone: boolean,
 ): { kind: 'DELAY' | 'CANCELLATION'; minutes: number; service: string | null } | null {
-    if (journey === null) {
+    if (gone) {
         return { kind: 'CANCELLATION', minutes: 0, service: null };
+    }
+    if (journey === null) {
+        // A fixed travel time. Nothing can disrupt a number the user typed.
+        return null;
     }
 
     const cancelled = journey.legs.find((leg) => leg.cancelled);
@@ -293,6 +334,21 @@ function describeDisruption(
 
     let worst: { minutes: number; service: string | null } | null = null;
     for (const leg of journey.legs) {
+        /**
+         * A car leg is skipped, and that is not a shortcut.
+         *
+         * Its `delaySeconds` is congestion measured against free flow, which is
+         * the ordinary state of a road at 07:30 rather than news, and the plan
+         * has already priced it in. Reporting it as a delay also had nowhere to
+         * get a service name from, so it borrowed the leg's `fromName` and told
+         * people who drive to work that "Origin is 12 minutes late".
+         *
+         * What a driver needs to hear is that their alarm moved, which travels
+         * as a wake change with `TRAFFIC_WORSE` and is worded for a road.
+         */
+        if (leg.type === LegType.CAR) {
+            continue;
+        }
         // Floored rather than rounded, and the app floors identically. A 31
         // second delay is not a minute late, and pushing it wakes a device to
         // say nothing.
