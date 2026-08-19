@@ -884,6 +884,15 @@ different kind of question: the deadline, the journey and the routine are stages
 of the calculation that produces a wake time, and this is what happens when that
 time arrives.
 
+Onboarding asks too, on the last step, for a different reason than everything
+else on that page. The disruption switches and the replacement preference have no
+safe default: somebody never asked gets behaviour they did not choose, which is
+how a 06:50 replaced a 07:52 for a user who had never seen the setting. One ring
+is an ordinary alarm, so reminders are asked purely so the feature is discovered
+rather than left four taps inside an editor nobody has opened. That step is now
+called "your alarm" rather than "when things go wrong", since it no longer only
+covers things going wrong.
+
 ### Two bugs found while building it
 
 - **Every schedule edit was discarding the armed morning.** `.partial()` makes a

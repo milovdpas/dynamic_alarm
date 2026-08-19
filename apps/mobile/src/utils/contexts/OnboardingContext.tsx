@@ -6,11 +6,17 @@ import {
     APP_CONSTANTS,
     DEFAULT_BUFFERS,
     DEFAULT_ROUTINE_STEPS,
+    DEFAULT_REMINDERS,
     ReplacementPreference,
     TransportMode,
     Weekday,
 } from '@alarm/types';
-import type { CreateRoutineStepRequest, PlaceSuggestion, Schedule } from '@alarm/types';
+import type {
+    CreateRoutineStepRequest,
+    PlaceSuggestion,
+    ReminderConfig,
+    Schedule,
+} from '@alarm/types';
 
 import { createPlace, createRoutine, createSchedule, getDevice, updateDevice } from '@/api';
 
@@ -79,6 +85,16 @@ export interface OnboardingDraft {
     replacementPreference: ReplacementPreference;
     travelWindowStart: string;
     travelWindowEnd: string;
+    /**
+     * How many times this schedule rings, and how far apart.
+     *
+     * Asked for discoverability rather than for correctness, which makes it the
+     * opposite case to the preference above. One ring is what every alarm clock
+     * does, so somebody who skips the question is not worse off. They simply
+     * never learn the feature exists, since it otherwise lives four taps into an
+     * editor they have not opened yet.
+     */
+    reminders: ReminderConfig;
 }
 
 interface OnboardingContextValue {
@@ -150,6 +166,8 @@ function createInitialDraft(): OnboardingDraft {
         replacementPreference: ReplacementPreference.EARLIER,
         travelWindowStart: '',
         travelWindowEnd: '',
+        // One ring, which is an ordinary alarm and the safe thing to leave alone.
+        reminders: DEFAULT_REMINDERS,
     };
 }
 
@@ -259,6 +277,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             // different: one accepts any replacement, the other accepts none.
             travelWindowStart: draft.travelWindowStart === '' ? null : draft.travelWindowStart,
             travelWindowEnd: draft.travelWindowEnd === '' ? null : draft.travelWindowEnd,
+            reminders: draft.reminders,
             buffers: DEFAULT_BUFFERS,
             timezone: APP_CONSTANTS.TIMEZONE,
         });

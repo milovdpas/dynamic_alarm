@@ -308,7 +308,7 @@ export default {
         routine_intro: 'How long do you need between waking up and leaving?',
         schedule_title: 'When you need to be there',
         schedule_intro: 'The alarm is worked backwards from this.',
-        adjustments_title: 'When things go wrong',
+        adjustments_title: 'Your alarm',
         adjustments_intro: 'May the alarm move itself when your journey changes?',
         adjustments_none: 'You entered your own travel time, so there is nothing for the app to watch.',
         adjustments_changeable: 'You can change this later in settings.',

@@ -9,6 +9,7 @@ import { apiErrorMessage } from '@/utils/apiErrorMessage';
 import { Spacing } from '@/assets/Stylesheet';
 import ActionButton from '@/components/buttons/ActionButton';
 import DisruptionSettings, { settingsForModes } from '@/components/settings/DisruptionSettings';
+import ReminderPicker from '@/components/alarms/ReminderPicker';
 import ReplacementSection from '@/components/schedule/ReplacementSection';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
@@ -120,6 +121,22 @@ export default function AdjustmentsStep() {
                             }}
                         />
                     )}
+
+                    {/*
+                     * Asked here for a different reason than everything above
+                     * it. Those decide whether the alarm may move itself, which
+                     * has no safe default: somebody who is never asked gets
+                     * behaviour they did not choose. One ring is an ordinary
+                     * alarm, so this is only here to be discovered, and it is
+                     * last on the page for that reason.
+                     */}
+                    <ReminderPicker
+                        value={draft.reminders}
+                        disabled={busy}
+                        onChange={(reminders) => {
+                            update({ reminders });
+                        }}
+                    />
 
                     <ThemedText type="small" themeColor="textSecondary">
                         {t('onboarding.adjustments_changeable')}

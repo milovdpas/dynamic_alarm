@@ -308,7 +308,7 @@ export default {
         routine_intro: 'Hoeveel tijd heb je nodig tussen wakker worden en vertrekken?',
         schedule_title: 'Wanneer je er moet zijn',
         schedule_intro: 'Hier wordt het alarm vanaf teruggerekend.',
-        adjustments_title: 'Als er iets misgaat',
+        adjustments_title: 'Je wekker',
         adjustments_intro: 'Mag het alarm zichzelf verzetten als je reis verandert?',
         adjustments_none: 'Je hebt je reistijd zelf ingevuld, dus er is niets om in de gaten te houden.',
         adjustments_changeable: 'Je kunt dit later aanpassen in instellingen.',
