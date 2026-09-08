@@ -113,9 +113,11 @@ The arc that follows the fix of 2026-09-07. Ordered by what unlocks what; stages
 
 - [x] **0. Retire rung mornings.** Tick retires passed rows, reads exclude them,
       the phone drops them before arming, dismissal is reported. Mutation-tested.
-      *Verified on the phone as far as adb allows: a fresh install plans and arms
-      the week with no banner. Letting a real alarm ring and dismissing it is
-      still the owner's to do.*
+      *Verified on the phone: a fresh install plans and arms the week with no
+      banner, and on 2026-09-09 the owner let an alarm ring and dismissed it;
+      Today afterwards showed the next morning armed, no banner, no stale card.
+      The first schedule morning to ring for real is the remaining proof, and it
+      needs no action: open the app after it rings and expect the day after.*
 - [x] **1. One-off alarms ring once; the time picker opens itself on a new alarm.**
 - [x] **5. Support link in Settings.**
 - [x] **2. Plan the whole week.** Every matching morning inside seven days has a
