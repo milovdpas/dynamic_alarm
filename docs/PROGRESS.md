@@ -94,12 +94,14 @@ makes noise" touches JavaScript.
 
 ## Current state
 
-**Where things are, 2026-09-08.** M0 through M3 are done and verified on a phone:
-the alarm rings natively, follows NS and TomTom, moves under the anchor rule, and
-the app has an Alarms tab, reminder alarms, a lock, and previews for its hard
-states. The two most recent fixes (a rung morning never ending, a one-off alarm
-ringing daily) are coded and tested but **not yet on the phone**: they need an API
-deploy and a build.
+**Where things are, 2026-09-08, evening.** M0 through M3 are done and verified on
+a phone: the alarm rings natively, follows NS and TomTom, moves under the anchor
+rule, and the app has an Alarms tab, reminder alarms, a lock, and previews for its
+hard states. M2.8 below is built, deployed, and walked through on the phone over
+adb; the device round is written up at the end of that section. It found four
+bugs in the push path, fixed the same evening and verified on a second local
+build. The fixes are **not yet committed**. Nothing is waiting on hardware except
+letting a real alarm ring, and the API needs a deploy for the service-name fix.
 
 The milestone in progress is below. Everything else that is agreed but not
 scheduled is under "Agreed, not yet scheduled" near the end.
@@ -111,8 +113,9 @@ The arc that follows the fix of 2026-09-07. Ordered by what unlocks what; stages
 
 - [x] **0. Retire rung mornings.** Tick retires passed rows, reads exclude them,
       the phone drops them before arming, dismissal is reported. Mutation-tested.
-      *Needs the phone: let an alarm ring, dismiss, open Today, see the next
-      morning armed and no banner.*
+      *Verified on the phone as far as adb allows: a fresh install plans and arms
+      the week with no banner. Letting a real alarm ring and dismissing it is
+      still the owner's to do.*
 - [x] **1. One-off alarms ring once; the time picker opens itself on a new alarm.**
 - [x] **5. Support link in Settings.**
 - [x] **2. Plan the whole week.** Every matching morning inside seven days has a
@@ -120,7 +123,7 @@ The arc that follows the fix of 2026-09-07. Ordered by what unlocks what; stages
       until then. The sweep reads announced works and matches them to a morning by
       their window. *Cost: one call per morning once, then one new morning a day,
       plus at most seven far checks per morning; asserted in `packages/core`.*
-      *Needs the phone: the Alarms tab listing a week, and seven OS alarms held.*
+      *Verified on the phone: three mornings, nine OS alarms held.*
 - [x] **3. Calendar tab.** A fourth tab with agenda, day and week views, mirroring
       the structure of `marathon_schema/components/calendar`. Each day shows every
       ring: schedule mornings, hand-set alarms, reminders. Day detail for a
@@ -222,6 +225,91 @@ that a skipped morning is cancelled rather than armed, an orphan is swept, a
 hand-set alarm is left alone, and one refusal costs one morning. Both the skip
 filter and the orphan sweep are mutation-tested. It was untested while it lived
 inside the hook; the refactor is what made the test possible.
+
+**On the phone, 2026-09-08 evening.** API deployed, release APK built locally and
+driven over adb, with `dumpsys alarm` as the source of truth for what the OS holds.
+Each row is its own pass or fail.
+
+| Checked | |
+|---|---|
+| Fresh install plans the week: Thursday, Friday, Tuesday, nine OS alarms, no banner | pass |
+| Today names the first of three rings, ten minutes before the wake time | pass |
+| Alarms tab lists the week; Calendar week view renders | pass |
+| Unticking Shower for Thursday moves its three OS alarms ten minutes later, Friday untouched; ticking it back restores them | pass |
+| Skipping Thursday removes its three OS alarms; unskipping restores all nine | pass |
+| A simulated cancellation on Thursday, two days out, moves the alarm 07:44 to 07:29 within a minute, banner names the service | pass |
+| The move is announced as a notification while the app is in the background | pass |
+| The move is announced while the app is on screen | **fail**, fixed, passes on the second build |
+| Reminder rings follow a pushed move | **fail**, fixed, passes on the second build: a cancellation pulled 07:34, 07:39, 07:44 to 07:19, 07:24, 07:29 with the app in the background |
+| One notification per change; tapping it opens the morning | **fail**, fixed, passes on the second build |
+| Every armed morning is on the held baseline, so a push about any of them can be judged | **fail**, fixed, passes on the second build |
+| "Plan this morning again" puts the real journey and all nine alarms back | pass |
+| Debug panel: onboarding rehearsal, banner previews, both prompts render | pass |
+
+The failures, and what they were:
+
+- **The push moved the last ring alone.** `applyWakeChange` re-armed
+  `occurrence-<id>` at the new time and never touched `#r1` and `#r2`, so a
+  cancellation that pulled 07:44 to 07:29 left the OS holding 07:29, 07:34 and
+  07:39: the wake time, then two more rings after its owner was up. The move
+  back left two reminders twenty minutes early. A push carries no reminder
+  setting and the phone may be offline, so the setting now travels on the held
+  baseline, and one helper, `armRingChain`, writes every chain for both the app
+  and the push, cancelling reminder ids the new chain no longer has. Tested
+  against a fake OS from both sides.
+- **Nothing showed while the app was open.** Expo's default for a notification
+  that arrives with the app in the foreground is to show nothing unless a
+  handler says otherwise, and none was set. The first test ran with the debug
+  panel on screen and produced a moved alarm and no explanation. A handler now
+  lets this app's own notices through, and only those: the server's pushes are
+  data with nothing to show, and letting them through would put an empty card on
+  the shade.
+- **Two notifications for one change, grouped, tap goes nowhere.** The server
+  sends the move and the news behind it as two messages; both were announced, so
+  Android grouped them under a row whose tap opens the app rather than the
+  morning. The move's own sentence already carries the news. Notices now post
+  under one identifier per morning, so the later card replaces the earlier, and
+  a disruption notice stays quiet when a move for the same morning was announced
+  inside ten minutes.
+- **The held baseline kept one morning of three.** Found on the second build of
+  the evening, when a cancellation push produced its notification and moved
+  nothing, and the debug panel's "This device holds" named Tuesday while
+  Thursday was the soonest morning. The week is armed in parallel, and each
+  morning remembered itself by reading the record, adding an entry and writing
+  it back; three of those overlapped and the last write won. It is the same
+  lost update that made two earlier pushes read `IGNORED_UNKNOWN_HELD`, which
+  had looked like ordinary ordering. Writes to the record are serialised through
+  one queue, and the test arms three mornings at once.
+
+One thing seen and left alone, for its owner to judge: a delay simulated and
+then a cancellation on the same morning had the replacement chooser search from
+the *delayed* departure, so it picked the 08:40 Sprinter that arrives eighteen
+minutes late and moved the alarm later, while the 08:10 that arrives on time was
+still there. A train that is first late and then cancelled is a real sequence.
+
+**A review of the device fixes, 2026-09-08, late.** All four confirmed correct;
+three findings, all fixed: the disruption notes and the announced-notices record
+did the same unserialised read-modify-write the held record had just been cured
+of, and both now go through a write queue with a concurrent-write test on the
+notes; the blank service name was still let through by the ring screen and the
+Today banner, so it is normalised once on the way into the notes rather than at
+each reader; and the API half of the service-name fix had no test, so the
+monitor check suite now delays every leg of a journey and asserts the notice
+names the train, says nothing when only the ride and the walk are late, and reads
+a blank train name as no name.
+
+A second pass found the mirror of that last fix: the phone's own reading of a
+delay, which the ring screen and the Today banner compute live from the plan,
+walked every leg with no type filter while the server had just started skipping
+the walk, the ride and the car. The two readings had stopped agreeing, which the
+function's own comment says they must. The phone skips the same three legs now,
+with the same three cases as the API test.
+
+Two things noticed. "Take it back" after a simulated **cancellation** cannot
+restore the original train, because the monitor refreshes the itinerary it holds,
+which is by then the replacement; "Plan this morning again" is the way back, and
+the panel's status line now says so. And the notice title "something about your
+journey" is a placeholder for a better sentence, left for its owner to word.
 
 ---
 
@@ -1533,6 +1621,10 @@ Reversals and corrections worth remembering. Rationale lives in PLAN.md.
 
 | Date | Decision |
 |---|---|
+| 2026-09-08 | **A read-modify-write on key-value storage is not atomic, and parallel callers will find that out.** Three mornings armed at once each rewrote the held record and two of them vanished. Anything that edits a stored record goes through a queue; a test that writes concurrently is the only thing that keeps it there. |
+| 2026-09-08 | **Two writers of the same OS state will drift.** The app armed a chain of rings and the overnight push armed one ring, and the difference only showed on a phone, as reminders ringing after the wake time. Anything the OS holds for a morning is written by exactly one function, whoever calls it. |
+| 2026-09-08 | **A push that changes what the phone holds must carry, or find, everything the phone needs to hold it.** The reminder setting lives on the server and in the app's list, and a headless task at 22:00 with no network has neither. It is kept on the held baseline at arming time. |
+| 2026-09-08 | **Test a notification with the app in the background and in the foreground.** They are different code paths on both platforms, and the foreground one is silent by default. |
 | 2026-09-08 | **A refresh that arms one morning per schedule and then sweeps orphans cancels the rest of the week.** Anything that arms must re-read the full list before reconciling the OS against it. |
 | 2026-09-08 | **Periodic work belongs beside the tick, not inside it.** A top-up inside `tick()` ran for every schedule in the test database on the first tick of any test file, and broke three unrelated tests. The cron entry point calls both. |
 | 2026-09-08 | **A mutation test that passes is only proof if the assertion looks at the mutated behaviour.** The top-up mutation passed because the test compared against yesterday's soonest after moving the clock a day. Assert on the exact set of calls. |
