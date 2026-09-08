@@ -94,15 +94,134 @@ makes noise" touches JavaScript.
 
 ## Current state
 
-**Milestone M0: de-risk the alarm.** All code written; nothing verified on hardware.
+**Where things are, 2026-09-08.** M0 through M3 are done and verified on a phone:
+the alarm rings natively, follows NS and TomTom, moves under the anchor rule, and
+the app has an Alarms tab, reminder alarms, a lock, and previews for its hard
+states. The two most recent fixes (a rung morning never ending, a one-off alarm
+ringing daily) are coded and tested but **not yet on the phone**: they need an API
+deploy and a build.
 
-The next action is an **EAS development build**, then the device checklist below.
-No alarm has ever rung. Until one does, none of this counts.
+The milestone in progress is below. Everything else that is agreed but not
+scheduled is under "Agreed, not yet scheduled" near the end.
 
-Locally verified: 51 engine tests pass, all workspaces type-check, `expo prebuild`
-generates a valid Android project with the correct permissions. **Not** verified:
-whether any of the native code compiles, there is no Android SDK on this machine,
-so `react-native-notify-kit` on RN 0.86.2 and the Kotlin module are still unproven.
+### Now: M2.8, the week the app can see
+
+The arc that follows the fix of 2026-09-07. Ordered by what unlocks what; stages 0,
+1 and 5 ship in one build, 2 to 4 are one arc, 6 whenever.
+
+- [x] **0. Retire rung mornings.** Tick retires passed rows, reads exclude them,
+      the phone drops them before arming, dismissal is reported. Mutation-tested.
+      *Needs the phone: let an alarm ring, dismiss, open Today, see the next
+      morning armed and no banner.*
+- [x] **1. One-off alarms ring once; the time picker opens itself on a new alarm.**
+- [x] **5. Support link in Settings.**
+- [x] **2. Plan the whole week.** Every matching morning inside seven days has a
+      row and a plan, `PENDING` beyond the eight hour window, looked at once a day
+      until then. The sweep reads announced works and matches them to a morning by
+      their window. *Cost: one call per morning once, then one new morning a day,
+      plus at most seven far checks per morning; asserted in `packages/core`.*
+      *Needs the phone: the Alarms tab listing a week, and seven OS alarms held.*
+- [x] **3. Calendar tab.** A fourth tab with agenda, day and week views, mirroring
+      the structure of `marathon_schema/components/calendar`. Each day shows every
+      ring: schedule mornings, hand-set alarms, reminders. Day detail for a
+      schedule morning: wake time, skip this morning, and the routine steps as a
+      checklist for that date. Per-date step overrides live on the occurrence
+      (`disabledStepIds`), recompute the wake time from the stored journey with no
+      NS call, reason `USER_EDITED`, and re-anchor that morning.
+- [x] **4. Notifications when a future morning changes.** Pushes for `PENDING`
+      mornings with the day named in the copy; the tap lands on the journey page.
+      Same opt-in switches as today.
+- [x] **6. Donate prompt, rate prompt plumbed but off.** Thirty days after the
+      device registered, then monthly, stopped by "I already donated" (stored on
+      the device, replaced by Stripe later). Rate prompt behind a constant until a
+      store listing exists. Debug panel triggers for both.
+
+Design decisions for 3 and 4 are recorded under M2.7 and in the decisions log as
+they are made.
+
+**What building 3 taught.** A per-date step override has to be read by *every*
+place that measures the routine for that morning: the tick's recompute, the
+soonest-morning re-plan on refresh, and the replacement chooser, or the next one
+of them quietly puts the shower back. The tick case hid from its first test: the
+monotonic rule refuses the earlier move the regression would cause, so
+`currentWakeAt` survived by accident while the stored plan, which the screen shows
+and "move it anyway" applies, regained the shower. The test asserts on the plan.
+Month view is deliberately absent: the data reaches a week, and a grid of empty
+cells is a picture of that gap.
+
+**What building 4 taught.** Every push was data only and silent, so the phone
+never showed anybody anything: it re-armed the alarm and stopped. That was right
+for tonight's morning, which the ring screen explains, and wrong for Thursday's,
+which nothing else would ever mention. The phone now posts a notification itself,
+in the reader's language with the day first, for any push about a morning beyond
+the arming window, and stays silent inside it. Tapping it opens that morning's
+journey page. Pushes carry the morning's date and wake time so the phone can
+decide and word this without a lookup at 22:00 in a background task.
+
+The held-alarm baseline was a single record, overwritten by whichever morning was
+armed last. Harmless with one morning; with a week of them a push about Thursday
+was judged against Friday. It is keyed by morning now, and forgotten when the
+orphan sweep cancels one.
+
+**6 in one paragraph.** The device response carries when it registered, and the
+prompts count from that rather than from a date on the phone, so clearing storage
+does not restart them. A rating after a fortnight, once, behind `RATE_ENABLED:
+false` until a store listing exists; a coffee after a month, then monthly, stopped
+for good by "I already did", which is self-reported because a donation page has no
+callback, and is the field Stripe will write to. `Alert.alert`, one per session,
+on Today. The debug panel shows either on demand with the real buttons.
+
+**What building 6 found.** The API test harness called `AppDataSource.initialize()`
+directly, bypassing `connectDatabase()` and its `SET time_zone`, so every
+`created_at` the tests ever read was the database's Amsterdam wall clock. Nothing
+asserted on one until the registration date reached the wire, and the first test
+that did found a device registered two hours in the future. The harness goes
+through the connector now, as production does.
+
+**A second agent's review, 2026-09-08.** Nine findings, every one confirmed against
+the code and fixed:
+
+- A pull to refresh armed only the soonest morning per schedule, and the orphan
+  sweep then cancelled the rest of the week's OS alarms and forgot their
+  baselines. The list is read again after arming.
+- Nothing rolled the horizon: only `arm` created rows and the phone only armed
+  when it had nothing listed. The tick tops the week up hourly, beside the tick
+  rather than inside it so a test driving one tick over one morning is not also
+  planning a week for every schedule in the table.
+- Skipping a morning or leaving a step out refreshed the list and stopped; the
+  phone rang at the old time until Today was next focused. Both screens now make
+  the OS follow the change through `syncOsAlarms`.
+- A new one-off pinned to tomorrow kept that date when its time was changed
+  minutes later. A changed time re-pins.
+- The provider limiter was sized for one call per request; arming and reset plan
+  eight. They have a limiter of their own.
+- An outside tap on Android dismissed the donate dialog without any button, so
+  it came back every cold start. Asked is marked before the dialog is shown.
+- Held baselines were never pruned for fired mornings and sorted as text. Pruned
+  on write, sorted as instants.
+- Editing a rung morning re-anchored it to the past and armed it again. Refused.
+- A ternary with identical branches, and an unused import.
+
+Two things the review round found about the tests themselves: the fixture's
+"wake time's own date" rule failed every day after 05:30 local, because a re-plan
+for today found today's 08:30 already gone; it now picks the next morning whose
+arrival is ahead. And a mutation test for the top-up passed when it should not
+have, because the clock had moved a day and the assertion looked at the wrong
+"soonest". It asserts on exactly one planning call now.
+
+A second pass found three more, all minor and all fixed: the week top-up loop
+had no per-schedule guard, so one device's provider exception cost every later
+schedule an hour of horizon; the screens' `.catch` sat on the OS sync rather than
+on the list read inside it, so a failed read after a landed skip reported the skip
+as failed; and the OS sweep existed twice. The load path now uses the same
+`syncOsAlarms` the screens do, so exactly one place decides what the OS holds.
+
+That one place now has direct coverage: `syncOsAlarms.test.ts` drives it against a
+fake scheduler and asserts on the set of alarms the OS ends up holding, including
+that a skipped morning is cancelled rather than armed, an orphan is swept, a
+hand-set alarm is left alone, and one refusal costs one morning. Both the skip
+filter and the orphan sweep are mutation-tested. It was untested while it lived
+inside the hook; the refactor is what made the test possible.
 
 ---
 
@@ -893,6 +1012,62 @@ rather than left four taps inside an editor nobody has opened. That step is now
 called "your alarm" rather than "when things go wrong", since it no longer only
 covers things going wrong.
 
+### The setup flow can be looked at without wiping the app
+
+Onboarding was the hardest screen set here to inspect deliberately: it runs once,
+and the only way back was to clear storage, which costs the schedules, places and
+routine along with it. So the flow nobody sees twice was also the flow nobody
+could check, which is how the replacement question went missing from it for as
+long as it did.
+
+The debug panel now walks it as a **rehearsal**. The four screens before the end
+were always harmless, since they only edit a draft that lives as long as the
+provider does; `commit` is the single step that creates anything, so it is the
+only one that knows. It returns null rather than an invented schedule, because
+there is no schedule and the type should say so.
+
+The flag is module scope and consumed once when the provider mounts, the same
+shape `useNextAlarm` uses for a forced refresh. A route param would have had to
+survive four pushes, which means every future step remembering to pass it along,
+and the one that forgot would quietly start saving. It is in memory only: a
+rehearsal that outlived the app being killed would be a setup flow that silently
+saves nothing.
+
+Every screen carries a banner saying so, for the reason this project keeps
+repeating: a test that looks exactly like the real thing ends with somebody
+pressing the last button, watching it succeed, and finding no alarm set. The real
+flow is still where it was, behind "add a schedule" on the alarms tab.
+
+### The Today banner can be previewed too, and it found two bugs
+
+The ring screen had previews; the banner it pairs with did not, so the sentence
+the whole product exists for was still only readable when a train was actually
+late. Five states now, and the two worth having are the declined ones, which are
+the only states that offer the move button.
+
+The banner no longer calls the API itself. It takes the action as a prop, so
+Today hands it the endpoint plus a re-arm and the preview hands it something that
+reports. A component that knows what to offer and not how to do it is what made
+it previewable at all.
+
+Two real bugs fell straight out of looking at it:
+
+- **`NO_REPLACEMENT` claimed the buffers had absorbed it.** With the cancellation
+  opt-in on, that state fell through to "your journey had enough spare time in
+  it", for a cancelled train with nothing left to take. It also counted as a
+  declined move, so it offered a button to apply a plan that does not exist and
+  blamed a switch for an outcome it had no part in.
+- **That state is unreachable from Today at all.** `readDisruption` derives from
+  the occurrence, which records "cancelled, no replacement" and "cancelled, not
+  allowed to move" identically, so it can never return `NO_REPLACEMENT`. Only the
+  push carries the distinction, which means only the ring screen can show it.
+  Worth knowing, because `useNextAlarm` writes `readDisruption`'s answer over the
+  remembered note on every refresh, so opening the app downgrades a pushed
+  `NO_REPLACEMENT` to a plain cancellation before the alarm ever rings. **Not
+  fixed.** The honest fix is either a field on the occurrence saying no
+  replacement was acceptable, or a rule that a weaker reading never overwrites a
+  stronger remembered one.
+
 ### Two bugs found while building it
 
 - **Every schedule edit was discarding the armed morning.** `.partial()` makes a
@@ -915,6 +1090,51 @@ types and lint clean, with the anchor clamp, the skip guard, the schedule-edit
 scope and the reminder ids each mutation-tested. **None of it has rung on a
 phone.** Reminders firing in sequence on a locked device, a skipped morning
 staying silent, and a one-off alarm surviving a reboot all need a `preview` build.
+
+## M2.7: a morning that never ended, 2026-09-07
+
+The alarm rang. Today then said *"The alarm is not set. The time above was worked
+out, but this device could not arm an alarm for it."* Wrong twice, and the bug
+behind it was the worst kind this app can have.
+
+**Nothing ever marked a morning as rung.** `FIRED` and `DISMISSED` sat in the enum
+unused; dismissing only stopped the native sound. So the server kept the morning
+`ARMED` with a wake time in the past. Opening Today then read that stale row first,
+saw a non-empty list and never planned the next morning, tried to arm the stale one,
+was refused by Android for a time in the past, swallowed the throw as a plain
+`false`, and blamed the device. **After the first ring, no further alarm was ever
+armed by opening the app.** Three confirmations: the code, `dumpsys alarm` showing
+the OS holding nothing, and a production export with an `ARMED` row dated 20 August.
+
+Three layers, because the tick has been down before and a phone is often offline at
+06:00:
+
+- The tick retires `ARMED` and `SKIPPED` rows whose wake time has passed, to
+  `FIRED`, before it claims anything. `FIRED` means the moment came, not that a
+  phone was heard.
+- The reads exclude passed mornings on their own, so a stale row cannot reach the
+  phone even when no tick is running.
+- The phone drops passed mornings **before** deciding whether to arm the schedules,
+  and reports the final ring's dismissal to the server for the trail.
+
+And the banner now says which of three failures it saw. `PAST` should be
+unreachable; that is exactly why it keeps its own sentence.
+
+**Also:** a one-off alarm rang every day. "No days" meant "the next occurrence of
+this time", so after it rang the sync armed it again for tomorrow. A one-off is now
+pinned to a date when saved and switches itself off once that date has passed. The
+request to "turn it off the following day" was a bug report.
+
+**Also:** the test factory's hardcoded `date: '2026-08-20'` was tomorrow when
+written and eighteen days old when three unrelated tests failed on it. Computed from
+the wake time now.
+
+**Also:** a production export was sitting in `apps/api/` un-ignored, with device
+tokens in it, in a public repository. `apps/api/*.sql` is ignored now.
+
+**Also:** Settings gained a support row that opens the Buy Me a Coffee page. A link
+and nothing more: the app is free and has no ads, and this is the only way the
+server gets paid for. "I already donated" will be taken on trust until Stripe.
 
 ## What an API review found, 2026-08-19
 
@@ -1313,6 +1533,12 @@ Reversals and corrections worth remembering. Rationale lives in PLAN.md.
 
 | Date | Decision |
 |---|---|
+| 2026-09-08 | **A refresh that arms one morning per schedule and then sweeps orphans cancels the rest of the week.** Anything that arms must re-read the full list before reconciling the OS against it. |
+| 2026-09-08 | **Periodic work belongs beside the tick, not inside it.** A top-up inside `tick()` ran for every schedule in the test database on the first tick of any test file, and broke three unrelated tests. The cron entry point calls both. |
+| 2026-09-08 | **A mutation test that passes is only proof if the assertion looks at the mutated behaviour.** The top-up mutation passed because the test compared against yesterday's soonest after moving the clock a day. Assert on the exact set of calls. |
+| 2026-09-08 | **A test harness that skips the production connector tests a different database.** `initialize()` without the connector's `SET time_zone` read every `created_at` two hours off, and it stayed invisible because nothing asserted on a timestamp until the registration date reached the wire. Harness connections go through the same function production uses. |
+| 2026-09-08 | **A monotonic guard can mask a regression test.** The tick forgetting per-morning step overrides would move the alarm earlier, which the monotonic rule refuses, so `currentWakeAt` survived by accident while the stored plan regained the shower. Assert on the plan, not only on the alarm time. |
+| 2026-09-07 | **Nothing marked a morning as rung.** `FIRED` and `DISMISSED` sat in the enum unused, so after the first ring the phone re-armed yesterday and never planned tomorrow. Every state in an enum should have the code path that sets it, or a comment saying who will. |
 | 2026-08-20 | **An override that only works in one direction is half a bug.** The emergency-earlier path ignored every opt-in to pull an alarm earlier, and nothing could put it back, because the return was measured against where the alarm had been dragged rather than against what its owner agreed to. A setting is a promise about the anchor, not about the current value. |
 | 2026-08-20 | **Clamp where a gate would be brittle.** Returning to the anchor only if the recomputed time is at or below it fails whenever the pessimistic estimate is beaten by a minute, which is the ordinary case. `min(target, anchor)` has no such edge, and reproduces exactly the counterfactual. |
 | 2026-08-20 | **`.partial()` does not disable `.default()`.** Every schedule update arrived carrying three fields nobody sent, all of them on the list that decides whether to discard an armed morning, so every edit spent a provider call rebuilding an identical plan. A default answers "what should be stored when this is absent", which is a creation question; on an update, absent means leave it alone. |
