@@ -1,5 +1,5 @@
 import type { WakeChangeReason } from './enums';
-import type { IsoDateTimeString } from './domain';
+import type { IsoDateString, IsoDateTimeString } from './domain';
 
 /**
  * What the server sends a phone while its owner is asleep.
@@ -42,6 +42,15 @@ export type PushMessageType = (typeof PUSH_MESSAGE_TYPE)[keyof typeof PUSH_MESSA
 export interface WakeChangedPush {
     type: typeof PUSH_MESSAGE_TYPE.WAKE_CHANGED;
     occurrenceId: string;
+    /**
+     * The morning this is about, so the phone can name the day.
+     *
+     * Mornings are planned a week ahead, so a push may be about Thursday while
+     * it is Tuesday, and "your alarm moved to 07:31" without a day is a sentence
+     * about the wrong morning. The phone could look the day up; it should not
+     * have to, at 22:00, in a background task, on a train.
+     */
+    date: IsoDateString;
     /** The time the device should now hold. */
     wakeAt: IsoDateTimeString;
     reason: WakeChangeReason;
@@ -93,6 +102,14 @@ export interface WakeChangedPush {
 export interface DisruptionNoticePush {
     type: typeof PUSH_MESSAGE_TYPE.DISRUPTION_NOTICE;
     occurrenceId: string;
+    /** The morning this is about. See `WakeChangedPush.date`. */
+    date: IsoDateString;
+    /**
+     * When that morning's alarm rings, so the phone can decide whether the
+     * notice is worth a visible notification. One about tonight is explained
+     * by the ring screen; one about Thursday is news, and news is shown.
+     */
+    wakeAt: IsoDateTimeString | null;
     /**
      * `NO_REPLACEMENT` is a cancellation with nothing acceptable to take
      * instead: every remaining service falls outside the hours the user said

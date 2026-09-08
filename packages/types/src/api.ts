@@ -86,6 +86,15 @@ export interface DeviceResponse {
     timezone: TimeZone;
     hasPushToken: boolean;
     /**
+     * When this device first registered.
+     *
+     * The clock the prompts run on: a request to rate or to donate is measured
+     * from here rather than from a date kept on the phone, so clearing the
+     * app's storage does not restart it. A reinstall does, under either
+     * design, since the token that identifies the device goes with it.
+     */
+    registeredAt: IsoDateTimeString;
+    /**
      * Which disruptions may move the alarm, and in which direction. All on by
      * default, because together they are the product.
      *
@@ -179,6 +188,11 @@ export interface CreateScheduleRequest {
     buffers: BufferConfig;
     timezone: TimeZone;
 }
+/** Which routine steps to leave out of one morning. Replaces the whole set. */
+export interface SetOccurrenceStepsRequest {
+    disabledStepIds: string[];
+}
+
 export type UpdateScheduleRequest = Partial<CreateScheduleRequest> & { active?: boolean };
 
 /* -------------------------------------------------------------------------- */
@@ -373,6 +387,13 @@ export interface OccurrenceDto {
      * itself is indistinguishable from the product being wrong.
      */
     simulated: SimulationKind | null;
+    /**
+     * Routine steps left out of this one morning. Empty when none are.
+     *
+     * The wake time above already accounts for them: it was recomputed from
+     * the stored journey with the shorter routine when they were set.
+     */
+    disabledStepIds: string[];
 }
 
 /**

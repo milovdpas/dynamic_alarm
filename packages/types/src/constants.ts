@@ -67,6 +67,23 @@ export const API_ENDPOINTS = {
          * distinction: pausing a schedule stops it arming anything at all,
          * while this is "not tomorrow".
          */
+        /**
+         * The phone saying the final ring was switched off.
+         *
+         * Best effort and never required: a phone is often offline at 06:00, and
+         * the server retires a morning on its own once the wake time has passed.
+         * This exists for the trail, so "why did it wake me" can also answer
+         * "and when did you get up".
+         */
+        DISMISSED: (id: string) => `/api/v1/occurrences/${id}/dismissed`,
+        /**
+         * Which routine steps to leave out of this one morning.
+         *
+         * "No shower on Thursday." Stored on the morning and gone with it; the
+         * routine itself is untouched. Recomputes the wake time from the plan
+         * already stored, so it costs no provider call.
+         */
+        STEPS: (id: string) => `/api/v1/occurrences/${id}/steps`,
         SKIP: (id: string) => `/api/v1/occurrences/${id}/skip`,
         UNSKIP: (id: string) => `/api/v1/occurrences/${id}/unskip`,
     },
@@ -130,6 +147,23 @@ export const DEFAULT_REMINDERS: ReminderConfig = {
     intervalMinutes: 5,
 };
 
+/**
+ * Where a coffee goes.
+ *
+ * A link and nothing more, for now. The app is free and has no ads, so this is
+ * the only way the server gets paid for. When donations are tracked properly
+ * this becomes a Stripe flow with a record on the device; until then the page
+ * is the whole mechanism, and "I already donated" is taken on trust.
+ */
+export const SUPPORT_URL = 'https://buymeacoffee.com/milovanderpas';
+
+/**
+ * Where a rating goes. Empty until there is a store listing to send people to,
+ * which is also why `PROMPTS.RATE_ENABLED` is off: a prompt that opens nothing
+ * is worse than none.
+ */
+export const RATE_URL = '';
+
 /** Starting point for a new user's routine, editable immediately after. */
 export const DEFAULT_ROUTINE_STEPS = [
     { label: 'Shower', minutes: 10 },
@@ -181,6 +215,23 @@ export const APP_CONSTANTS = {
         },
     },
 
+    /**
+     * When the app asks for something back, measured from the device's
+     * registration.
+     *
+     * Two asks, both late and both quiet. A rating after a fortnight of the
+     * alarm actually working, once. A coffee after a month, then monthly, and
+     * never again once somebody says they already did. Neither runs on a phone
+     * that has not yet had the app long enough to have an opinion.
+     */
+    PROMPTS: {
+        RATE_AFTER_DAYS: 14,
+        /** Off until a store listing exists. See `RATE_URL`. */
+        RATE_ENABLED: false,
+        DONATE_AFTER_DAYS: 30,
+        DONATE_EVERY_DAYS: 30,
+    },
+
     ROUTINE: {
         MAX_STEPS: 20,
         MAX_STEP_MINUTES: 180,
@@ -218,8 +269,31 @@ export const APP_CONSTANTS = {
     },
 
     MONITOR: {
-        /** Occurrences further out than this are not armed and cost nothing. */
+        /**
+         * Occurrences further out than this are `PENDING` rather than `ARMED`:
+         * planned, held by the phone as a fail-safe, but not on the cadence
+         * ladder below.
+         */
         ARM_LEAD_MINUTES: 8 * 60,
+        /**
+         * How far ahead every schedule's mornings are planned.
+         *
+         * A week, so that Thursday exists on Tuesday. Without it nothing could
+         * notice works announced for later in the week, and a calendar had
+         * nothing to show. Planning the week costs one provider call per
+         * morning once, and thereafter one new morning a day, which is what a
+         * single morning cost before.
+         */
+        PLAN_AHEAD_DAYS: 7,
+        /**
+         * How often a morning beyond the arming window is looked at.
+         *
+         * Daily, in a single check, so announced works are seen within a day
+         * rather than the night before. About one extra call per future
+         * morning per day: roughly six a day for a five-day schedule. The
+         * ladder below takes over once the morning is within eight hours.
+         */
+        FAR_CHECK_INTERVAL_MINUTES: 24 * 60,
         CADENCE_BANDS: [
             { withinMinutes: 8 * 60, intervalMinutes: 30 },
             { withinMinutes: 2 * 60, intervalMinutes: 10 },
