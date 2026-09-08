@@ -250,6 +250,66 @@ describe('what a driver is told, and in what words', () => {
     });
 });
 
+describe('which leg a delay notice is named after', () => {
+    /** The journey with every leg twenty minutes late, as the stub will report it. */
+    async function everyLegLate(legs: Partial<JourneyLeg>[]): Promise<ScheduleOccurrence> {
+        const occurrence = await dueMorning(TransportMode.PUBLIC_TRANSPORT);
+        await withLegs(occurrence, legs);
+        const stored = await ScheduleOccurrence.findOneByOrFail({ id: occurrence.id });
+        const journey = stored.planSnapshot?.journey;
+        if (journey == null) {
+            throw new Error('withLegs is meant to leave a journey.');
+        }
+        useProvider({ status: 'CURRENT', journey });
+        return stored;
+    }
+
+    it('names the train, never the ride from home', async () => {
+        /*
+         * A simulated delay shifts every leg, and the first leg shifted is the
+         * ride to the station, which has no name. The notice borrowed it anyway
+         * and a phone showed " is 20 minutes late". Only a service can be late.
+         */
+        await everyLegLate([
+            { type: LegType.BIKE, name: undefined, fromName: 'Origin', delaySeconds: 20 * 60 },
+            { type: LegType.TRAIN, name: 'Intercity 3052', fromName: 'Oss', delaySeconds: 20 * 60 },
+            { type: LegType.WALK, name: undefined, fromName: 'Tilburg', delaySeconds: 20 * 60 },
+        ]);
+        const sent = recordPushes();
+
+        await monitor().tick();
+
+        const [notice] = noticesIn(sent);
+        expect(notice?.type === PUSH_MESSAGE_TYPE.DISRUPTION_NOTICE && notice.service).toBe(
+            'Intercity 3052',
+        );
+    });
+
+    it('says nothing when only the walk and the ride are late', async () => {
+        await everyLegLate([
+            { type: LegType.BIKE, name: undefined, fromName: 'Origin', delaySeconds: 20 * 60 },
+            { type: LegType.TRAIN, name: 'Intercity 3052', fromName: 'Oss', delaySeconds: 0 },
+        ]);
+        const sent = recordPushes();
+
+        await monitor().tick();
+
+        expect(noticesIn(sent)).toEqual([]);
+    });
+
+    it('reads a blank train name as no name at all', async () => {
+        await everyLegLate([
+            { type: LegType.TRAIN, name: '', fromName: '', delaySeconds: 20 * 60 },
+        ]);
+        const sent = recordPushes();
+
+        await monitor().tick();
+
+        const [notice] = noticesIn(sent);
+        expect(notice?.type === PUSH_MESSAGE_TYPE.DISRUPTION_NOTICE && notice.service).toBeNull();
+    });
+});
+
 describe('a fixed travel time, which has no journey at all', () => {
     it('is never announced as a cancellation', async () => {
         // Nothing can disrupt a number the user typed in, and there is no

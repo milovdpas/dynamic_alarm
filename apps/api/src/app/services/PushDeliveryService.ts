@@ -364,25 +364,31 @@ function describeDisruption(
         return {
             kind: 'CANCELLATION',
             minutes: 0,
-            service: cancelled?.name ?? cancelled?.fromName ?? null,
+            // Through `named`, so a blank name reads as absent and the phone
+            // says "your journey" rather than " is not running".
+            service: named(cancelled?.name, cancelled?.fromName),
         };
     }
 
     let worst: { minutes: number; service: string | null } | null = null;
     for (const leg of journey.legs) {
         /**
-         * A car leg is skipped, and that is not a shortcut.
+         * Only a service can be late. A car leg is skipped, and that is not a
+         * shortcut: its `delaySeconds` is congestion measured against free
+         * flow, which is the ordinary state of a road at 07:30 rather than
+         * news, and the plan has already priced it in. Reporting it as a delay
+         * also had nowhere to get a service name from, so it borrowed the leg's
+         * `fromName` and told people who drive to work that "Origin is 12
+         * minutes late". What a driver needs to hear is that their alarm moved,
+         * which travels as a wake change with `TRAFFIC_WORSE` and is worded for
+         * a road.
          *
-         * Its `delaySeconds` is congestion measured against free flow, which is
-         * the ordinary state of a road at 07:30 rather than news, and the plan
-         * has already priced it in. Reporting it as a delay also had nowhere to
-         * get a service name from, so it borrowed the leg's `fromName` and told
-         * people who drive to work that "Origin is 12 minutes late".
-         *
-         * What a driver needs to hear is that their alarm moved, which travels
-         * as a wake change with `TRAFFIC_WORSE` and is worded for a road.
+         * A walk or a ride to the station is skipped for the same reason. A
+         * simulated delay shifts every leg, and the first one shifted was the
+         * ride from home, which has no name, so the notice on a phone read
+         * " is 20 minutes late".
          */
-        if (leg.type === LegType.CAR) {
+        if (leg.type === LegType.CAR || leg.type === LegType.WALK || leg.type === LegType.BIKE) {
             continue;
         }
         // Floored rather than rounded, and the app floors identically. A 31
@@ -390,7 +396,7 @@ function describeDisruption(
         // say nothing.
         const minutes = Math.floor(leg.delaySeconds / 60);
         if (minutes >= 1 && (worst === null || minutes > worst.minutes)) {
-            worst = { minutes, service: leg.name ?? leg.fromName };
+            worst = { minutes, service: named(leg.name, leg.fromName) };
         }
     }
 
