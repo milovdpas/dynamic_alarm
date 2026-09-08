@@ -2,13 +2,18 @@ import 'reflect-metadata';
 import { afterAll, beforeAll, beforeEach } from 'vitest';
 
 import { resetRateLimits } from '../src/app/middleware/RateLimit';
-import { AppDataSource } from '../src/database/typeorm-db';
+import { AppDataSource, connectDatabase } from '../src/database/typeorm-db';
 import { truncateAll } from './support/database';
 
+/*
+ * Through the real connector, not a bare `initialize()`. The connector pins the
+ * session zone to UTC, and without that every `created_at` these tests read is
+ * the database server's wall clock, two hours off in Amsterdam. Nothing asserted
+ * on one until the device's registration date reached the wire, and the first
+ * test to do so found a device registered two hours in the future.
+ */
 beforeAll(async () => {
-    if (!AppDataSource.isInitialized) {
-        await AppDataSource.initialize();
-    }
+    await connectDatabase();
 });
 
 /**

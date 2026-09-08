@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { API_ENDPOINTS, OccurrenceState, TransportMode, Weekday } from '@alarm/types';
 import type { ListOccurrencesResponse, OccurrenceResponse } from '@alarm/types';
 
 import ScheduleOccurrence from '../src/app/models/ScheduleOccurrence.entity';
 import { SchedulePlanService } from '../src/app/services/SchedulePlanService';
+import { TransportProviderFactory } from '../src/app/services/TransportProviderFactory';
+import { fixtureProvider } from './support/transport';
 import { asDevice, data } from './support/client';
 import { seedCommute, seedOccurrence, seedSchedule } from './support/factories';
 
@@ -44,6 +46,16 @@ async function skippableMorning() {
 
     return { token, schedule, occurrence };
 }
+
+// Arming plans the whole week now, so the other six mornings need a provider
+// that answers without a network. The skipped one must ask for nothing at all.
+beforeEach(() => {
+    vi.spyOn(TransportProviderFactory, 'forMode').mockReturnValue(fixtureProvider);
+});
+
+afterEach(() => {
+    vi.restoreAllMocks();
+});
 
 describe('skipping one morning', () => {
     it('marks the morning skipped without touching the schedule', async () => {
@@ -94,11 +106,13 @@ describe('skipping one morning', () => {
         // work out a journey and then throw the answer away.
         const { token, schedule, occurrence } = await skippableMorning();
         await asDevice(token).post(API_ENDPOINTS.OCCURRENCES.SKIP(occurrence.id), {});
-        const planner = vi.spyOn(SchedulePlanService.prototype, 'forSchedule');
+        const planner = vi.spyOn(SchedulePlanService.prototype, 'forDate');
 
         await asDevice(token).post(API_ENDPOINTS.SCHEDULES.ARM(schedule.id), {});
 
-        expect(planner).not.toHaveBeenCalled();
+        // The other mornings of the week are planned; this one is not.
+        const datesPlanned = planner.mock.calls.map(([, date]) => date);
+        expect(datesPlanned).not.toContain(occurrence.date);
     });
 
     it('still appears in the list, so it can be shown as skipped', async () => {

@@ -141,6 +141,17 @@ export default class ScheduleOccurrence extends BaseEntity {
     watchedStationCodes!: string[] | null;
 
     /**
+     * Routine steps left out of this one morning. Null when none are.
+     *
+     * On the morning rather than the routine, because it is about the morning:
+     * it expires with it, and a routine can be shared by several schedules.
+     * Every place that measures the routine for this morning reads it, or a
+     * tick would quietly put the shower back.
+     */
+    @Column({ name: 'disabled_step_ids', type: 'json', nullable: true })
+    disabledStepIds!: string[] | null;
+
+    /**
      * A staged pretend disruption, for testing the path that real trains only
      * exercise twice a month.
      *
@@ -239,6 +250,7 @@ export default class ScheduleOccurrence extends BaseEntity {
             plan: this.planSnapshot,
             lastCheckedAt: this.lastCheckedAt?.toISOString() ?? null,
             simulated: this.simulationKind,
+            disabledStepIds: this.disabledStepIds ?? [],
         };
     }
 }

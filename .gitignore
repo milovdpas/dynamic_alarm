@@ -48,3 +48,6 @@ yarn-error.*
 
 # test output
 coverage/
+
+# production exports, never committed: they carry device tokens
+apps/api/*.sql

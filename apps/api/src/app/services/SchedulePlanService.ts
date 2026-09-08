@@ -77,8 +77,9 @@ export class SchedulePlanService {
         schedule: Schedule,
         date: string,
         journeyOffset?: number,
+        skippedStepIds: readonly string[] = [],
     ): Promise<SchedulePlanResult> {
-        const request = await this.requestFor(schedule, date, journeyOffset);
+        const request = await this.requestFor(schedule, date, journeyOffset, skippedStepIds);
         if (!request.ok) {
             return { ok: false, problem: request.problem };
         }
@@ -102,8 +103,12 @@ export class SchedulePlanService {
      * replacement is acceptable depends on the user's direction and travel
      * window, and that decision belongs to the engine.
      */
-    async optionsForDate(schedule: Schedule, date: string): Promise<WakePlan[]> {
-        const request = await this.requestFor(schedule, date);
+    async optionsForDate(
+        schedule: Schedule,
+        date: string,
+        skippedStepIds: readonly string[] = [],
+    ): Promise<WakePlan[]> {
+        const request = await this.requestFor(schedule, date, undefined, skippedStepIds);
         if (!request.ok) {
             return [];
         }
@@ -132,6 +137,7 @@ export class SchedulePlanService {
         schedule: Schedule,
         forDate?: string,
         journeyOffset?: number,
+        skippedStepIds: readonly string[] = [],
     ): Promise<
         { ok: true; input: PlanPreviewRequest; date: string } | { ok: false; problem: SchedulePlanProblem }
     > {
@@ -168,8 +174,9 @@ export class SchedulePlanService {
             journeyOffset: journeyOffset ?? schedule.journeyOffset,
             fixedTravelMinutes: schedule.fixedTravelMinutes ?? undefined,
             // Disabled steps are kept and count zero, which is how "not today"
-            // works without losing the step.
-            routineMinutes: routineDurationMinutes(routine),
+            // works without losing the step. Steps skipped for this one morning
+            // count zero too, or a re-plan would quietly put them back.
+            routineMinutes: routineDurationMinutes(routine, skippedStepIds),
             buffers: schedule.buffers,
             timezone: schedule.timezone,
         };

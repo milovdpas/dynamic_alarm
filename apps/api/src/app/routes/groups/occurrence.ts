@@ -4,12 +4,13 @@ import { API_ENDPOINTS } from '@alarm/types';
 import type { IdParams } from '../../../interfaces/IHttp';
 import type { IRoute } from '../../../interfaces/IRouter';
 import OccurrenceController from '../../controllers/OccurrenceController';
-import { providerLimit } from '../../middleware/ApiLimits';
+import { planningLimit } from '../../middleware/ApiLimits';
 import { deviceAuth } from '../../middleware/DeviceAuth';
 import { validate } from '../../middleware/ValidateRequest';
 import { idParamSchema } from '../../validators/commonSchemas';
 import {
     ackOccurrenceSchema,
+    setOccurrenceStepsSchema,
     simulateOccurrenceSchema,
 } from '../../validators/occurrenceSchemas';
 
@@ -33,8 +34,8 @@ export default class OccurrenceRoutes implements IRoute {
         router.post<IdParams>(
             API_ENDPOINTS.SCHEDULES.ARM(':id'),
             deviceAuth,
-            // Arming plans a journey, so it spends the same budget as a preview.
-            providerLimit,
+            // Arming plans a week of journeys, so it has a budget of its own.
+            planningLimit,
             validate({ params: idParamSchema }),
             this.controller.arm,
         );
@@ -54,11 +55,11 @@ export default class OccurrenceRoutes implements IRoute {
             this.controller.simulate,
         );
 
-        // Plans a journey, so it pays the same provider budget as arming.
+        // Plans a week, so it pays the same budget as arming.
         router.post<IdParams>(
             API_ENDPOINTS.OCCURRENCES.RESET(':id'),
             deviceAuth,
-            providerLimit,
+            planningLimit,
             validate({ params: idParamSchema }),
             this.controller.reset,
         );
@@ -70,6 +71,21 @@ export default class OccurrenceRoutes implements IRoute {
             deviceAuth,
             validate({ params: idParamSchema }),
             this.controller.applyPlan,
+        );
+
+        // Recomputes from the stored plan, so it pays no provider budget.
+        router.put<IdParams>(
+            API_ENDPOINTS.OCCURRENCES.STEPS(':id'),
+            deviceAuth,
+            validate({ params: idParamSchema, body: setOccurrenceStepsSchema }),
+            this.controller.setSteps,
+        );
+
+        router.post<IdParams>(
+            API_ENDPOINTS.OCCURRENCES.DISMISSED(':id'),
+            deviceAuth,
+            validate({ params: idParamSchema }),
+            this.controller.dismissed,
         );
 
         // Neither plans anything, so neither pays the provider budget.

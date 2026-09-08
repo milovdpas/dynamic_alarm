@@ -52,6 +52,22 @@ export const providerLimit = rateLimit({
 });
 
 /**
+ * For the two requests that plan a whole week.
+ *
+ * `providerLimit` was sized on "one request is one NS call". Arming and
+ * resetting plan every morning inside the seven day horizon, so one request can
+ * be eight calls, and sixty of them would be up to 480 against a ceiling of 300
+ * shared by everybody. Ten a window is still far more than any screen asks for,
+ * and worst case is 80.
+ */
+export const planningLimit = rateLimit({
+    name: 'week-planning',
+    limit: 10,
+    windowMs: 5 * MINUTE,
+    key: deviceOf,
+});
+
+/**
  * The address diagnostic, which is unauthenticated and reflects a request back.
  *
  * Keyed on the socket rather than on `req.ip`, because the whole reason the

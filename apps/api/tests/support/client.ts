@@ -31,6 +31,8 @@ export function asDevice(token: string) {
             api.post(path).set('authorization', auth).send(body as object),
         patch: (path: string, body?: unknown): supertest.Test =>
             api.patch(path).set('authorization', auth).send(body as object),
+        put: (path: string, body?: unknown): supertest.Test =>
+            api.put(path).set('authorization', auth).send(body as object),
         delete: (path: string): supertest.Test => api.delete(path).set('authorization', auth),
     };
 }

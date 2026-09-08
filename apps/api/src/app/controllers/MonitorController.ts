@@ -46,6 +46,9 @@ export default class MonitorController {
 
         MonitorController.running = true;
         try {
+            // Keeps every schedule planned a week ahead, hourly. Before the
+            // tick, so a morning it creates can be claimed on this same pass.
+            await this.monitor.topUpIfDue();
             const result = await this.monitor.tick();
             sendSuccess<MonitorTickResponse>(res, {
                 ...result,

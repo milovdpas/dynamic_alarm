@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SimulationKind } from '@alarm/types';
+import { APP_CONSTANTS, SimulationKind } from '@alarm/types';
 
 /**
  * What the device says it actually armed.
@@ -20,6 +20,15 @@ export const ackOccurrenceSchema = z.object({
  * alarm and be watched; four hours of it just makes the journey infeasible,
  * which is a different test with a different name.
  */
+/**
+ * Bounded by the routine's own step limit; a list longer than any routine can be
+ * is not a list of its steps. Membership is checked against the routine in the
+ * service, where the routine is.
+ */
+export const setOccurrenceStepsSchema = z.object({
+    disabledStepIds: z.array(z.uuid()).max(APP_CONSTANTS.ROUTINE.MAX_STEPS),
+});
+
 export const simulateOccurrenceSchema = z.object({
     kind: z.nativeEnum(SimulationKind).nullable(),
     minutes: z.number().int().min(1).max(180).optional(),

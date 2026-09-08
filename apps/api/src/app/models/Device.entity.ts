@@ -113,6 +113,7 @@ export default class Device extends BaseEntity {
             platform: this.platform,
             timezone: this.timezone,
             hasPushToken: this.pushToken !== null,
+            registeredAt: this.createdAt.toISOString(),
             allowLaterWakeOnDelay: this.allowLaterWakeOnDelay,
             allowLaterWakeOnCancellation: this.allowLaterWakeOnCancellation,
             allowEarlierWakeOnTraffic: this.allowEarlierWakeOnTraffic,

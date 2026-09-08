@@ -45,6 +45,35 @@ export function disruption(stationCodes: string[], releasedAt: Date): unknown {
 }
 
 /** A notice with no stations attached, such as a national announcement. */
+/** Announced works at the given stations, applying between `start` and `end`. */
+export function plannedWorks(
+    stationCodes: string[],
+    releasedAt: Date,
+    start: Date,
+    end: Date,
+): unknown {
+    return {
+        type: 'MAINTENANCE',
+        id: `works-${stationCodes.join('-')}`,
+        isActive: false,
+        title: `Works ${stationCodes.join(' - ')}`,
+        registrationTime: releasedAt.toISOString(),
+        releaseTime: releasedAt.toISOString(),
+        timespans: [{ start: start.toISOString(), end: end.toISOString() }],
+        publicationSections: [
+            {
+                section: {
+                    stations: stationCodes.map((stationCode) => ({
+                        stationCode,
+                        name: stationCode,
+                        countryCode: 'NL',
+                    })),
+                },
+            },
+        ],
+    };
+}
+
 export function stationlessDisruption(releasedAt: Date): unknown {
     return {
         type: 'CALAMITY',

@@ -221,7 +221,10 @@ describe('a car morning, which has no service to cancel', () => {
         await monitor().tick();
 
         const after = await ScheduleOccurrence.findOneBy({ id: occurrence.id });
-        expect(after?.state).toBe(OccurrenceState.ARMED);
+        // Armed, or pending when the re-planned morning is beyond the window:
+        // either is a morning still on the ladder. What must not happen is
+        // CANCELLED, or a row with no next check at all.
+        expect([OccurrenceState.ARMED, OccurrenceState.PENDING]).toContain(after?.state);
         expect(after?.nextCheckAt).not.toBeNull();
     });
 });
@@ -342,6 +345,25 @@ describe('a rail morning whose trip really has gone', () => {
         // A screen showing only the replacement leaves somebody looking for a
         // train that is not coming.
         expect(after?.replacedJourney).not.toBeNull();
+    });
+
+    it('says which morning it is about', async () => {
+        /*
+         * Mornings are planned a week ahead, so a push can be about Thursday on
+         * a Tuesday. Without the date the phone would announce "your alarm
+         * moved to 07:31" about a morning the reader is not thinking of.
+         */
+        const occurrence = await dueMorning(TransportMode.PUBLIC_TRANSPORT);
+        await Device.update(occurrence.deviceId, { allowLaterWakeOnCancellation: true });
+        useProvider({ status: 'GONE' });
+        const sent = recordPushes();
+
+        await monitor().tick();
+
+        for (const message of sent) {
+            expect(message.date).toBe(occurrence.date);
+        }
+        expect(sent.length).toBeGreaterThan(0);
     });
 
     it('names the train that stopped, not the walk to the station', async () => {

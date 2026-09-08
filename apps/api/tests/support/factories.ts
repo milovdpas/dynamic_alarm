@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon';
 import type { DeepPartial } from 'typeorm';
 
 import {
@@ -151,7 +152,13 @@ export async function seedOccurrence(
     const occurrence = ScheduleOccurrence.create({
         scheduleId: schedule.id,
         deviceId: schedule.deviceId,
-        date: '2026-08-20',
+        // The next morning whose 08:30 arrival is still ahead, worked out rather
+        // than written down. A literal date was tomorrow when these were written
+        // and eighteen days old when three tests failed on it; the wake time's
+        // own date then failed the same tests every day after 05:30, because a
+        // re-plan for "today" found today's arrival already gone. None of those
+        // failures was a real bug.
+        date: upcomingMorning(wakeAt),
         state: OccurrenceState.ARMED,
         anchorWakeAt: wakeAt,
         currentWakeAt: wakeAt,
@@ -198,4 +205,18 @@ function wakePlan(wakeAt: Date): WakePlan {
             wakeSlackMinutes: 0,
         },
     };
+}
+
+/**
+ * The date of the next morning whose seeded 08:30 arrival is still to come.
+ *
+ * Today while today's arrival is ahead of the wake time, tomorrow otherwise. A
+ * re-plan for a morning already behind us produces a wake time in the past, no
+ * next check, and no acceptable replacement, all of which look like bugs.
+ */
+function upcomingMorning(wakeAt: Date): string {
+    const local = DateTime.fromJSDate(wakeAt).setZone('Europe/Amsterdam');
+    const arrival = local.set({ hour: 8, minute: 30, second: 0, millisecond: 0 });
+    const morning = local < arrival ? local : local.plus({ days: 1 });
+    return morning.toISODate() ?? '';
 }

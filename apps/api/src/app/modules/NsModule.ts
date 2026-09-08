@@ -107,9 +107,17 @@ export class NsModule {
             .slice(0, limit);
     }
 
-    /** Active disruptions, swept once globally per monitor tick. */
+    /**
+     * Every disruption NS is publishing, swept once globally per monitor tick.
+     *
+     * Not only the active ones. Mornings are planned a week ahead now, and
+     * announced works for Thursday are the reason: they are published days in
+     * advance with the window they apply to, and `isActive=true` filtered them
+     * out until the morning they started. The sweep matches works to a morning
+     * by that window, so an entry about next month promotes nothing this week.
+     */
     async disruptions(): Promise<unknown[]> {
-        const payload = await this.get<unknown>('/disruptions/v3?isActive=true');
+        const payload = await this.get<unknown>('/disruptions/v3');
         // Array.isArray widens unknown to any[], which would let anything past
         // the type system from here on. The shape is only ever forwarded, so
         // unknown[] is both honest and enough.

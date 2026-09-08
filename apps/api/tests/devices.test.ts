@@ -93,3 +93,17 @@ describe('device update', () => {
         expect(JSON.stringify(response.body)).not.toContain('ExponentPushToken');
     });
 });
+
+describe('what a device is told about itself', () => {
+    it('says when it registered, so the prompts have a clock', async () => {
+        // The rate and donate prompts count from this rather than from a date
+        // on the phone, so clearing storage does not restart them.
+        const { device, token } = await seedDevice();
+
+        const response = await asDevice(token).patch(API_ENDPOINTS.DEVICES.UPDATE(device.id), {});
+
+        const registeredAt = data<DeviceResponse>(response).registeredAt;
+        expect(Number.isNaN(Date.parse(registeredAt))).toBe(false);
+        expect(Date.parse(registeredAt)).toBeLessThanOrEqual(Date.now());
+    });
+});

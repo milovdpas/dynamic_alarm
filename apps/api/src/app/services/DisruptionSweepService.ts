@@ -59,7 +59,7 @@ export class DisruptionSweepService {
          * touch.
          */
         const watching = await ScheduleOccurrence.createQueryBuilder('occurrence')
-            .where('occurrence.state = :state', { state: OccurrenceState.ARMED })
+            .where('occurrence.state IN (:...states)', { states: WATCHED })
             .andWhere('occurrence.watchedStationCodes IS NOT NULL')
             .getCount();
 
@@ -84,7 +84,7 @@ export class DisruptionSweepService {
         // already due will be claimed by this same tick anyway, and rewriting
         // its `nextCheckAt` would be a promotion that changes nothing.
         const candidates = await ScheduleOccurrence.createQueryBuilder('occurrence')
-            .where('occurrence.state = :state', { state: OccurrenceState.ARMED })
+            .where('occurrence.state IN (:...states)', { states: WATCHED })
             .andWhere('occurrence.nextCheckAt > :now', { now })
             .getMany();
 
@@ -113,17 +113,40 @@ export class DisruptionSweepService {
      * a station it travels through, so a disruption that has not changed since
      * the last check is silently ignored rather than promoted forever.
      */
-    private affected(occurrence: ScheduleOccurrence, published: Map<string, number>): boolean {
+    /**
+     * Whether a disruption touching one of this morning's stations is news to it.
+     *
+     * Two tests. The station has to match, and the disruption has to be about
+     * this morning: an active one with no window is, and announced works are
+     * only if their window reaches the morning. Works next month must not
+     * promote every morning this week, one extra check each, every day.
+     *
+     * Then the publication rule: promoted only if the morning has not been
+     * checked since the disruption was published, which is what stops a six
+     * hour disruption promoting the same morning every minute.
+     */
+    private affected(occurrence: ScheduleOccurrence, published: Map<string, Published[]>): boolean {
         const codes = occurrence.watchedStationCodes;
         if (codes === null || codes.length === 0) {
-            // A car journey, or a fixed travel time. Neither has stations, and
-            // neither is affected by a rail disruption.
             return false;
         }
 
+        const wake = occurrence.currentWakeAt?.getTime() ?? null;
         let newest = 0;
         for (const code of codes) {
-            newest = Math.max(newest, published.get(code) ?? 0);
+            for (const entry of published.get(code) ?? []) {
+                if (entry.start !== null && entry.end !== null) {
+                    if (wake === null) {
+                        continue;
+                    }
+                    const touches =
+                        entry.start <= wake + HALF_DAY_MS && entry.end >= wake - HALF_DAY_MS;
+                    if (!touches) {
+                        continue;
+                    }
+                }
+                newest = Math.max(newest, entry.at);
+            }
         }
         if (newest === 0) {
             return false;
@@ -133,20 +156,14 @@ export class DisruptionSweepService {
     }
 
     /**
-     * Station code to the newest moment a disruption touching it was published.
+     * Every disruption, by the stations it touches.
      *
-     * `releaseTime` moves when NS updates a disruption, which is what makes it
-     * the right value to compare against: an update is new information and
-     * deserves a re-check, while a disruption that only continues existing does
-     * not.
-     *
-     * The walk is defensive rather than typed against a schema. This feed is
-     * read only to decide whether to look again, so an unfamiliar shape should
-     * cost a missed promotion at worst, never a failed tick.
+     * Each entry carries its publication time and, for announced works, the
+     * window it applies to. An active disruption has no window: it is about
+     * now, and now is when the morning inside the eight hour ladder is.
      */
-    private publishedByStation(disruptions: unknown[]): Map<string, number> {
-        const published = new Map<string, number>();
-
+    private publishedByStation(disruptions: unknown[]): Map<string, Published[]> {
+        const published = new Map<string, Published[]>();
         for (const entry of disruptions) {
             if (typeof entry !== 'object' || entry === null) {
                 continue;
@@ -157,25 +174,50 @@ export class DisruptionSweepService {
                 continue;
             }
 
+            const windows = (record.timespans ?? [])
+                .map((span) => ({ start: Date.parse(span.start ?? ''), end: Date.parse(span.end ?? '') }))
+                .filter((span) => !Number.isNaN(span.start) && !Number.isNaN(span.end));
+            const shapes: Published[] =
+                windows.length === 0
+                    ? [{ at, start: null, end: null }]
+                    : windows.map((span) => ({ at, start: span.start, end: span.end }));
+
             for (const section of record.publicationSections ?? []) {
                 for (const station of section.section?.stations ?? []) {
                     const code = station.stationCode;
                     if (typeof code !== 'string') {
                         continue;
                     }
-                    published.set(code, Math.max(published.get(code) ?? 0, at));
+                    const list = published.get(code) ?? [];
+                    list.push(...shapes);
+                    published.set(code, list);
                 }
             }
         }
-
         return published;
     }
 }
 
-/** Only the fields the sweep reads. NS returns a great deal more. */
+/** A morning is touched by works whose window comes within this of its wake time. */
+const HALF_DAY_MS = 12 * 60 * 60 * 1000;
+
+/** The states the sweep may promote: on the ladder, or planned and waiting. */
+const WATCHED = [OccurrenceState.ARMED, OccurrenceState.PENDING];
+
+/** One disruption as it bears on one station. */
+interface Published {
+    /** When NS published it, epoch milliseconds. */
+    at: number;
+    /** The window announced works apply to. Null for an active disruption. */
+    start: number | null;
+    end: number | null;
+}
+
 interface NsDisruption {
     releaseTime?: string;
     registrationTime?: string;
+    /** Announced works carry the period they apply to. */
+    timespans?: { start?: string; end?: string }[];
     publicationSections?: {
         section?: { stations?: { stationCode?: string }[] };
     }[];

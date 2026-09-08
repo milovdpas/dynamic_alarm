@@ -12,12 +12,21 @@ import type { BodyOf } from '../middleware/ValidateRequest';
 import AlarmEvent from '../models/AlarmEvent.entity';
 import Schedule from '../models/Schedule.entity';
 import type ScheduleOccurrence from '../models/ScheduleOccurrence.entity';
-import { OccurrenceService } from '../services/OccurrenceService';
+import { isOver, OccurrenceService } from '../services/OccurrenceService';
 import { SimulationService } from '../services/SimulationService';
 import { ScheduleService } from '../services/ScheduleService';
 import type { SchedulePlanProblem } from '../services/SchedulePlanService';
-import { sendConflict, sendNotFound, sendSuccess } from '../utils/ApiResponses';
-import { ackOccurrenceSchema, simulateOccurrenceSchema } from '../validators/occurrenceSchemas';
+import {
+    sendConflict,
+    sendNotFound,
+    sendSuccess,
+    sendValidationFailed,
+} from '../utils/ApiResponses';
+import {
+    ackOccurrenceSchema,
+    setOccurrenceStepsSchema,
+    simulateOccurrenceSchema,
+} from '../validators/occurrenceSchemas';
 
 export default class OccurrenceController {
     private readonly occurrences = new OccurrenceService();
@@ -169,6 +178,68 @@ export default class OccurrenceController {
     };
 
     /**
+     * The phone reporting that the final ring was switched off.
+     *
+     * Never load bearing. The tick retires a morning on its own once its wake
+     * time has passed, so a phone that is offline at 06:00 costs nothing but a
+     * missing line in the trail. Answered with 200 even when the row is already
+     * closed, because the phone has nothing useful to do with a conflict here.
+     */
+    dismissed: Handler<unknown, IdParams> = async (req, res) => {
+        const occurrence = await this.occurrences.findOwned(req.device.id, req.params.id);
+        if (occurrence === null) {
+            sendNotFound(res, 'Occurrence');
+            return;
+        }
+
+        const updated = await this.occurrences.dismiss(occurrence);
+        const schedule = await Schedule.findOneBy({ id: updated.scheduleId });
+        sendSuccess<OccurrenceResponse>(
+            res,
+            updated.toDto(schedule?.name ?? '', schedule?.reminders ?? DEFAULT_REMINDERS),
+        );
+    };
+
+    /**
+     * Leaves routine steps out of one morning.
+     *
+     * The calendar's "no shower on Thursday". Recomputed from the stored plan,
+     * so no `providerLimit`: nothing asks NS anything.
+     */
+    setSteps: Handler<BodyOf<typeof setOccurrenceStepsSchema>, IdParams> = async (req, res) => {
+        const occurrence = await this.occurrences.findOwned(req.device.id, req.params.id);
+        if (occurrence === null) {
+            sendNotFound(res, 'Occurrence');
+            return;
+        }
+
+        const schedule = await this.schedules.findOne(req.device.id, occurrence.scheduleId);
+        if (schedule === null) {
+            sendNotFound(res, 'Schedule');
+            return;
+        }
+
+        const result = await this.occurrences.setDisabledSteps(
+            occurrence,
+            schedule,
+            req.body.disabledStepIds,
+        );
+        if (!result.ok) {
+            if (result.problem === 'UNKNOWN_STEP') {
+                sendValidationFailed(res, 'A step id does not belong to this routine');
+                return;
+            }
+            sendConflict(res, result.problem);
+            return;
+        }
+
+        sendSuccess<OccurrenceResponse>(
+            res,
+            result.occurrence.toDto(schedule.name, schedule.reminders),
+        );
+    };
+
+    /**
      * Sits one morning out without touching the schedule behind it.
      *
      * The pair to the alarms list's toggle rather than a replacement for it. A
@@ -184,6 +255,11 @@ export default class OccurrenceController {
             return;
         }
 
+        if (isOver(occurrence.state)) {
+            sendConflict(res, 'OVER');
+            return;
+        }
+
         const updated = await this.occurrences.skip(occurrence);
         const schedule = await Schedule.findOneBy({ id: updated.scheduleId });
         sendSuccess<OccurrenceResponse>(res, updated.toDto(schedule?.name ?? '', schedule?.reminders ?? DEFAULT_REMINDERS));
@@ -194,6 +270,11 @@ export default class OccurrenceController {
         const occurrence = await this.occurrences.findOwned(req.device.id, req.params.id);
         if (occurrence === null) {
             sendNotFound(res, 'Occurrence');
+            return;
+        }
+
+        if (isOver(occurrence.state)) {
+            sendConflict(res, 'OVER');
             return;
         }
 

@@ -42,6 +42,11 @@ import { TransportProviderFactory } from './TransportProviderFactory';
  */
 const CLAIM_LEASE_MINUTES = 5;
 
+/** How often the planned week is topped up. See `topUpIfDue`. */
+const TOP_UP_EVERY_MS = 60 * 60 * 1000;
+/** When it last did, in this process. Zero forces one on the first tick. */
+let lastTopUpAt = 0;
+
 /**
  * What the monitor managed to learn about a journey this pass.
  *
@@ -68,6 +73,8 @@ export interface TickResult {
     disruptions: number;
     /** Occurrences the sweep pulled forward to be checked now. */
     promoted: number;
+    /** Mornings whose wake time had passed, closed on this pass. */
+    retired: number;
     claimed: number;
     moved: number;
     unchanged: number;
@@ -116,6 +123,11 @@ export class MonitorService {
         // cancellation is worth exactly that minute.
         const swept = await this.sweepDisruptions(now);
 
+        // Before claiming. A morning that is over has nothing left to check,
+        // and leaving it `ARMED` is the bug that had the app re-arming
+        // yesterday every time it opened, and never planning tomorrow.
+        const retired = await this.occurrences.retirePassed(now);
+
         const ids = await this.claim(now);
         const result: TickResult = {
             nsCallsInWindow: 0,
@@ -124,6 +136,7 @@ export class MonitorService {
             tomtomCallsThisTick: 0,
             disruptions: swept.disruptions,
             promoted: swept.promoted,
+            retired,
             claimed: ids.length,
             moved: 0,
             unchanged: 0,
@@ -166,6 +179,32 @@ export class MonitorService {
     }
 
     /**
+     * Keeps every schedule planned a week ahead, and never takes the tick down.
+     *
+     * Planning a new morning is a provider call, and a provider outage here
+     * costs one day of horizon for one hour, nothing more: the ladder still
+     * checks every armed morning on its own schedule.
+     */
+    async topUpIfDue(now = new Date()): Promise<void> {
+        // Once an hour rather than every minute: a query per active schedule is
+        // cheap but not free, and a day arrives at most once a day. Beside the
+        // tick rather than inside it, so a test driving one tick over one
+        // morning is not also planning a week for every schedule in the table.
+        if (now.getTime() - lastTopUpAt < TOP_UP_EVERY_MS) {
+            return;
+        }
+        lastTopUpAt = now.getTime();
+        try {
+            const planned = await this.occurrences.topUpWeek(now);
+            if (planned > 0) {
+                console.info(`Planned ${String(planned)} new morning(s) to keep the week ahead full.`);
+            }
+        } catch (error) {
+            console.error('Week top-up failed:', error);
+        }
+    }
+
+    /**
      * The global disruption sweep, which must never take the tick down with it.
      *
      * One NS call covers every user, so a failure here costs visibility into
@@ -194,11 +233,15 @@ export class MonitorService {
         return AppDataSource.transaction(async (manager) => {
             const rows: { id: string }[] = await manager.query(
                 `SELECT id FROM schedule_occurrences
-                 WHERE state = ? AND next_check_at IS NOT NULL AND next_check_at <= ?
+                 WHERE state IN (?, ?) AND next_check_at IS NOT NULL AND next_check_at <= ?
                  ORDER BY next_check_at
                  LIMIT ?
                  FOR UPDATE SKIP LOCKED`,
-                [OccurrenceState.ARMED, now, APP_CONSTANTS.MONITOR.BATCH_SIZE],
+                // Pending mornings too. Their next check is a day away rather
+                // than minutes, so they cost almost nothing here, and it is how
+                // a morning planned a week ahead becomes armed when its window
+                // opens.
+                [OccurrenceState.ARMED, OccurrenceState.PENDING, now, APP_CONSTANTS.MONITOR.BATCH_SIZE],
             );
 
             if (rows.length === 0) {
@@ -355,7 +398,7 @@ export class MonitorService {
         // with no journey at all: a wake time computed from nothing, and a
         // screen showing a train that vanished with no replacement under it.
         const replacement: ReplacementResult = gone
-            ? await this.replan(schedule, occurrence.date, previousPlan)
+            ? await this.replan(schedule, occurrence.date, previousPlan, occurrence.disabledStepIds ?? [])
             : { found: false, reason: 'NOTHING_PLANNED' };
         const replanned = replacement.found ? replacement.plan : null;
 
@@ -391,7 +434,9 @@ export class MonitorService {
             routineMinutes:
                 routine === null
                     ? previousPlan.breakdown.routineMinutes
-                    : routineDurationMinutes(routine),
+                    // With this morning's skipped steps left out, or every tick
+                    // would put the shower back that somebody took out.
+                    : routineDurationMinutes(routine, occurrence.disabledStepIds ?? []),
             buffers: schedule.buffers,
             timezone: schedule.timezone,
             now: DateTime.fromJSDate(now).toISO() ?? undefined,
@@ -399,6 +444,9 @@ export class MonitorService {
 
         occurrence.lastCheckedAt = now;
         occurrence.nextCheckAt = this.occurrences.nextCheck(plan, schedule.timezone, now);
+        // Pending becomes armed the first time it is checked inside the window.
+        // Nothing else in this method cares which of the two it is.
+        occurrence.state = this.occurrences.armingState(plan.wakeUpAt, now);
 
         const detected = this.reasonFor(previousPlan.journey, refreshed, schedule.mode, gone);
         const held = occurrence.currentWakeAt ?? occurrence.anchorWakeAt ?? now;
@@ -622,9 +670,10 @@ export class MonitorService {
         schedule: Schedule,
         date: string,
         previousPlan: WakePlan,
+        skippedStepIds: readonly string[],
     ): Promise<ReplacementResult> {
         try {
-            const options = await this.plans.optionsForDate(schedule, date);
+            const options = await this.plans.optionsForDate(schedule, date, skippedStepIds);
 
             /**
              * Which candidate is acceptable is the user's decision, not ours.

@@ -92,6 +92,7 @@ export class PushDeliveryService {
             {
                 type: PUSH_MESSAGE_TYPE.WAKE_CHANGED,
                 occurrenceId: occurrence.id,
+                date: occurrence.date,
                 wakeAt: wakeAt.toISOString(),
                 reason: told.reason,
                 simulated: told.simulated,
@@ -162,6 +163,8 @@ export class PushDeliveryService {
             {
                 type: PUSH_MESSAGE_TYPE.DISRUPTION_NOTICE,
                 occurrenceId: occurrence.id,
+                date: occurrence.date,
+                wakeAt: wakeAt?.toISOString() ?? null,
                 kind: disruption.kind,
                 minutes: disruption.minutes,
                 service: disruption.service,
@@ -205,6 +208,8 @@ export class PushDeliveryService {
             {
                 type: PUSH_MESSAGE_TYPE.DISRUPTION_NOTICE,
                 occurrenceId: occurrence.id,
+                date: occurrence.date,
+                wakeAt: occurrence.currentWakeAt?.toISOString() ?? null,
                 kind: 'NO_REPLACEMENT',
                 minutes: 0,
                 service: null,
