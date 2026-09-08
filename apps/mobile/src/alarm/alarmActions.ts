@@ -1,6 +1,7 @@
 import { snoozeRingingAlarm, stopRingingAlarm } from '@modules/alarm-sound';
 import { dismissOccurrence } from '@/api';
 import { isReminderId } from '@/alarm/reminders';
+import { standaloneIdFrom, syncStandaloneAlarms } from '@/alarm/standaloneAlarms';
 
 /**
  * Stopping and snoozing a ringing alarm.
@@ -33,6 +34,18 @@ export async function dismissAlarm(alarmId: string | undefined): Promise<void> {
      */
     if (alarmId !== undefined && alarmId.startsWith('occurrence-') && !isReminderId(alarmId)) {
         void dismissOccurrence(alarmId.slice('occurrence-'.length)).catch(() => undefined);
+    }
+
+    /*
+     * A hand-set alarm that rang once is switched off here, at the moment it is
+     * dismissed, rather than when the Alarms tab next happens to be opened. The
+     * reconciliation reads the list, which switches off any one-off whose
+     * moment has passed, and drops its remaining OS rings. Fire and forget for
+     * the same reason as above: nothing may stand between somebody and their
+     * lock screen.
+     */
+    if (alarmId !== undefined && standaloneIdFrom(alarmId) !== null) {
+        void syncStandaloneAlarms().catch(() => undefined);
     }
 }
 

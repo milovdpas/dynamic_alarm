@@ -86,7 +86,26 @@ const DAYS_AHEAD = 7;
  */
 const PREFIX = 'standalone-';
 
-export async function listStandaloneAlarms(): Promise<StandaloneAlarm[]> {
+/**
+ * Every hand-set alarm, with any one-off that has rung already switched off.
+ *
+ * The switching off happens here, on the read, rather than only when the OS is
+ * reconciled. It used to be the reconciliation's job alone, and the Alarms tab
+ * read the list first and reconciled second, so a one-off that rang at 00:36
+ * still showed as on, with "No time yet" under it, until the screen was next
+ * opened. A read that answers "on" for an alarm that will never ring is not a
+ * read anybody wants, so the fact is written back the moment it is noticed.
+ */
+export async function listStandaloneAlarms(now: DateTime = DateTime.now()): Promise<StandaloneAlarm[]> {
+    const stored = await readStored();
+    const expired = expireOneOffs(stored, now);
+    if (expired.changed) {
+        await Storage.setItem(KEY, JSON.stringify(expired.alarms));
+    }
+    return expired.alarms;
+}
+
+async function readStored(): Promise<StandaloneAlarm[]> {
     const raw = await Storage.getItem(KEY);
     if (raw === null) {
         return [];
@@ -230,17 +249,13 @@ export async function syncStandaloneAlarms(now = DateTime.now()): Promise<number
         return 0;
     }
 
-    // One-offs whose day has come and gone switch themselves off first, and
-    // the change is written back so the list shows them off too.
-    const alarms = await listStandaloneAlarms();
-    const expired = expireOneOffs(alarms, now);
-    if (expired.changed) {
-        await Storage.setItem(KEY, JSON.stringify(expired.alarms));
-    }
+    // One-offs whose moment has come and gone are already off: the read
+    // switches them off and writes that back.
+    const alarms = await listStandaloneAlarms(now);
 
     const scheduler = getAlarmScheduler();
     const soundUri = await resolveAlarmSoundUri();
-    const wanted = plannedRings(expired.alarms, now);
+    const wanted = plannedRings(alarms, now);
 
     const held = (await scheduler.listScheduled()).filter((id) => id.startsWith(PREFIX));
 

@@ -307,6 +307,14 @@ the walk, the ride and the car. The two readings had stopped agreeing, which the
 function's own comment says they must. The phone skips the same three legs now,
 with the same three cases as the API test.
 
+**Found by its owner, 2026-09-09.** A one-off set for 00:36 rang, was dismissed,
+and the Alarms tab still showed it switched on with "No time yet" under it. The
+switching off lived in the OS reconciliation alone, and the tab read the list
+before reconciling, so the row was one visit behind. Reading the list now
+switches off any one-off whose moment has passed and writes that back, the
+dismissal itself triggers a reconciliation for a hand-set alarm, and a one-off
+that is off reads "Once" rather than "No time yet".
+
 Two things noticed. "Take it back" after a simulated **cancellation** cannot
 restore the original train, because the monitor refreshes the itinerary it holds,
 which is by then the replacement; "Plan this morning again" is the way back, and

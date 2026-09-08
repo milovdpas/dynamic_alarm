@@ -415,6 +415,7 @@ export default {
         add: 'Add an alarm',
         empty: 'No alarms yet. Add one, or set up a schedule that works your wake-up time out for you.',
         no_time: 'No time yet',
+        once_off: 'Once',
         paused: 'Paused',
         skipped: 'Skipped this morning',
         skip: 'Skip {{day}}',

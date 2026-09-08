@@ -354,6 +354,33 @@ describe('a one-off alarm rings once', () => {
         expect(repeating.onceOn).toBeNull();
     });
 
+    it('reads as switched off once it has rung, and stays written that way', async () => {
+        /*
+         * Reported on 2026-09-09: a one-off set for 00:36 rang, was dismissed,
+         * and the Alarms tab still showed it on with "No time yet" under it.
+         * The switching off lived in the OS reconciliation alone, and the tab
+         * read the list before reconciling. The read owns it now.
+         */
+        store.set(
+            'standaloneAlarms',
+            JSON.stringify([alarm({ id: 'late', time: '00:36', onceOn: '2026-08-19' })]),
+        );
+
+        const listed = await listStandaloneAlarms(WEDNESDAY_NOON);
+
+        expect(listed[0]?.enabled).toBe(false);
+        expect((JSON.parse(store.get('standaloneAlarms') ?? '[]') as Alarm[])[0]?.enabled).toBe(false);
+    });
+
+    it('reads as on while its moment is still ahead', async () => {
+        store.set(
+            'standaloneAlarms',
+            JSON.stringify([alarm({ id: 'tonight', time: '22:00', onceOn: '2026-08-19' })]),
+        );
+
+        expect((await listStandaloneAlarms(WEDNESDAY_NOON))[0]?.enabled).toBe(true);
+    });
+
     it('leaves a repeating alarm alone when expiring', () => {
         const daily = alarm({ time: '07:45', days: [Weekday.THURSDAY] });
 

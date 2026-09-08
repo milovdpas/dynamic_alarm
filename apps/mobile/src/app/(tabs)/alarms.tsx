@@ -99,8 +99,10 @@ export default function AlarmsScreen() {
      * future rings topped up.
      */
     const reloadStandalone = useCallback(async () => {
-        setStandalone(await listStandaloneAlarms());
+        // Reconcile first, read second, so the list shows what the OS was just
+        // told rather than what it was told last time.
         await syncStandaloneAlarms().catch(() => 0);
+        setStandalone(await listStandaloneAlarms());
     }, []);
 
     useFocusEffect(
@@ -432,7 +434,12 @@ function nextRing(
     alarm: StandaloneAlarm,
 ): string {
     const [next] = ringTimes(alarm, DateTime.now());
-    return next === undefined ? t('alarms.no_time') : relativeDay(t, next.slice(0, 10));
+    if (next !== undefined) {
+        return relativeDay(t, next.slice(0, 10));
+    }
+    // A one-off that has rung is off and has no next ring; that is not a
+    // missing time, it is what "once" means.
+    return alarm.days.length === 0 ? t('alarms.once_off') : t('alarms.no_time');
 }
 
 const styles = StyleSheet.create({

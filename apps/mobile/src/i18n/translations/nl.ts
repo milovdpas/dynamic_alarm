@@ -414,6 +414,7 @@ export default {
         add: 'Wekker toevoegen',
         empty: 'Nog geen wekkers. Voeg er een toe, of maak een schema dat je wektijd zelf uitrekent.',
         no_time: 'Nog geen tijd',
+        once_off: 'Eenmalig',
         paused: 'Gepauzeerd',
         skipped: 'Deze ochtend overgeslagen',
         skip: '{{day}} overslaan',
