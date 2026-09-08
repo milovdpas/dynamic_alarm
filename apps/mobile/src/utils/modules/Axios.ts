@@ -438,6 +438,10 @@ export default class Axios {
         return Axios.write<T>((config) => axios.patch<T>(endpoint, data, config));
     }
 
+    static async put<T>(endpoint: string, data?: unknown): Promise<T> {
+        return Axios.write<T>((config) => axios.put<T>(endpoint, data, config));
+    }
+
     static async delete<T>(endpoint: string): Promise<T> {
         return Axios.write<T>((config) => axios.delete<T>(endpoint, config));
     }

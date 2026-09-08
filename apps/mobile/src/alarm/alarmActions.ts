@@ -1,4 +1,6 @@
 import { snoozeRingingAlarm, stopRingingAlarm } from '@modules/alarm-sound';
+import { dismissOccurrence } from '@/api';
+import { isReminderId } from '@/alarm/reminders';
 
 /**
  * Stopping and snoozing a ringing alarm.
@@ -15,6 +17,22 @@ import { snoozeRingingAlarm, stopRingingAlarm } from '@modules/alarm-sound';
 export async function dismissAlarm(alarmId: string | undefined): Promise<void> {
     if (alarmId) {
         await stopRingingAlarm(alarmId);
+    }
+
+    /*
+     * Then tell the server, for the trail rather than for correctness.
+     *
+     * Only the final ring counts as getting up: dismissing a reminder is not
+     * dismissing the morning. And only a schedule's morning has a server row;
+     * a hand-set alarm lives on this phone alone.
+     *
+     * Fire and forget. The phone is as likely offline at 06:00 as not, and the
+     * server retires a passed morning by itself, so a failure here costs one
+     * line in the trail and nothing else. Awaiting it would put a network
+     * round trip between somebody and their lock screen.
+     */
+    if (alarmId !== undefined && alarmId.startsWith('occurrence-') && !isReminderId(alarmId)) {
+        void dismissOccurrence(alarmId.slice('occurrence-'.length)).catch(() => undefined);
     }
 }
 

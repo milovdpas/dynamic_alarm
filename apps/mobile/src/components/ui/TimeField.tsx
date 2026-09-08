@@ -45,6 +45,14 @@ interface TimeFieldProps {
     onChange: (value: string) => void;
     /** Shown when the value cannot be parsed. Already translated. */
     error?: string;
+    /**
+     * Open the picker as soon as the field appears.
+     *
+     * For a row that was created a second ago: the time is the first and often
+     * the only thing somebody wants to change about a new alarm, and making
+     * them find the field first is a tap for nothing.
+     */
+    autoOpen?: boolean;
 }
 
 /**
@@ -56,13 +64,22 @@ interface TimeFieldProps {
  * than being deleted: on iOS, and on any build without the native view, the
  * screen still works.
  */
-export default function TimeField({ label, value, onChange, error }: TimeFieldProps) {
+export default function TimeField({
+    label,
+    value,
+    onChange,
+    error,
+    autoOpen = false,
+}: TimeFieldProps) {
     const { t } = useTranslation();
     const border = useThemeColor({}, error === undefined ? 'border' : 'danger');
     const background = useThemeColor({}, 'backgroundElement');
     const text = useThemeColor({}, 'text');
 
-    const [open, setOpen] = useState(false);
+    // Initial only. A field asked to open itself does so once, on mount, and
+    // then behaves like any other; re-renders must not reopen a dialog somebody
+    // has just closed.
+    const [open, setOpen] = useState(autoOpen);
 
     const picker = useMemo(
         () =>

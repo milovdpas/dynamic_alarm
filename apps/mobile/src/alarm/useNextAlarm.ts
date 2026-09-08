@@ -13,9 +13,10 @@ import {
 import { canGuaranteeAlarm, getAlarmScheduler } from '@/alarm';
 import { resolveAlarmSoundUri } from '@/alarm/alarmSound';
 import { readDisruption, rememberDisruption } from '@/alarm/disruption';
+import { upcomingOnly } from '@/alarm/upcoming';
 import { baseAlarmId, reminderTimes, ringId } from '@/alarm/reminders';
 import i18n from '@/i18n/i18n';
-import { rememberHeldAlarm } from '@/push/heldAlarm';
+import { forgetHeldAlarm, rememberHeldAlarm } from '@/push/heldAlarm';
 import { computeLocalPlans } from '@/alarm/localPlan';
 import { peekCache } from '@/utils/modules/ApiCache';
 import { ApiRequestError } from '@/utils/modules/Axios';
@@ -32,6 +33,11 @@ export interface NextAlarm {
      * one is worth showing to someone who is about to go to sleep.
      */
     armed: boolean;
+    /**
+     * Why it is not armed, when it is not. Absent when it is, or when the
+     * answer came from somewhere that never tried, such as the stored copy.
+     */
+    armFailure?: ArmFailure | null;
     /** Error code for the UI to translate. Never shown raw. */
     errorCode: string | null;
     /**
@@ -109,29 +115,41 @@ export function useNextAlarm(): {
         try {
             // A refresh skips the read on purpose: the stored plans are exactly
             // what the user is asking to have recomputed.
-            const existing = force ? [] : await listOccurrences({ live: true });
-            const listed = existing.length > 0 ? existing : await armActiveSchedules();
+            /*
+             * Only mornings still to come, judged **before** deciding whether
+             * anything needs arming.
+             *
+             * A morning that had already rung used to sit in this list, because
+             * nothing ever marked it as over. It was non-empty, so the schedules
+             * were never re-armed and tomorrow never got planned; and it was in
+             * the past, so arming it made Android refuse, which the screen then
+             * reported as this device being unable to hold an alarm. The server
+             * filters these now too, but the phone is the last line and has to
+             * be right on its own.
+             */
+            const existing = upcomingOnly(force ? [] : await listOccurrences({ live: true }));
+            /*
+             * Arming answers with the soonest morning per schedule, not the
+             * week, so the list is read again afterwards. Acting on the arming
+             * answer alone cancelled every other planned morning's OS alarm and
+             * forgot its baseline, since the sweep below treats anything not in
+             * the list as unwanted: one pull to refresh took Tuesday to Friday
+             * off the phone and left a later push about them unjudgeable.
+             */
+            const listed =
+                existing.length > 0
+                    ? existing
+                    : await armActiveSchedules().then(() =>
+                          listOccurrences({ live: true }).then(upcomingOnly),
+                      );
 
             /*
-             * Skipped mornings are listed but never acted on here.
-             *
-             * The server keeps them in the list so the alarms tab can show a
-             * morning as skipped rather than having it disappear, which would
-             * read as a deleted schedule. Everything below this line arms,
-             * acknowledges and holds alarms, and doing any of that to a morning
-             * somebody deliberately sat out is the one outcome the skip exists
-             * to prevent. Dropping them here also lets `cancelOrphans` do the
-             * rest: the alarm the OS is still holding for it is not wanted, so
-             * it is cancelled in the ordinary way.
+             * The one sweep: drop skipped mornings, cancel what the OS holds
+             * that is no longer wanted, arm the rest, acknowledge what the OS
+             * confirms. Shared with the screens that change a single morning,
+             * so there is exactly one place that decides what the OS holds.
              */
-            const occurrences = listed.filter(
-                (occurrence) => occurrence.state !== OccurrenceState.SKIPPED,
-            );
-
-            // Alarms the OS still holds for mornings that no longer exist. A
-            // deleted schedule that keeps ringing is worse than one that never
-            // rang, so this runs even when there is nothing left to arm.
-            await cancelOrphans(occurrences);
+            const { occurrences, outcomes: armed } = await syncOsAlarms(listed);
 
             if (occurrences.length === 0) {
                 return {
@@ -142,28 +160,6 @@ export function useNextAlarm(): {
                     cachedAt: null,
                     computedLocally: false,
                 };
-            }
-
-            // Every armed morning is held by the OS, not only the soonest. The
-            // schedules list says each one is armed, and it has to be true.
-            //
-            // Isolated per morning, for the same reason `armActiveSchedules` is: a
-            // time that has just passed makes `schedule` refuse, and one rejection
-            // here would fail the whole load, which reads as "nothing is armed" and
-            // hands over to `armLocally` on top of a perfectly good answer.
-            const armed = await Promise.all(
-                occurrences.map((each) => arm(each).catch(() => false)),
-            );
-
-            for (const [index, occurrence] of occurrences.entries()) {
-                if (armed[index] === true) {
-                    // Only once the OS confirms. Reporting an intention would
-                    // let the server believe a push landed when it had not,
-                    // which is the one thing that endpoint exists to tell apart.
-                    await ackOccurrence(occurrence.id, occurrence.currentWakeAt).catch(
-                        () => undefined,
-                    );
-                }
             }
 
             // The soonest is what Today shows, and the list arrives in that
@@ -192,7 +188,11 @@ export function useNextAlarm(): {
             return {
                 state: 'ready',
                 occurrence: soonest,
-                armed: armed[0] === true,
+                armed: armed[0]?.armed === true,
+                // Which way it failed, so the screen can say. One bucket for
+                // three failures is how a wake time in the past came to be
+                // reported as a device that could not hold an alarm.
+                armFailure: armed[0]?.armed === false ? armed[0].failure : null,
                 errorCode: null,
                 cachedAt: null,
                 computedLocally: false,
@@ -423,6 +423,9 @@ async function armLocally(): Promise<NextAlarm | null> {
         plan: soonest.plan,
         lastCheckedAt: null,
         simulated: null,
+        // Nothing left out: a morning worked out offline has no way to have been
+        // edited on the server.
+        disabledStepIds: [],
     };
 
     const armed = await arm(occurrence);
@@ -430,11 +433,61 @@ async function armLocally(): Promise<NextAlarm | null> {
     return {
         state: 'ready',
         occurrence,
-        armed,
+        armed: armed.armed,
+        armFailure: armed.armed ? null : armed.failure,
         errorCode: null,
         cachedAt: null,
         computedLocally: true,
     };
+}
+
+/**
+ * Makes the OS match a list of mornings: arms each, cancels what is left over.
+ *
+ * The same pass Today's load runs, exposed for the screens that change a single
+ * morning without going through Today. Skipping a morning on the calendar, or
+ * leaving a step out of it, refreshed the list and stopped; the phone kept
+ * ringing at the old time until Today was next focused. A change to an alarm is
+ * not made until the OS holds it.
+ */
+export async function syncOsAlarms(
+    listed: OccurrenceResponse[],
+): Promise<{ occurrences: OccurrenceResponse[]; outcomes: ArmOutcome[] }> {
+    /*
+     * Skipped mornings are listed but never acted on. The server keeps them in
+     * the list so the calendar and the alarms tab can show a morning as skipped
+     * rather than having it disappear; everything below arms, acknowledges and
+     * holds alarms, and doing any of that to a morning somebody deliberately sat
+     * out is the one outcome the skip exists to prevent. Dropping them here also
+     * lets the orphan sweep cancel the alarm the OS is still holding for them.
+     */
+    const occurrences = upcomingOnly(listed).filter(
+        (occurrence) => occurrence.state !== OccurrenceState.SKIPPED,
+    );
+
+    // Alarms the OS still holds for mornings that no longer exist. A deleted
+    // schedule that keeps ringing is worse than one that never rang, so this
+    // runs even when there is nothing left to arm.
+    await cancelOrphans(occurrences);
+
+    // Isolated per morning: a time that has just passed makes the scheduler
+    // refuse, and one rejection must not take the rest of the week with it.
+    const outcomes = await Promise.all(
+        occurrences.map((each) =>
+            arm(each).catch((): ArmOutcome => ({ armed: false, failure: 'REFUSED' })),
+        ),
+    );
+
+    for (const [index, occurrence] of occurrences.entries()) {
+        if (outcomes[index]?.armed === true) {
+            // Only once the OS confirms. Reporting an intention would let the
+            // server believe a push landed when it had not, which is the one
+            // thing that endpoint exists to tell apart.
+            await ackOccurrence(occurrence.id, occurrence.currentWakeAt).catch(() => undefined);
+        }
+    }
+
+    return { occurrences, outcomes };
 }
 
 /**
@@ -500,6 +553,11 @@ async function cancelOrphans(occurrences: OccurrenceResponse[]): Promise<void> {
         // every reminder unwanted and cancelled the lot on the next refresh.
         if (id.startsWith('occurrence-') && !wanted.has(baseAlarmId(id))) {
             await scheduler.cancel(id).catch(() => undefined);
+            // And the baseline with it, or a push about a morning this phone no
+            // longer holds would be judged against a time nothing is holding.
+            await forgetHeldAlarm(baseAlarmId(id).slice('occurrence-'.length)).catch(
+                () => undefined,
+            );
         }
     }
 }
@@ -512,9 +570,20 @@ async function cancelOrphans(occurrences: OccurrenceResponse[]): Promise<void> {
  * native module, or a device that refused the exact-alarm permission, would
  * otherwise report success and ring nothing.
  */
-async function arm(occurrence: OccurrenceResponse): Promise<boolean> {
+/**
+ * How arming can fail, named so the screen can say which.
+ *
+ * `PAST` should be unreachable now that the read path drops mornings that have
+ * passed, which is exactly why it keeps its own sentence: if it ever appears,
+ * the filter is broken, and "this device could not arm an alarm" would hide it.
+ */
+export type ArmFailure = 'PAST' | 'REFUSED' | 'UNAVAILABLE';
+
+export type ArmOutcome = { armed: true } | { armed: false; failure: ArmFailure };
+
+async function arm(occurrence: OccurrenceResponse): Promise<ArmOutcome> {
     if (!canGuaranteeAlarm()) {
-        return false;
+        return { armed: false, failure: 'UNAVAILABLE' };
     }
 
     const scheduler = getAlarmScheduler();
@@ -522,6 +591,13 @@ async function arm(occurrence: OccurrenceResponse): Promise<boolean> {
     // Re-arming replaces rather than stacks, and a superseded time cannot
     // survive as a second entry that still fires.
     const id = `occurrence-${occurrence.id}`;
+
+    // Checked here rather than left to the scheduler's throw, because the throw
+    // was being caught as a plain false and the difference is the whole story.
+    if (new Date(occurrence.currentWakeAt).getTime() <= Date.now()) {
+        return { armed: false, failure: 'PAST' };
+    }
+
     const soundUri = await resolveAlarmSoundUri();
 
     /*
@@ -555,12 +631,12 @@ async function arm(occurrence: OccurrenceResponse): Promise<boolean> {
     // Only the real alarm is checked. A reminder that failed to arm costs a
     // nudge; this one is the morning, and it is the claim the screen makes.
     if (!(await scheduler.listScheduled()).includes(id)) {
-        return false;
+        return { armed: false, failure: 'REFUSED' };
     }
 
     // Written only once the OS confirms, because this is what a later push is
     // judged against. Recording an intention would let the monotonic rule
     // compare against a time nothing is holding.
     await rememberHeldAlarm({ occurrenceId: occurrence.id, wakeAt: occurrence.currentWakeAt });
-    return true;
+    return { armed: true };
 }

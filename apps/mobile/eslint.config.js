@@ -76,6 +76,8 @@ module.exports = defineConfig([
             'src/utils/modules/optionalModule.ts',
             'src/utils/modules/nativeDiagnostics.ts',
             'src/push/backgroundTask.ts',
+            'src/push/announce.ts',
+            'src/push/useNoticeRouting.ts',
             'src/alarm/IosAlarmScheduler.ts',
             'src/i18n/i18n.ts',
         ],

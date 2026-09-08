@@ -15,6 +15,7 @@ import {
     unskipOccurrence,
     updateSchedule,
 } from '@/api';
+import { syncOsAlarms } from '@/alarm/useNextAlarm';
 import {
     deleteStandaloneAlarm,
     listStandaloneAlarms,
@@ -61,6 +62,9 @@ export default function AlarmsScreen() {
 
     const [busy, setBusy] = useState(false);
     const [expanded, setExpanded] = useState<string | null>(null);
+    // The alarm added a moment ago, whose time picker should open by itself.
+    // Cleared on the next expand, so reopening the row later behaves normally.
+    const [fresh, setFresh] = useState<string | null>(null);
     /*
      * Kept apart from the query's own error, because the two deserve opposite
      * treatment. A read that failed while a list is on screen is a footnote: the
@@ -142,7 +146,10 @@ export default function AlarmsScreen() {
                     occurrence.state === OccurrenceState.SKIPPED
                         ? unskipOccurrence(occurrence.id)
                         : skipOccurrence(occurrence.id),
-                () => {
+                async () => {
+                    // The OS alarm goes with the skip, and comes back with the
+                    // unskip, now rather than when Today is next opened.
+                    await listOccurrences({ live: true }).then(syncOsAlarms).catch(() => undefined);
                     refresh();
                 },
             );
@@ -215,8 +222,12 @@ export default function AlarmsScreen() {
             enabled: true,
             soundUri: null,
             reminders: DEFAULT_REMINDERS,
+            // Pinned to a date by `saveStandaloneAlarm`, which is the only
+            // place that knows the clock.
+            onceOn: null,
         };
         setExpanded(alarm.id);
+        setFresh(alarm.id);
         void write(
             () => saveStandaloneAlarm(alarm),
             () => reloadStandalone(),
@@ -369,12 +380,14 @@ export default function AlarmsScreen() {
                                 saveStandalone({ ...alarm, enabled: !alarm.enabled });
                             }}
                             onExpand={() => {
+                                setFresh(null);
                                 setExpanded((current) => (current === alarm.id ? null : alarm.id));
                             }}
                         >
                             <StandaloneAlarmEditor
                                 alarm={alarm}
                                 busy={busy}
+                                fresh={fresh === alarm.id}
                                 onChange={saveStandalone}
                                 onDelete={() => {
                                     removeStandalone(alarm);

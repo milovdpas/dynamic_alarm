@@ -26,8 +26,11 @@ import type { AlarmPermissionStatus } from '@/alarm';
 import { Spacing } from '@/assets/Stylesheet';
 import ActionButton from '@/components/buttons/ActionButton';
 import ApiSection from '@/components/debug/ApiSection';
+import BannerPreviewSection from '@/components/debug/BannerPreviewSection';
 import BundleSection from '@/components/debug/BundleSection';
 import EngineSection from '@/components/debug/EngineSection';
+import OnboardingSection from '@/components/debug/OnboardingSection';
+import PromptsSection from '@/components/debug/PromptsSection';
 import PushSection from '@/components/debug/PushSection';
 import RingPreviewSection from '@/components/debug/RingPreviewSection';
 import Section from '@/components/debug/Section';
@@ -310,6 +313,12 @@ export default function DebugScreen() {
                     <ApiSection connection={connection} retry={retryConnection} />
 
                     <RingPreviewSection />
+
+                    <BannerPreviewSection />
+
+                    <OnboardingSection />
+
+                    <PromptsSection />
 
                     {/*
                      * The only place in the app that asks the server to lie.

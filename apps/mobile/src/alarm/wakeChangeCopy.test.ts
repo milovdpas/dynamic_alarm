@@ -30,6 +30,7 @@ function push(overrides: Partial<WakeChangedPush> = {}): WakeChangedPush {
     return {
         type: PUSH_MESSAGE_TYPE.WAKE_CHANGED,
         occurrenceId: 'occurrence-1',
+        date: '2026-09-10',
         wakeAt: WAKE_AT,
         reason: WakeChangeReason.DELAY,
         simulated: false,

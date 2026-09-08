@@ -186,7 +186,21 @@ export function wasDeclined(input: {
     cancelled: boolean;
     gained: number;
     device: DeviceResponse | null;
+    /** True for `NO_REPLACEMENT`: cancelled, with nothing acceptable to take. */
+    noReplacement: boolean;
 }): boolean {
+    /*
+     * `NO_REPLACEMENT` is never a declined move, whatever the switches say.
+     *
+     * Nothing was refused there: every remaining service falls outside the hours
+     * its owner said they would travel, so there is no better time being
+     * withheld. Counting it as declined offered a button to apply a plan that
+     * does not exist, and blamed a switch for an outcome it had no part in.
+     */
+    if (input.noReplacement) {
+        return false;
+    }
+
     if (Math.abs(input.gained) >= NOTICEABLE_MINUTES) {
         return false;
     }

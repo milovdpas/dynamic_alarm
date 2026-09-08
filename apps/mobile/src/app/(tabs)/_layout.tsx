@@ -12,6 +12,10 @@ import { useThemeColor } from '@/utils/hooks/useThemeColor';
  * second thing anyone does once the alarm works, and putting it behind a row on
  * the home screen said the opposite.
  *
+ * Four now, with a calendar: the week the server plans ahead has to be
+ * visible somewhere, and it is where a single morning is skipped or given a
+ * shorter routine.
+ *
  * The middle tab lists **alarms**, not schedules. It used to list the things
  * that produce alarms, which left "what is set for tomorrow" as something the
  * reader assembled out of a schedule, whether it was active, and which morning
@@ -56,6 +60,19 @@ export default function TabsLayout() {
                     title: t('tabs.alarms'),
                     tabBarIcon: ({ color, size }) => (
                         <MaterialCommunityIcons name="alarm-multiple" color={color} size={size} />
+                    ),
+                }}
+            />
+            <Tabs.Screen
+                name="calendar"
+                options={{
+                    title: t('tabs.calendar'),
+                    tabBarIcon: ({ color, size }) => (
+                        <MaterialCommunityIcons
+                            name="calendar-month-outline"
+                            color={color}
+                            size={size}
+                        />
                     ),
                 }}
             />

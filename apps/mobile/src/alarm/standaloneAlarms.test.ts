@@ -32,7 +32,9 @@ vi.mock('@/i18n/i18n', () => ({ default: { t: (key: string) => key } }));
 
 const {
     deleteStandaloneAlarm,
+    expireOneOffs,
     listStandaloneAlarms,
+    pinOneOff,
     plannedRings,
     ringTimes,
     saveStandaloneAlarm,
@@ -50,6 +52,7 @@ function alarm(overrides: Partial<Alarm> = {}): Alarm {
         enabled: true,
         soundUri: null,
         reminders: { count: 1, intervalMinutes: 5 },
+        onceOn: null,
         ...overrides,
     };
 }
@@ -264,5 +267,104 @@ describe('which OS alarms a standalone alarm wants', () => {
             .map((each) => DateTime.fromISO(each.at).setZone('Europe/Amsterdam').toFormat('HH:mm'))
             .sort();
         expect(moments).toEqual(['17:55', '18:00']);
+    });
+});
+
+describe('a one-off alarm rings once', () => {
+    /*
+     * The bug this guards was reported as a feature request: "turn the alarm
+     * off again the following day". Without a date, "no days" meant "the next
+     * occurrence of this time", which the sync re-armed every morning for ever.
+     */
+    const THURSDAY_MORNING = DateTime.fromISO('2026-08-20T09:00:00', { zone: 'Europe/Amsterdam' });
+
+    it('is pinned to a date when saved', () => {
+        // Saved on Wednesday at noon for 18:00: still ahead today, so today.
+        const pinned = pinOneOff(alarm({ time: '18:00' }), WEDNESDAY_NOON);
+
+        expect(pinned.onceOn).toBe('2026-08-19');
+    });
+
+    it('is pinned to tomorrow when the time has already gone by', () => {
+        const pinned = pinOneOff(alarm({ time: '07:45' }), WEDNESDAY_NOON);
+
+        expect(pinned.onceOn).toBe('2026-08-20');
+    });
+
+    it('is pinned again when its time changes', async () => {
+        // Added at noon with the default 07:00, so pinned to tomorrow. Changed
+        // to 18:00 a moment later: that means today, not tomorrow at 18:00.
+        vi.useFakeTimers();
+        vi.setSystemTime(WEDNESDAY_NOON.toJSDate());
+        try {
+            await saveStandaloneAlarm(alarm({ id: 'new', time: '07:00' }));
+            expect((await listStandaloneAlarms())[0]?.onceOn).toBe('2026-08-20');
+
+            await saveStandaloneAlarm({ ...alarm({ id: 'new', time: '18:00' }), onceOn: '2026-08-20' });
+
+            expect((await listStandaloneAlarms())[0]?.onceOn).toBe('2026-08-19');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps its date across unrelated saves', () => {
+        // Renaming it on Wednesday evening must not move Thursday's ring.
+        const pinned = pinOneOff(alarm({ time: '07:45', onceOn: '2026-08-20' }), WEDNESDAY_NOON);
+
+        expect(pinned.onceOn).toBe('2026-08-20');
+    });
+
+    it('rings on its date and on no other', () => {
+        const times = ringTimes(alarm({ time: '07:45', onceOn: '2026-08-20' }), WEDNESDAY_NOON);
+
+        expect(times).toHaveLength(1);
+        expect(times[0]).toContain('2026-08-20T07:45');
+    });
+
+    it('rings nowhere once its date has passed', () => {
+        expect(ringTimes(alarm({ time: '07:45', onceOn: '2026-08-20' }), THURSDAY_MORNING)).toEqual([]);
+    });
+
+    it('switches itself off once its date has passed', () => {
+        const before = [alarm({ time: '07:45', onceOn: '2026-08-20' })];
+
+        const { alarms, changed } = expireOneOffs(before, THURSDAY_MORNING);
+
+        expect(changed).toBe(true);
+        expect(alarms[0]?.enabled).toBe(false);
+    });
+
+    it('is re-pinned to a fresh date when switched back on', () => {
+        // Off after Thursday, switched on again Thursday morning: Friday, not a
+        // morning that has already happened.
+        const off = { ...alarm({ time: '07:45', onceOn: '2026-08-20' }), enabled: false };
+
+        const on = pinOneOff({ ...off, enabled: true }, THURSDAY_MORNING);
+
+        expect(on.onceOn).toBe('2026-08-21');
+    });
+
+    it('drops the date the moment days are chosen', () => {
+        const repeating = pinOneOff(
+            alarm({ time: '07:45', onceOn: '2026-08-20', days: [Weekday.MONDAY] }),
+            WEDNESDAY_NOON,
+        );
+
+        expect(repeating.onceOn).toBeNull();
+    });
+
+    it('leaves a repeating alarm alone when expiring', () => {
+        const daily = alarm({ time: '07:45', days: [Weekday.THURSDAY] });
+
+        expect(expireOneOffs([daily], THURSDAY_MORNING).changed).toBe(false);
+    });
+
+    it('keeps the old behaviour for a row saved before dates existed', () => {
+        // Until it is next saved, which pins it. Dropping it would silence an
+        // alarm somebody set on the previous version.
+        const legacy = alarm({ time: '18:00', onceOn: null });
+
+        expect(ringTimes(legacy, WEDNESDAY_NOON)).toHaveLength(1);
     });
 });

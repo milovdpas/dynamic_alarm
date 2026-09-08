@@ -2,6 +2,7 @@ import { loadOptionalModule } from '@/utils/modules/optionalModule';
 import { isExpoGo } from '@/utils/modules/runtime';
 import { PUSH_MESSAGE_TYPE } from '@alarm/types';
 
+import { postNotice, shouldAnnounce } from '@/push/announce';
 import { applyDisruptionNotice, applyWakeChange, extractPush } from '@/push/wakeChangePush';
 
 /**
@@ -60,10 +61,16 @@ export function defineWakeChangePushTask(): void {
         // single write. If either is killed first, the server retries.
         if (push.type === PUSH_MESSAGE_TYPE.DISRUPTION_NOTICE) {
             await applyDisruptionNotice(push);
-            return;
+        } else {
+            await applyWakeChange(push);
         }
 
-        await applyWakeChange(push);
+        // After the alarm has been dealt with, never instead of it. A change to
+        // a morning days away is shown; one about tonight stays silent, since
+        // the ring screen explains it and a notification at 03:00 does not.
+        if (shouldAnnounce(push)) {
+            await postNotice(push);
+        }
     });
 
     defined = true;

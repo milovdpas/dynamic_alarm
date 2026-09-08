@@ -76,6 +76,33 @@ export async function ackOccurrence(
 }
 
 /**
+ * Tells the server the final ring was switched off.
+ *
+ * For the trail, never for correctness: the server retires a passed morning on
+ * its own, so this may fail silently on a phone that is offline at 06:00 and
+ * nothing is lost but a line saying when somebody got up.
+ */
+export async function dismissOccurrence(occurrenceId: string): Promise<OccurrenceResponse> {
+    return Axios.post<OccurrenceResponse>(API_ENDPOINTS.OCCURRENCES.DISMISSED(occurrenceId));
+}
+
+/**
+ * Leaves routine steps out of one morning, and moves its alarm to match.
+ *
+ * "No shower on Thursday." Replaces the whole set, so clearing it is sending an
+ * empty list. The server recomputes the wake time from the plan it already has,
+ * so this costs no provider call and comes back with the new time on it.
+ */
+export async function setOccurrenceSteps(
+    occurrenceId: string,
+    disabledStepIds: string[],
+): Promise<OccurrenceResponse> {
+    return Axios.put<OccurrenceResponse>(API_ENDPOINTS.OCCURRENCES.STEPS(occurrenceId), {
+        disabledStepIds,
+    });
+}
+
+/**
  * Sits one morning out, leaving the schedule itself running.
  *
  * The distinction the alarms list draws with two different controls: the toggle

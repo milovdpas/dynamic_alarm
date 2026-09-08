@@ -7,7 +7,9 @@ import { LegType } from '@alarm/types';
 import type { Journey } from '@alarm/types';
 
 import { reminderLeadMinutes, reminderTimes } from '@/alarm/reminders';
+import { applyStoredPlan } from '@/api';
 import DisruptionBanner from '@/components/home/DisruptionBanner';
+import { usePrompts } from '@/prompts/usePrompts';
 import PermissionBanner from '@/components/home/PermissionBanner';
 import StaleNotice from '@/components/ui/StaleNotice';
 import { apiErrorMessage } from '@/utils/apiErrorMessage';
@@ -63,6 +65,10 @@ export default function HomeScreen() {
      * here.
      */
     const device = connection?.device ?? null;
+
+    // A rating after a fortnight, a coffee after a month. Here because this is
+    // the screen somebody opens on purpose; the ring screen at 06:00 is not.
+    usePrompts(device?.registeredAt ?? null);
 
     const unreachable =
         connection?.state === 'unreachable' || connection?.state === 'not_configured';
@@ -222,7 +228,14 @@ export default function HomeScreen() {
                             {!next.armed && (
                                 <WarningBanner
                                     title={t('home.not_armed_title')}
-                                    message={t('home.not_armed_body')}
+                                    // Which failure, when known. One sentence for
+                                    // three causes is how a time in the past came
+                                    // to be blamed on the device.
+                                    message={t(
+                                        next.armFailure == null
+                                            ? 'home.not_armed_body'
+                                            : `home.not_armed_${next.armFailure}`,
+                                    )}
                                 />
                             )}
 
@@ -234,7 +247,7 @@ export default function HomeScreen() {
                             <DisruptionBanner
                                 occurrence={next.occurrence}
                                 device={device}
-                                onApplied={reload}
+                                onMove={moveAlarmToStoredPlan(next.occurrence.id, reload)}
                             />
 
                             <View style={[styles.card, { borderColor: border }]}>
@@ -330,6 +343,20 @@ export default function HomeScreen() {
  * departure when there is nothing but walking, which is a real answer for a
  * short enough commute.
  */
+/**
+ * Applies the stored plan, then re-reads so the OS holds the new time.
+ *
+ * `reload` rather than `refresh`: the server has already worked this answer out,
+ * so forcing would send every active schedule back through the planner and spend
+ * an NS and a TomTom request arriving at the time just applied.
+ */
+function moveAlarmToStoredPlan(occurrenceId: string, reload: () => void): () => Promise<void> {
+    return async () => {
+        await applyStoredPlan(occurrenceId);
+        reload();
+    };
+}
+
 function journeySummary(
     t: (key: string, options?: Record<string, unknown>) => string,
     journey: Journey,

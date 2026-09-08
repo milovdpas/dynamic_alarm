@@ -103,7 +103,8 @@ async function apply(push: WakeChangedPush): Promise<PushApplyOutcome> {
         return 'NO_ALARM_SUPPORT';
     }
 
-    const held = await readHeldAlarm();
+    // For this morning, not whichever was armed last: mornings come in weeks now.
+    const held = await readHeldAlarm(push.occurrenceId);
 
     // The rule itself lives in `@alarm/core`, beside the server-side half that
     // decides whether to send at all. Two implementations of "may this alarm

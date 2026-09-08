@@ -1,6 +1,11 @@
 import { DateTime } from 'luxon';
 import { DEFAULT_REMINDERS, Weekday } from '@alarm/types';
-import type { IsoDateTimeString, LocalTimeString, ReminderConfig } from '@alarm/types';
+import type {
+    IsoDateString,
+    IsoDateTimeString,
+    LocalTimeString,
+    ReminderConfig,
+} from '@alarm/types';
 
 import { canGuaranteeAlarm, getAlarmScheduler } from '@/alarm';
 import { baseAlarmId, reminderTimes, ringId } from '@/alarm/reminders';
@@ -22,9 +27,20 @@ export interface StandaloneAlarm {
     label: string;
     /** Wall-clock, in the phone's own zone. Not an instant: it recurs. */
     time: LocalTimeString;
-    /** Empty means once, on the next occurrence of `time`. */
+    /** Empty means once, on `onceOn`. */
     days: Weekday[];
     enabled: boolean;
+    /**
+     * The one date a one-off alarm is armed for. Null for a repeating alarm.
+     *
+     * Without it, "no days" meant "the next occurrence of this time", which is
+     * a different thing every morning: a one-off rang, the next sync found the
+     * next occurrence was tomorrow, and armed it again. Every day. The date is
+     * fixed when the alarm is saved or switched on, and once it has passed the
+     * alarm switches itself off, which is what the phone's own clock does with
+     * an alarm labelled "Tomorrow".
+     */
+    onceOn: IsoDateString | null;
     /** Platform URI from the system ringtone picker, or null for the default. */
     soundUri: string | null;
     /** Extra rings before this one. The last ring is always `time`. */
@@ -92,6 +108,9 @@ export async function listStandaloneAlarms(): Promise<StandaloneAlarm[]> {
             // Rows written before reminders existed have none, and one ring is
             // exactly what they used to do.
             reminders: alarm.reminders ?? DEFAULT_REMINDERS,
+            // Rows written before one-offs had a date fall back to the old
+            // rule until they are next saved, which pins them.
+            onceOn: typeof alarm.onceOn === 'string' ? alarm.onceOn : null,
         }));
     } catch {
         return [];
@@ -100,8 +119,21 @@ export async function listStandaloneAlarms(): Promise<StandaloneAlarm[]> {
 
 export async function saveStandaloneAlarm(alarm: StandaloneAlarm): Promise<StandaloneAlarm[]> {
     const existing = await listStandaloneAlarms();
+    const previous = existing.find((each) => each.id === alarm.id);
+    /*
+     * A changed time is a new question, so the date is worked out again.
+     *
+     * A new alarm starts at 07:00 and, added in the afternoon, is pinned to
+     * tomorrow. Setting it to 22:00 in the picker that opens straight after must
+     * mean tonight; keeping the pinned date made it tomorrow at 22:00, because
+     * that moment was still ahead and so looked fine to keep.
+     */
+    const rePin = previous === undefined || previous.time !== alarm.time;
+    const candidate = rePin ? { ...alarm, onceOn: null } : alarm;
     const without = existing.filter((each) => each.id !== alarm.id);
-    const next = [...without, alarm].sort((a, b) => a.time.localeCompare(b.time));
+    const next = [...without, pinOneOff(candidate, DateTime.now())].sort((a, b) =>
+        a.time.localeCompare(b.time),
+    );
     await Storage.setItem(KEY, JSON.stringify(next));
     return next;
 }
@@ -122,14 +154,31 @@ export async function deleteStandaloneAlarm(id: string): Promise<StandaloneAlarm
  * Pure, so the scheduling and the "next ring" shown on the row are the same
  * arithmetic rather than two implementations that agree until they do not.
  *
- * A one-off alarm, with no days, resolves to the next occurrence of its time:
- * today if it has not passed, otherwise tomorrow. That is what an alarm app
- * means by 07:45 with nothing else said.
+ * A one-off alarm, with no days, rings on the one date it was pinned to when it
+ * was saved, and nowhere after that. That is what an alarm app means by 07:45
+ * with nothing else said: tomorrow, once.
  */
 export function ringTimes(alarm: StandaloneAlarm, now: DateTime): IsoDateTimeString[] {
     const parsed = parseTime(alarm.time);
     if (parsed === null) {
         return [];
+    }
+
+    /*
+     * A one-off with a date rings on that date and on no other. Once the
+     * moment has passed it rings nowhere, and `expireOneOffs` switches it off.
+     * A one-off without a date is a row from before dates existed, and keeps
+     * the old behaviour until it is next saved.
+     */
+    if (alarm.days.length === 0 && alarm.onceOn !== null) {
+        const at = DateTime.fromISO(alarm.onceOn, { zone: now.zone }).set({
+            hour: parsed.hour,
+            minute: parsed.minute,
+            second: 0,
+            millisecond: 0,
+        });
+        const iso = at.toISO();
+        return at > now && iso !== null ? [iso] : [];
     }
 
     const times: IsoDateTimeString[] = [];
@@ -181,9 +230,17 @@ export async function syncStandaloneAlarms(now = DateTime.now()): Promise<number
         return 0;
     }
 
+    // One-offs whose day has come and gone switch themselves off first, and
+    // the change is written back so the list shows them off too.
+    const alarms = await listStandaloneAlarms();
+    const expired = expireOneOffs(alarms, now);
+    if (expired.changed) {
+        await Storage.setItem(KEY, JSON.stringify(expired.alarms));
+    }
+
     const scheduler = getAlarmScheduler();
     const soundUri = await resolveAlarmSoundUri();
-    const wanted = plannedRings(await listStandaloneAlarms(), now);
+    const wanted = plannedRings(expired.alarms, now);
 
     const held = (await scheduler.listScheduled()).filter((id) => id.startsWith(PREFIX));
 
@@ -252,6 +309,68 @@ export function plannedRings(
     }
 
     return wanted;
+}
+
+/**
+ * Gives a one-off alarm the date it will ring on, if it needs one.
+ *
+ * Called on every save, so switching an alarm on, changing its time, or
+ * clearing its days all land here. A repeating alarm has no date. A one-off
+ * keeps a date that is still ahead and is given the next occurrence otherwise,
+ * so switching an expired one-off back on arms it for tomorrow rather than for
+ * a morning that has already happened.
+ *
+ * Pure, so the test can pin the clock.
+ */
+export function pinOneOff(alarm: StandaloneAlarm, now: DateTime): StandaloneAlarm {
+    if (alarm.days.length > 0) {
+        return alarm.onceOn === null ? alarm : { ...alarm, onceOn: null };
+    }
+    if (!alarm.enabled) {
+        return alarm;
+    }
+
+    const parsed = parseTime(alarm.time);
+    if (parsed === null) {
+        return alarm;
+    }
+
+    const still = alarm.onceOn === null ? null : ringTimes(alarm, now)[0];
+    if (still !== undefined && still !== null) {
+        return alarm;
+    }
+
+    // The next time this clock reading comes round: today if it is still
+    // ahead, otherwise tomorrow. Same rule the old behaviour used, applied once.
+    const today = now.set({ hour: parsed.hour, minute: parsed.minute, second: 0, millisecond: 0 });
+    const next = today > now ? today : today.plus({ days: 1 });
+    return { ...alarm, onceOn: next.toISODate() };
+}
+
+/**
+ * Switches off every one-off whose moment has passed.
+ *
+ * The other half of `pinOneOff`. Together they are what makes "no days" mean
+ * once: pinned to a date going in, switched off coming out.
+ */
+export function expireOneOffs(
+    alarms: StandaloneAlarm[],
+    now: DateTime,
+): { alarms: StandaloneAlarm[]; changed: boolean } {
+    let changed = false;
+    const next = alarms.map((alarm) => {
+        const expired =
+            alarm.enabled &&
+            alarm.days.length === 0 &&
+            alarm.onceOn !== null &&
+            ringTimes(alarm, now).length === 0;
+        if (!expired) {
+            return alarm;
+        }
+        changed = true;
+        return { ...alarm, enabled: false };
+    });
+    return { alarms: next, changed };
 }
 
 /** Takes back every OS alarm belonging to one standalone alarm. */

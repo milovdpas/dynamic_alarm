@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import '@/i18n/i18n';
 import { useAlarmRouting } from '@/alarm/useAlarmRouting';
+import { useNoticeRouting } from '@/push/useNoticeRouting';
 import { defineWakeChangePushTask } from '@/push/backgroundTask';
 import { usePushRescheduling } from '@/push/usePushRescheduling';
 import { Colors } from '@/assets/Stylesheet';
@@ -67,6 +68,7 @@ function RootNavigator() {
 
     // Sends the app to the ring screen when a full-screen intent wakes it.
     useAlarmRouting();
+    useNoticeRouting();
     // Registers this device for the pushes that move an armed alarm.
     usePushRescheduling();
 

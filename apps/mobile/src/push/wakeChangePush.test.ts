@@ -39,6 +39,8 @@ function notice(overrides: Partial<DisruptionNoticePush> = {}): DisruptionNotice
     return {
         type: PUSH_MESSAGE_TYPE.DISRUPTION_NOTICE,
         occurrenceId: 'occurrence-1',
+        date: '2026-09-10',
+        wakeAt: '2026-09-10T05:31:00.000Z',
         kind: 'DELAY',
         minutes: 12,
         service: 'IC 3051',
@@ -51,6 +53,7 @@ function wakeChange(overrides: Partial<WakeChangedPush> = {}): WakeChangedPush {
     return {
         type: PUSH_MESSAGE_TYPE.WAKE_CHANGED,
         occurrenceId: 'occurrence-1',
+        date: '2026-09-10',
         wakeAt: '2026-08-19T05:34:00.000Z',
         reason: WakeChangeReason.DELAY,
         simulated: false,

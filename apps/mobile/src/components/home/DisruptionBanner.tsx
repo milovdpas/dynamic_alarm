@@ -3,7 +3,6 @@ import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import type { DeviceResponse, OccurrenceResponse } from '@alarm/types';
 
-import { applyStoredPlan } from '@/api';
 import { NOTICEABLE_MINUTES, readDisruption, wasDeclined } from '@/alarm/disruption';
 import { Radius, Spacing } from '@/assets/Stylesheet';
 import ActionButton from '@/components/buttons/ActionButton';
@@ -34,32 +33,42 @@ import { clock } from '@/utils/time';
 export default function DisruptionBanner({
     occurrence,
     device,
-    onApplied,
+    onMove,
 }: {
     occurrence: OccurrenceResponse;
     device: DeviceResponse | null;
-    /** Called once the alarm has been moved, so the screen can re-arm it. */
-    onApplied?: () => void;
+    /**
+     * Moves the alarm onto the stored plan, when there is something to move.
+     *
+     * Passed in rather than called from here, so this component knows what to
+     * offer and not how to do it. Today hands it the real endpoint plus a
+     * re-arm; the debug panel hands it something that reports instead, which is
+     * the only way to look at this banner without a cancelled train.
+     *
+     * Omitted means no offer, which is right for anywhere the alarm is not this
+     * screen's to change.
+     */
+    onMove?: () => Promise<void>;
 }) {
     const { t } = useTranslation();
     const warning = useThemeColor({}, 'warning');
     const [busy, setBusy] = useState(false);
     const [failed, setFailed] = useState<string | null>(null);
 
-    const applyByHand = useCallback(() => {
+    const move = useCallback(() => {
+        if (onMove === undefined) {
+            return;
+        }
         setBusy(true);
         setFailed(null);
-        applyStoredPlan(occurrence.id)
-            .then(() => {
-                onApplied?.();
-            })
+        onMove()
             .catch((error: unknown) => {
                 setFailed(ApiRequestError.from(error).code);
             })
             .finally(() => {
                 setBusy(false);
             });
-    }, [occurrence.id, onApplied]);
+    }, [onMove]);
 
     const disruption = readDisruption(occurrence);
     if (disruption === null) {
@@ -83,12 +92,13 @@ export default function DisruptionBanner({
             60_000,
     );
 
-    const declined = wasDeclined({ cancelled, gained, device });
+    const noReplacement = disruption.kind === 'NO_REPLACEMENT';
+    const declined = wasDeclined({ cancelled, gained, device, noReplacement });
 
     return (
         <View style={[styles.banner, { borderColor: warning }]}>
             <ThemedText type="smallBold" style={{ color: warning }}>
-                {disruption.kind === 'NO_REPLACEMENT'
+                {noReplacement
                     ? t('ring.no_replacement')
                     : cancelled
                       ? t('disruption.cancelled', { service })
@@ -100,6 +110,7 @@ export default function DisruptionBanner({
                     cancelled,
                     gained,
                     device,
+                    noReplacement,
                     wakeAt: occurrence.currentWakeAt,
                 })}
             </ThemedText>
@@ -110,10 +121,10 @@ export default function DisruptionBanner({
                 </ThemedText>
             )}
 
-            {declined && onApplied !== undefined && (
+            {declined && onMove !== undefined && (
                 <ActionButton
                     label={busy ? t('disruption.moving') : t('disruption.move_it_anyway')}
-                    onPress={applyByHand}
+                    onPress={move}
                     disabled={busy}
                 />
             )}
@@ -140,9 +151,20 @@ function outcome(
         cancelled: boolean;
         gained: number;
         device: DeviceResponse | null;
+        noReplacement: boolean;
         wakeAt: string;
     },
 ): string {
+    /*
+     * Said first, because it is the one case where the alarm not moving is not a
+     * choice anybody made. It used to fall through to "your journey had enough
+     * spare time in it", which is the opposite of true for a cancelled train
+     * with nothing to take.
+     */
+    if (input.noReplacement) {
+        return t('disruption.not_moved_no_replacement', { time: clock(input.wakeAt) });
+    }
+
     if (input.gained >= NOTICEABLE_MINUTES) {
         return t('disruption.sleep_longer', { minutes: input.gained });
     }

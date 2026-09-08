@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+    KeyboardAvoidingView,
+    Linking,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
+import { SUPPORT_URL } from '@alarm/types';
 
 import languages from '@/i18n/languages';
 
@@ -157,6 +165,22 @@ export default function SettingsScreen() {
                             value={t(`theme.${preference}`)}
                             onPress={() => {
                                 router.push('/settings/theme');
+                            }}
+                        />
+
+                        {/*
+                         * Last of the rows, because it is the only one that is
+                         * not a setting. Opens the browser rather than a screen
+                         * of its own: there is nothing to configure, and a page
+                         * inside the app explaining that donations happen
+                         * outside it is a page nobody wants.
+                         */}
+                        <SettingsRow
+                            icon="coffee-outline"
+                            label={t('settings.support')}
+                            value={t('settings.support_summary')}
+                            onPress={() => {
+                                void Linking.openURL(SUPPORT_URL);
                             }}
                         />
 

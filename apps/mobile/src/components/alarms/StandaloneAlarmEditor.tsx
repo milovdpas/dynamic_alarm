@@ -28,11 +28,14 @@ import WeekdayPicker from '@/components/ui/WeekdayPicker';
 export default function StandaloneAlarmEditor({
     alarm,
     busy,
+    fresh = false,
     onChange,
     onDelete,
 }: {
     alarm: StandaloneAlarm;
     busy: boolean;
+    /** True for an alarm created a moment ago, so the picker opens itself. */
+    fresh?: boolean;
     onChange: (next: StandaloneAlarm) => void;
     onDelete: () => void;
 }) {
@@ -63,7 +66,12 @@ export default function StandaloneAlarmEditor({
 
     return (
         <View style={styles.body}>
-            <TimeField label={t('alarms.time')} value={time} onChange={changeTime} />
+            <TimeField
+                label={t('alarms.time')}
+                value={time}
+                onChange={changeTime}
+                autoOpen={fresh}
+            />
 
             <TextField
                 label={t('alarms.label')}

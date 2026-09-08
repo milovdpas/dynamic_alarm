@@ -276,7 +276,7 @@ describe('offering to move the alarm by hand', () => {
     } as DeviceResponse;
 
     it('offers when a delay was noticed and the switch is off', () => {
-        expect(wasDeclined({ cancelled: false, gained: 0, device: nothingAllowed })).toBe(true);
+        expect(wasDeclined({ cancelled: false, gained: 0, device: nothingAllowed, noReplacement: false })).toBe(true);
     });
 
     it('reads the switch that matches the disruption, not the other one', () => {
@@ -287,21 +287,21 @@ describe('offering to move the alarm by hand', () => {
             allowLaterWakeOnCancellation: false,
         } as DeviceResponse;
 
-        expect(wasDeclined({ cancelled: false, gained: 0, device: allowsDelays })).toBe(false);
-        expect(wasDeclined({ cancelled: true, gained: 0, device: allowsDelays })).toBe(true);
+        expect(wasDeclined({ cancelled: false, gained: 0, device: allowsDelays, noReplacement: false })).toBe(false);
+        expect(wasDeclined({ cancelled: true, gained: 0, device: allowsDelays, noReplacement: false })).toBe(true);
     });
 
     it('stays quiet once the alarm has actually moved', () => {
         // Twelve minutes already gained, so there is nothing left to apply and
         // the button would move the alarm nowhere.
-        expect(wasDeclined({ cancelled: false, gained: 12, device: nothingAllowed })).toBe(false);
+        expect(wasDeclined({ cancelled: false, gained: 12, device: nothingAllowed, noReplacement: false })).toBe(false);
     });
 
     it('stays quiet when the alarm was pulled earlier instead', () => {
         // The emergency path, which overrides the switches. Offering to move it
         // anyway over a move that already happened reads as an undo, and it is
         // not one.
-        expect(wasDeclined({ cancelled: true, gained: -14, device: nothingAllowed })).toBe(false);
+        expect(wasDeclined({ cancelled: true, gained: -14, device: nothingAllowed, noReplacement: false })).toBe(false);
     });
 
     it('stays quiet when the buffers absorbed it and no switch is to blame', () => {
@@ -310,13 +310,31 @@ describe('offering to move the alarm by hand', () => {
             allowLaterWakeOnCancellation: true,
         } as DeviceResponse;
 
-        expect(wasDeclined({ cancelled: false, gained: 0, device: permissive })).toBe(false);
+        expect(wasDeclined({ cancelled: false, gained: 0, device: permissive, noReplacement: false })).toBe(false);
+    });
+
+    it('stays quiet when there was nothing acceptable to take', () => {
+        /*
+         * NO_REPLACEMENT is not a declined move, whatever the switches say. No
+         * better time is being withheld: everything left runs outside the hours
+         * its owner said they would travel. Treating it as declined offered a
+         * button to apply a plan that does not exist, and blamed a switch for an
+         * outcome it had no part in.
+         */
+        expect(
+            wasDeclined({
+                cancelled: true,
+                gained: 0,
+                device: nothingAllowed,
+                noReplacement: true,
+            }),
+        ).toBe(false);
     });
 
     it('stays quiet when the settings for this device never arrived', () => {
         // Never read, rather than assumed off. Offering to override a preference
         // nobody has fetched is a guess, about the one thing this app should
         // never guess at.
-        expect(wasDeclined({ cancelled: false, gained: 0, device: null })).toBe(false);
+        expect(wasDeclined({ cancelled: false, gained: 0, device: null, noReplacement: false })).toBe(false);
     });
 });

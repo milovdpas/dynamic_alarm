@@ -106,7 +106,15 @@ interface OnboardingContextValue {
     removeStep: (id: string) => void;
     updateStep: (id: string, patch: Partial<CreateRoutineStepRequest>) => void;
     /** Saves everything, in dependency order. Throws `ApiRequestError`. */
-    commit: () => Promise<Schedule>;
+    /**
+     * Saves everything the flow collected, or nothing during a rehearsal.
+     *
+     * Null means the run was a rehearsal from the debug panel and no place,
+     * routine or schedule was created.
+     */
+    commit: () => Promise<Schedule | null>;
+    /** True while the flow is being walked through without saving anything. */
+    rehearsing: boolean;
 }
 
 const WEEKDAYS = [
@@ -171,6 +179,26 @@ function createInitialDraft(): OnboardingDraft {
     };
 }
 
+/**
+ * Whether the next run of the flow is a rehearsal.
+ *
+ * Set by the debug panel and read once, when the provider mounts. Module scope
+ * rather than a route param because the flag has to survive four pushes, and
+ * params belong to a single route: passing it along by hand would mean every
+ * future step remembering to, and the one that forgot would quietly start
+ * saving. The same consume-once shape `useNextAlarm` uses for a forced refresh.
+ *
+ * In memory only. A rehearsal that outlived the app being killed would be a
+ * setup flow that silently saves nothing, which is the worst thing this flag
+ * could possibly do.
+ */
+let rehearsalRequested = false;
+
+/** Asks that the next entry into onboarding writes nothing. */
+export function rehearseOnboarding(): void {
+    rehearsalRequested = true;
+}
+
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
 
 /**
@@ -183,6 +211,13 @@ const OnboardingContext = createContext<OnboardingContextValue | null>(null);
  */
 export function OnboardingProvider({ children }: { children: ReactNode }) {
     const [draft, setDraft] = useState<OnboardingDraft>(createInitialDraft);
+    // Read and cleared together, so exactly one run is a rehearsal and the next
+    // entry through the ordinary route saves in the ordinary way.
+    const [rehearsing] = useState(() => {
+        const requested = rehearsalRequested;
+        rehearsalRequested = false;
+        return requested;
+    });
     /**
      * For the two records this flow names on the user's behalf.
      *
@@ -241,9 +276,25 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
      * to be. A failure part way through leaves a place or a routine the user can
      * pick again rather than a schedule pointing at nothing.
      */
-    const commit = useCallback(async (): Promise<Schedule> => {
+    const commit = useCallback(async (): Promise<Schedule | null> => {
         if (draft.home === null || draft.work === null) {
             throw new Error('commit() called before both places were chosen');
+        }
+
+        /*
+         * A rehearsal stops here, before the first write.
+         *
+         * The debug panel runs this flow to look at it, and every earlier screen
+         * is already harmless: they only edit a draft that lives as long as the
+         * provider. This is the one step that creates a place, a routine and a
+         * schedule, so it is the only one that has to know.
+         *
+         * Null rather than an invented schedule. There is no schedule; saying so
+         * in the type is what stops a future caller reading fields off something
+         * that was never created.
+         */
+        if (rehearsing) {
+            return null;
         }
 
         const [home, work] = await Promise.all([
@@ -297,11 +348,20 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         }
 
         return schedule;
-    }, [draft, t]);
+    }, [draft, rehearsing, t]);
 
     const value = useMemo(
-        () => ({ draft, update, routineMinutes, addStep, removeStep, updateStep, commit }),
-        [draft, update, routineMinutes, addStep, removeStep, updateStep, commit],
+        () => ({
+            draft,
+            update,
+            routineMinutes,
+            addStep,
+            removeStep,
+            updateStep,
+            commit,
+            rehearsing,
+        }),
+        [draft, update, routineMinutes, addStep, removeStep, updateStep, commit, rehearsing],
     );
 
     return <OnboardingContext.Provider value={value}>{children}</OnboardingContext.Provider>;
