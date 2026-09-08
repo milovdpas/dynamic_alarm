@@ -65,6 +65,23 @@ export function computeNextCheckAt(input: NextCheckInput): IsoDateTimeString | n
     return toIso(next < wakeAt ? next : wakeAt);
 }
 
+/**
+ * How many far-out checks a morning costs before it reaches the arming window.
+ *
+ * The daily look at a morning planned a week ahead, counted so a change to the
+ * horizon or the far interval shows up as a failing assertion rather than as a
+ * surprise on the NS budget. Seven at most: six full days beyond the eight hour
+ * window, plus the partial one.
+ */
+export function estimateFarChecksPerOccurrence(
+    planAheadDays: number = MONITOR.PLAN_AHEAD_DAYS,
+    armLeadMinutes: number = MONITOR.ARM_LEAD_MINUTES,
+    farIntervalMinutes: number = MONITOR.FAR_CHECK_INTERVAL_MINUTES,
+): number {
+    const farMinutes = planAheadDays * 24 * 60 - armLeadMinutes;
+    return farMinutes <= 0 ? 0 : Math.ceil(farMinutes / farIntervalMinutes);
+}
+
 /** True once an occurrence is close enough to be worth monitoring. */
 export function shouldArm(minutesUntilWake: number): boolean {
     return minutesUntilWake > 0 && minutesUntilWake <= MONITOR.ARM_LEAD_MINUTES;

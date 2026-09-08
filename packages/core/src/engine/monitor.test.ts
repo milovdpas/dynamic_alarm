@@ -4,6 +4,7 @@ import { APP_CONSTANTS } from '@alarm/types';
 import {
     computeNextCheckAt,
     estimateChecksPerOccurrence,
+    estimateFarChecksPerOccurrence,
     resolveCheckIntervalMinutes,
     shouldArm,
     shouldPushWakeChange,
@@ -86,6 +87,12 @@ describe('estimateChecksPerOccurrence', () => {
      */
     it('costs ~34 provider calls per occurrence per night', () => {
         expect(estimateChecksPerOccurrence()).toBe(34);
+    });
+
+    it('spends at most seven far-out checks on a morning planned a week ahead', () => {
+        // The daily look, from a week out until the eight hour window opens.
+        // Changing the horizon or the far interval changes this, on purpose.
+        expect(estimateFarChecksPerOccurrence()).toBe(7);
     });
 
     it('stays an order of magnitude below blanket per-minute polling', () => {
