@@ -7,6 +7,7 @@ import { ackOccurrence } from '@/api';
 import i18n from '@/i18n/i18n';
 import { resolveAlarmSoundUri } from '@/alarm/alarmSound';
 import { rememberDisruption } from '@/alarm/disruption';
+import { armRingChain } from '@/alarm/ringChain';
 import { describeWakeChange } from '@/alarm/wakeChangeCopy';
 import { readHeldAlarm, rememberHeldAlarm } from '@/push/heldAlarm';
 import { recordPushOutcome } from '@/push/pushLog';
@@ -134,9 +135,15 @@ async function apply(push: WakeChangedPush): Promise<PushApplyOutcome> {
         // superseded time surviving as a second alarm would ring anyway.
         const id = `occurrence-${push.occurrenceId}`;
 
-        await scheduler.schedule({
-            id,
-            at: push.wakeAt,
+        // The whole chain, not the last ring alone. The reminders come from the
+        // arming this push changes, kept on the held record for exactly this
+        // moment: a push carries no reminder setting and the phone may have no
+        // network. Moving only the real alarm left the reminders where they
+        // were, ringing after the new wake time or twenty minutes before it.
+        await armRingChain(scheduler, {
+            baseId: id,
+            wakeAt: push.wakeAt,
+            reminders: held?.reminders ?? null,
             title: i18n.t('alarm.ringing_title'),
             // Written here, from the reason and the time, rather than sent as a
             // finished sentence. Copy lives in the app's translations, and a
@@ -156,7 +163,11 @@ async function apply(push: WakeChangedPush): Promise<PushApplyOutcome> {
             return 'FAILED';
         }
 
-        await rememberHeldAlarm({ occurrenceId: push.occurrenceId, wakeAt: push.wakeAt });
+        await rememberHeldAlarm({
+            occurrenceId: push.occurrenceId,
+            wakeAt: push.wakeAt,
+            reminders: held?.reminders,
+        });
 
         // The reason, kept for the ring screen. This runs while the phone is
         // asleep, which is exactly when the alarm screen's copy would otherwise

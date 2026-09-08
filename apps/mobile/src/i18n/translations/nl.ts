@@ -122,7 +122,7 @@ export default {
         cancellation: 'Uitgevallen trein nadoen',
         clear: 'Weer weghalen',
         staged: 'Klaargezet. De volgende controle past het toe.',
-        cleared: 'Weggehaald. De volgende controle zet je echte reis terug.',
+        cleared: 'Weggehaald. Na een vertraging zet de volgende controle je echte reis terug. Na een uitval blijft de wekker op de vervangende trein staan: gebruik "Deze ochtend opnieuw plannen".',
         reset: 'Deze ochtend opnieuw plannen',
         reset_help: 'Gooit deze ochtend weg en rekent hem opnieuw uit met echte reisinformatie. Gebruik dit als een test je wekker verzet heeft en hij verzet blijft.',
         reset_done: 'Opnieuw gepland met echte gegevens.',

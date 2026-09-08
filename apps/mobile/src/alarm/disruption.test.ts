@@ -134,6 +134,49 @@ describe('what counts as a disruption', () => {
     });
 });
 
+describe('which leg a delay is named after, read live on the phone', () => {
+    /*
+     * The mirror of the server's rule, and it has to be: the ring screen and the
+     * Today banner read the delay off the plan themselves, and if they picked a
+     * different leg from the notice that woke the phone, the screen would
+     * contradict the notification. The server skips the walk, the ride and the
+     * car; so does this.
+     */
+    it('names the train, never the ride from home', () => {
+        const disruption = readDisruption(
+            occurrence([
+                leg({ type: LegType.BIKE, name: undefined, fromName: 'Origin', delaySeconds: 1200 }),
+                leg({ type: LegType.TRAIN, name: 'Intercity 3052', delaySeconds: 1200 }),
+                leg({ type: LegType.WALK, name: undefined, fromName: 'Tilburg', delaySeconds: 1200 }),
+            ]),
+        );
+
+        expect(disruption).toMatchObject({ kind: 'DELAY', minutes: 20, service: 'Intercity 3052' });
+    });
+
+    it('sees no disruption when only the walk and the ride are late', () => {
+        expect(
+            readDisruption(
+                occurrence([
+                    leg({ type: LegType.BIKE, name: undefined, fromName: 'Origin', delaySeconds: 1200 }),
+                    leg({ type: LegType.TRAIN, name: 'Intercity 3052', delaySeconds: 0 }),
+                ]),
+            ),
+        ).toBeNull();
+    });
+
+    it('never tells a driver that Origin is late', () => {
+        // Congestion against free flow is the ordinary state of a road at 07:30,
+        // and the plan has already priced it in. What a driver hears is that the
+        // alarm moved, which arrives as a wake change worded for a road.
+        expect(
+            readDisruption(
+                occurrence([leg({ type: LegType.CAR, name: undefined, fromName: 'Origin', delaySeconds: 720 })]),
+            ),
+        ).toBeNull();
+    });
+});
+
 describe('a cancellation the alarm was allowed to act on', () => {
     /** The train that is gone, kept on the occurrence after the re-plan. */
     const replaced = {
@@ -259,6 +302,58 @@ describe('the note the ring screen reads at 06:00', () => {
         store.set('lastDisruption', '{{{');
 
         expect(await readRememberedDisruption('morning-a')).toBeNull();
+    });
+});
+
+describe('two notes written at once', () => {
+    it('keeps both', async () => {
+        /*
+         * The same lost update the held record had: two pushes about different
+         * mornings handled together each read the notes, added their own and
+         * wrote back, and the second erased the first. A lost note here is the
+         * ring screen at 06:00 with nothing to say.
+         */
+        const note = { kind: 'DELAY' as const, minutes: 12, service: 'Intercity', simulated: false };
+
+        await Promise.all([
+            rememberDisruption('thursday', note),
+            rememberDisruption('friday', { ...note, minutes: 20 }),
+        ]);
+
+        expect((await readRememberedDisruption('thursday'))?.minutes).toBe(12);
+        expect((await readRememberedDisruption('friday'))?.minutes).toBe(20);
+    });
+});
+
+describe('a blank service name on its way in', () => {
+    it('is stored as absent, so every screen falls back to "your journey"', async () => {
+        // An older API build named the delayed ride from home, which has no
+        // name, and the ring screen rendered " is 20 minutes late". Normalised
+        // once here rather than at each of the three places that read it.
+        await rememberDisruption('thursday', {
+            kind: 'CANCELLATION',
+            minutes: 0,
+            service: '  ',
+            simulated: false,
+            replacement: { service: '', departureAt: '2026-09-10T06:10:00.000Z', fromName: 'Oss' },
+        });
+
+        const note = await readRememberedDisruption('thursday');
+
+        expect(note?.service).toBeNull();
+        expect(note?.replacement?.service).toBeNull();
+        expect(note?.replacement?.fromName).toBe('Oss');
+    });
+
+    it('leaves a real name alone', async () => {
+        await rememberDisruption('thursday', {
+            kind: 'DELAY',
+            minutes: 5,
+            service: 'Sprinter',
+            simulated: false,
+        });
+
+        expect((await readRememberedDisruption('thursday'))?.service).toBe('Sprinter');
     });
 });
 

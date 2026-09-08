@@ -1,16 +1,35 @@
 import { Platform } from 'react-native';
 import { APP_CONSTANTS, PUSH_MESSAGE_TYPE } from '@alarm/types';
-import type { PushMessage } from '@alarm/types';
+import type { IsoDateTimeString, PushMessage } from '@alarm/types';
 
 import { describeWakeChange } from '@/alarm/wakeChangeCopy';
 import i18n from '@/i18n/i18n';
+import Storage from '@/utils/modules/Storage';
 import { loadOptionalModule } from '@/utils/modules/optionalModule';
 import { relativeDay } from '@/utils/time';
+import { createWriteQueue } from '@/utils/writeQueue';
 
 type NotificationsModule = typeof import('expo-notifications');
 
 /** The Android channel these land on. Ordinary importance: news, not an alarm. */
 const CHANNEL = 'changes';
+
+/** Where the last announcement per morning is kept. */
+const ANNOUNCED_KEY = 'announcedNotices';
+
+/**
+ * How long a move keeps the notice about the same event quiet.
+ *
+ * The server sends two messages for one moved alarm: the move, and the news
+ * that caused it. The move's sentence already carries the news ("your train is
+ * cancelled, the alarm is now 07:31"), so the second notification said the same
+ * thing with less in it, and Android grouped the pair under a row whose tap
+ * opens the app rather than the morning. Ten minutes covers the two arriving in
+ * either order, minutes apart, on a phone that was asleep.
+ */
+const COALESCE_MINUTES = 10;
+
+type Announced = Record<string, { type: string; at: IsoDateTimeString }>;
 
 /**
  * Whether a push is worth showing, rather than only acting on.
@@ -53,7 +72,12 @@ export function noticeCopy(push: PushMessage): { title: string; body: string } {
         };
     }
 
-    const service = push.service ?? i18n.t('ring.your_journey');
+    // Blank counts as absent, or the sentence opens with a space: a ride from
+    // home has no name, and one server build sent it as the delayed "service".
+    const service =
+        push.service !== null && push.service !== undefined && push.service.trim() !== ''
+            ? push.service
+            : i18n.t('ring.your_journey');
     const body =
         push.kind === 'NO_REPLACEMENT'
             ? i18n.t('ring.no_replacement')
@@ -71,11 +95,19 @@ export function noticeCopy(push: PushMessage): { title: string; body: string } {
  * may stop the background task that called this, whose real job was re-arming
  * the alarm and is already done.
  */
-export async function postNotice(push: PushMessage): Promise<boolean> {
+export async function postNotice(push: PushMessage, now: Date = new Date()): Promise<boolean> {
     const notifications = loadOptionalModule<NotificationsModule>(
         () => require('expo-notifications') as NotificationsModule,
     );
     if (notifications === null) {
+        return false;
+    }
+
+    if (
+        push.type === PUSH_MESSAGE_TYPE.DISRUPTION_NOTICE &&
+        (await recentlyAnnouncedMove(push.occurrenceId, now))
+    ) {
+        // The move's own notification already said this, with the new time.
         return false;
     }
 
@@ -89,6 +121,11 @@ export async function postNotice(push: PushMessage): Promise<boolean> {
 
         const { title, body } = noticeCopy(push);
         await notifications.scheduleNotificationAsync({
+            // One card per morning. A later message about the same morning
+            // replaces the earlier one rather than stacking beside it, so a
+            // move that arrives after its notice still ends up as the one thing
+            // on the shade, and a single card keeps its tap target.
+            identifier: `notice-${push.occurrenceId}`,
             content: {
                 title,
                 body,
@@ -98,8 +135,50 @@ export async function postNotice(push: PushMessage): Promise<boolean> {
             // Immediately. On Android the channel is named on the trigger.
             trigger: Platform.OS === 'android' ? { channelId: CHANNEL } : null,
         });
+        await rememberAnnounced(push, now);
         return true;
     } catch {
         return false;
+    }
+}
+
+/** Whether a move for this morning was announced inside the coalescing window. */
+async function recentlyAnnouncedMove(occurrenceId: string, now: Date): Promise<boolean> {
+    const last = (await readAnnounced())[occurrenceId];
+    if (last === undefined || last.type !== PUSH_MESSAGE_TYPE.WAKE_CHANGED) {
+        return false;
+    }
+    return now.getTime() - new Date(last.at).getTime() < COALESCE_MINUTES * 60_000;
+}
+
+/** One writer at a time, like every other read-modify-write on a stored record. */
+const write = createWriteQueue();
+
+function rememberAnnounced(push: PushMessage, now: Date): Promise<void> {
+    return write(async () => {
+        const all = await readAnnounced();
+        // Pruned as it is written: anything past the window can never matter again.
+        for (const [id, entry] of Object.entries(all)) {
+            if (now.getTime() - new Date(entry.at).getTime() >= COALESCE_MINUTES * 60_000) {
+                delete all[id];
+            }
+        }
+        all[push.occurrenceId] = { type: push.type, at: now.toISOString() };
+        await Storage.setItem(ANNOUNCED_KEY, JSON.stringify(all)).catch(() => undefined);
+    });
+}
+
+async function readAnnounced(): Promise<Announced> {
+    try {
+        const raw = await Storage.getItem(ANNOUNCED_KEY);
+        if (raw === null) {
+            return {};
+        }
+        const parsed = JSON.parse(raw) as unknown;
+        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+            ? (parsed as Announced)
+            : {};
+    } catch {
+        return {};
     }
 }

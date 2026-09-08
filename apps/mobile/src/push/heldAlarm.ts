@@ -1,8 +1,20 @@
-import type { IsoDateTimeString } from '@alarm/types';
+import type { IsoDateTimeString, ReminderConfig } from '@alarm/types';
 
 import Storage from '@/utils/modules/Storage';
+import { createWriteQueue } from '@/utils/writeQueue';
 
 const KEY = 'heldAlarms';
+
+/**
+ * Every change to the record goes through here, one at a time.
+ *
+ * Mornings are armed in parallel, and each one remembers its baseline by
+ * reading the record, adding itself and writing it back. Unserialised, three of
+ * those overlapped, all three read the same empty record, and only the last
+ * write survived: the phone then "held" Tuesday alone, and a push about
+ * Thursday was ignored as unknown.
+ */
+const write = createWriteQueue();
 /** The key this held a single record under, before mornings came in weeks. */
 const LEGACY_KEY = 'heldAlarm';
 
@@ -27,14 +39,33 @@ const LEGACY_KEY = 'heldAlarm';
 export interface HeldAlarm {
     occurrenceId: string;
     wakeAt: IsoDateTimeString;
+    /**
+     * The ring chain armed with it, so a push that moves the wake time can move
+     * every ring rather than the last one alone. A push carries no reminder
+     * setting, and the phone that handles it may be asleep with no network, so
+     * the setting has to have been kept from the arming it changes. Absent on
+     * records written before reminders were kept here.
+     */
+    reminders?: ReminderConfig;
 }
 
-type Held = Record<string, IsoDateTimeString>;
+interface HeldEntry {
+    wakeAt: IsoDateTimeString;
+    reminders?: ReminderConfig;
+}
 
-export async function rememberHeldAlarm(held: HeldAlarm, now = new Date()): Promise<void> {
-    const all = prunePast(await readAll(), now);
-    all[held.occurrenceId] = held.wakeAt;
-    await Storage.setItem(KEY, JSON.stringify(all));
+/** A bare time is a record written before reminders were kept here. */
+type Held = Record<string, HeldEntry>;
+
+export function rememberHeldAlarm(held: HeldAlarm, now = new Date()): Promise<void> {
+    return write(async () => {
+        const all = prunePast(await readAll(), now);
+        all[held.occurrenceId] =
+            held.reminders === undefined
+                ? { wakeAt: held.wakeAt }
+                : { wakeAt: held.wakeAt, reminders: held.reminders };
+        await Storage.setItem(KEY, JSON.stringify(all));
+    });
 }
 
 /**
@@ -46,22 +77,24 @@ export async function rememberHeldAlarm(held: HeldAlarm, now = new Date()): Prom
  */
 function prunePast(all: Held, now: Date): Held {
     const kept: Held = {};
-    for (const [id, wakeAt] of Object.entries(all)) {
-        if (new Date(wakeAt).getTime() > now.getTime()) {
-            kept[id] = wakeAt;
+    for (const [id, entry] of Object.entries(all)) {
+        if (new Date(entry.wakeAt).getTime() > now.getTime()) {
+            kept[id] = entry;
         }
     }
     return kept;
 }
 
 /** Forgets a morning the OS no longer holds. */
-export async function forgetHeldAlarm(occurrenceId: string): Promise<void> {
-    const all = await readAll();
-    if (!(occurrenceId in all)) {
-        return;
-    }
-    delete all[occurrenceId];
-    await Storage.setItem(KEY, JSON.stringify(all));
+export function forgetHeldAlarm(occurrenceId: string): Promise<void> {
+    return write(async () => {
+        const all = await readAll();
+        if (!(occurrenceId in all)) {
+            return;
+        }
+        delete all[occurrenceId];
+        await Storage.setItem(KEY, JSON.stringify(all));
+    });
 }
 
 /**
@@ -86,7 +119,7 @@ export async function readHeldAlarm(occurrenceId?: string): Promise<HeldAlarm | 
 export async function readHeldAlarms(): Promise<HeldAlarm[]> {
     const all = await readAll();
     return Object.entries(all)
-        .map(([occurrenceId, wakeAt]) => ({ occurrenceId, wakeAt }))
+        .map(([occurrenceId, entry]): HeldAlarm => ({ occurrenceId, ...entry }))
         // As instants. ISO strings with different offsets do not sort as text.
         .sort((a, b) => new Date(a.wakeAt).getTime() - new Date(b.wakeAt).getTime());
 }
@@ -98,9 +131,10 @@ async function readAll(): Promise<Held> {
             const parsed = JSON.parse(raw) as unknown;
             if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
                 const held: Held = {};
-                for (const [id, wakeAt] of Object.entries(parsed as Record<string, unknown>)) {
-                    if (typeof wakeAt === 'string') {
-                        held[id] = wakeAt;
+                for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
+                    const entry = readEntry(value);
+                    if (entry !== null) {
+                        held[id] = entry;
                     }
                 }
                 return held;
@@ -120,10 +154,40 @@ async function readAll(): Promise<Held> {
     try {
         const parsed = JSON.parse(legacy) as Partial<HeldAlarm>;
         if (typeof parsed.occurrenceId === 'string' && typeof parsed.wakeAt === 'string') {
-            return { [parsed.occurrenceId]: parsed.wakeAt };
+            return { [parsed.occurrenceId]: { wakeAt: parsed.wakeAt } };
         }
     } catch {
         // Fall through.
     }
     return {};
+}
+
+/**
+ * One stored morning, in either shape it has been written in.
+ *
+ * A bare string is the time alone, from before reminders were kept; an object
+ * carries the time and, when it was known, the chain. Anything else is not a
+ * record and is dropped rather than guessed at.
+ */
+function readEntry(value: unknown): HeldEntry | null {
+    if (typeof value === 'string') {
+        return { wakeAt: value };
+    }
+    if (typeof value !== 'object' || value === null) {
+        return null;
+    }
+    const record = value as Record<string, unknown>;
+    if (typeof record.wakeAt !== 'string') {
+        return null;
+    }
+    const reminders = record.reminders;
+    if (
+        typeof reminders === 'object' &&
+        reminders !== null &&
+        typeof (reminders as Record<string, unknown>).count === 'number' &&
+        typeof (reminders as Record<string, unknown>).intervalMinutes === 'number'
+    ) {
+        return { wakeAt: record.wakeAt, reminders: reminders as unknown as ReminderConfig };
+    }
+    return { wakeAt: record.wakeAt };
 }

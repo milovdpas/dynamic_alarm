@@ -106,4 +106,52 @@ describe('what the phone believes it holds', () => {
 
         expect(await readHeldAlarms()).toEqual([]);
     });
+
+    it('keeps the reminder chain beside the time', async () => {
+        // A push that moves the wake time has to move every ring, and it
+        // carries no reminder setting of its own. This is where it finds one.
+        await rememberHeldAlarm({
+            occurrenceId: 'thu',
+            wakeAt: '2026-09-10T05:31:00.000Z',
+            reminders: { count: 3, intervalMinutes: 5 },
+        });
+
+        expect((await readHeldAlarm('thu'))?.reminders).toEqual({ count: 3, intervalMinutes: 5 });
+    });
+
+    it('keeps every morning when several are remembered at once', async () => {
+        /*
+         * Found on a phone on 2026-09-08. The week is armed in parallel, each
+         * morning read the record, added itself and wrote it back, and only the
+         * last write survived. "This device holds" named Tuesday alone, and a
+         * push about Thursday was ignored as unknown.
+         */
+        await Promise.all([
+            rememberHeldAlarm({ occurrenceId: 'thu', wakeAt: '2026-09-10T05:44:00.000Z' }),
+            rememberHeldAlarm({ occurrenceId: 'fri', wakeAt: '2026-09-11T05:43:00.000Z' }),
+            rememberHeldAlarm({ occurrenceId: 'tue', wakeAt: '2026-09-15T05:44:00.000Z' }),
+        ]);
+
+        expect((await readHeldAlarms()).map((held) => held.occurrenceId)).toEqual(['thu', 'fri', 'tue']);
+    });
+
+    it('does not lose a morning remembered while another is forgotten', async () => {
+        await rememberHeldAlarm({ occurrenceId: 'old', wakeAt: '2026-09-10T05:44:00.000Z' });
+
+        await Promise.all([
+            forgetHeldAlarm('old'),
+            rememberHeldAlarm({ occurrenceId: 'fri', wakeAt: '2026-09-11T05:43:00.000Z' }),
+        ]);
+
+        expect((await readHeldAlarms()).map((held) => held.occurrenceId)).toEqual(['fri']);
+    });
+
+    it('reads a record written as a bare time, from before reminders were kept', async () => {
+        store.set('heldAlarms', JSON.stringify({ thu: '2026-09-10T05:31:00.000Z' }));
+
+        const held = await readHeldAlarm('thu');
+
+        expect(held?.wakeAt).toBe('2026-09-10T05:31:00.000Z');
+        expect(held?.reminders).toBeUndefined();
+    });
 });

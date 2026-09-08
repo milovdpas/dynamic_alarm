@@ -8,10 +8,15 @@ import { registerWakeChangePushTask } from '@/push/backgroundTask';
 import { readHeldAlarm, type HeldAlarm } from '@/push/heldAlarm';
 import { clearPushLog, readPushLog, type PushLogEntry } from '@/push/pushLog';
 
-/** One line describing a handled push. */
-function formatPush(entry: PushLogEntry): string {
+/**
+ * One line describing a handled push.
+ *
+ * A notice moves nothing, so its entry has no wake time; that reads as the
+ * "none" label rather than as `Invalid Date`.
+ */
+function formatPush(entry: PushLogEntry, none: string): string {
     const at = new Date(entry.at).toLocaleTimeString();
-    const wake = new Date(entry.wakeAt).toLocaleTimeString();
+    const wake = entry.wakeAt === '' ? none : new Date(entry.wakeAt).toLocaleTimeString();
     return `${at} -> ${wake} (${entry.outcome})`;
 }
 
@@ -78,7 +83,7 @@ export default function PushSection() {
                     <DetailRow
                         key={`${String(index)}-${entry.at}`}
                         label={t('push.received')}
-                        value={formatPush(entry)}
+                        value={formatPush(entry, t('harness.none'))}
                         warn={entry.outcome !== 'APPLIED'}
                     />
                 ))

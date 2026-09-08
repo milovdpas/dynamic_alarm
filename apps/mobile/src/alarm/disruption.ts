@@ -1,7 +1,8 @@
-import { JourneyStatus } from '@alarm/types';
+import { JourneyStatus, LegType } from '@alarm/types';
 import type { DeviceResponse, Journey, JourneyLeg, OccurrenceResponse } from '@alarm/types';
 
 import Storage from '@/utils/modules/Storage';
+import { createWriteQueue } from '@/utils/writeQueue';
 
 /** Below this, a change is timetable jitter rather than news. */
 export const NOTICEABLE_MINUTES = 2;
@@ -117,7 +118,7 @@ export function readDisruption(occurrence: OccurrenceResponse): Disruption | nul
  * to take instead. Neither of them is ever somebody's own walk to the platform.
  */
 function serviceLeg(journey: Journey): JourneyLeg | undefined {
-    return journey.legs.find((leg) => leg.type !== 'WALK' && leg.type !== 'BIKE');
+    return journey.legs.find((leg) => leg.type !== LegType.WALK && leg.type !== LegType.BIKE);
 }
 
 function firstService(journey: Journey): Disruption['replacement'] {
@@ -153,6 +154,14 @@ function worstDelay(journey: Journey): { minutes: number; service: string | null
     let worst: { minutes: number; service: string | null } | null = null;
 
     for (const leg of journey.legs) {
+        // Only a service can be late. The walk or ride to the station has no
+        // name and would be read out by its origin, "Origin is 12 minutes
+        // late", and a car leg's delay is congestion against free flow, which
+        // the plan already priced in. The server skips the same three legs
+        // when it words the notice; the two readings have to agree.
+        if (leg.type === LegType.WALK || leg.type === LegType.BIKE || leg.type === LegType.CAR) {
+            continue;
+        }
         // Floored, not rounded. Rounding made 31 seconds "1 minute late",
         // which is not a delay, it is a timetable wobble, and at 05:00 it is a
         // push that wakes a radio to report nothing. The server floors the same
@@ -245,31 +254,64 @@ type RememberedNotes = Record<string, Disruption>;
  * Capped rather than swept, since there is no way to list keys through the
  * storage wrapper and an alarm app should not accumulate rows forever.
  */
-export async function rememberDisruption(
+export function rememberDisruption(
     occurrenceId: string,
     disruption: Disruption | null,
 ): Promise<void> {
-    const notes = await readNotes();
+    // One writer at a time. Two pushes about different mornings handled
+    // together each read the notes, added their own and wrote back, and the
+    // second write erased the first: a ring screen at 06:00 with no explanation.
+    return write(async () => {
+        const notes = await readNotes();
 
-    // Deleted first in both branches: re-inserting moves this morning to the end
-    // of the object, which is what makes the cap below drop the least recently
-    // touched one rather than an arbitrary entry.
-    delete notes[occurrenceId];
+        // Deleted first in both branches: re-inserting moves this morning to the
+        // end of the object, which is what makes the cap below drop the least
+        // recently touched one rather than an arbitrary entry.
+        delete notes[occurrenceId];
 
-    if (disruption !== null) {
-        notes[occurrenceId] = disruption;
-    }
+        if (disruption !== null) {
+            notes[occurrenceId] = withNamedServices(disruption);
+        }
 
-    const ids = Object.keys(notes);
-    for (const stale of ids.slice(0, Math.max(0, ids.length - REMEMBERED))) {
-        delete notes[stale];
-    }
+        const ids = Object.keys(notes);
+        for (const stale of ids.slice(0, Math.max(0, ids.length - REMEMBERED))) {
+            delete notes[stale];
+        }
 
-    if (Object.keys(notes).length === 0) {
-        await Storage.removeItem(KEY);
-        return;
-    }
-    await Storage.setItem(KEY, JSON.stringify(notes));
+        if (Object.keys(notes).length === 0) {
+            await Storage.removeItem(KEY);
+            return;
+        }
+        await Storage.setItem(KEY, JSON.stringify(notes));
+    });
+}
+
+const write = createWriteQueue();
+
+/**
+ * A note with blank service names read as absent.
+ *
+ * Normalised once here, on the way in, rather than at every screen that reads
+ * it: the ring screen and the Today banner both fall back to "your journey"
+ * with `??`, which lets an empty string through as " is not running". The
+ * server now sends every name through its own blank check, so this only bites
+ * against an older API build, which is exactly when the phone must not trust
+ * what it was sent.
+ */
+function withNamedServices(disruption: Disruption): Disruption {
+    const replacement = disruption.replacement;
+    return {
+        ...disruption,
+        service: named(disruption.service ?? undefined),
+        ...(replacement === undefined
+            ? {}
+            : {
+                  replacement:
+                      replacement === null
+                          ? null
+                          : { ...replacement, service: named(replacement.service ?? undefined) },
+              }),
+    };
 }
 
 export async function readRememberedDisruption(occurrenceId: string): Promise<Disruption | null> {

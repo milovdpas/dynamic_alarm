@@ -123,7 +123,7 @@ export default {
         cancellation: 'Pretend a cancellation',
         clear: 'Take it back',
         staged: 'Staged. The next check applies it.',
-        cleared: 'Cleared. The next check puts your real journey back.',
+        cleared: 'Cleared. After a delay the next check puts your real journey back. After a cancellation the alarm stays on the replacement train: use "Plan this morning again".',
         reset: 'Plan this morning again',
         reset_help: 'Throws this morning away and works it out again from real travel information. Use it when a test moved your alarm and it stayed moved.',
         reset_done: 'Planned again from real data.',

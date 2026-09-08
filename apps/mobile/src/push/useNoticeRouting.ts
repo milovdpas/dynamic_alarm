@@ -62,8 +62,31 @@ export function useNoticeRouting(): void {
             .catch(() => undefined);
         const subscription = notifications.addNotificationResponseReceivedListener(open);
 
+        /*
+         * Shown while the app is open, too. Without a handler the platform's
+         * default for a notification that arrives with the app in the
+         * foreground is to show nothing, so somebody reading Today on Tuesday
+         * evening while Thursday's works were announced saw the alarm move and
+         * no explanation. Only this app's own notices are let through, by the
+         * route they carry: the server's pushes are data with nothing to show,
+         * and letting them through would put an empty card on the shade.
+         */
+        notifications.setNotificationHandler({
+            handleNotification: (notification) => {
+                const data = notification.request.content.data as Record<string, unknown> | undefined;
+                const ours = data?.route === 'journey';
+                return Promise.resolve({
+                    shouldShowBanner: ours,
+                    shouldShowList: ours,
+                    shouldPlaySound: false,
+                    shouldSetBadge: false,
+                });
+            },
+        });
+
         return () => {
             subscription.remove();
+            notifications.setNotificationHandler(null);
         };
     }, [router, navigationReady]);
 }

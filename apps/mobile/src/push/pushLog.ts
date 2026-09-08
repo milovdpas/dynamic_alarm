@@ -1,4 +1,7 @@
 import Storage from '@/utils/modules/Storage';
+import { createWriteQueue } from '@/utils/writeQueue';
+
+const write = createWriteQueue();
 
 /** One handled push, kept so the debug panel can explain a morning. */
 export interface PushLogEntry {
@@ -22,10 +25,14 @@ const MAX_ENTRIES = 10;
  *
  * Ten entries, oldest dropped. This is a diagnostic, not a history.
  */
-export async function recordPushOutcome(entry: PushLogEntry): Promise<void> {
-    const entries = await readPushLog();
-    entries.unshift(entry);
-    await Storage.setItem(KEY, JSON.stringify(entries.slice(0, MAX_ENTRIES)));
+export function recordPushOutcome(entry: PushLogEntry): Promise<void> {
+    // One at a time. Two pushes handled together would otherwise both read the
+    // same list and the second write would erase the first entry.
+    return write(async () => {
+        const entries = await readPushLog();
+        entries.unshift(entry);
+        await Storage.setItem(KEY, JSON.stringify(entries.slice(0, MAX_ENTRIES)));
+    });
 }
 
 export async function readPushLog(): Promise<PushLogEntry[]> {

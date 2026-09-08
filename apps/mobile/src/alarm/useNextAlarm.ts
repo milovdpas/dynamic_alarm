@@ -14,7 +14,8 @@ import { canGuaranteeAlarm, getAlarmScheduler } from '@/alarm';
 import { resolveAlarmSoundUri } from '@/alarm/alarmSound';
 import { readDisruption, rememberDisruption } from '@/alarm/disruption';
 import { upcomingOnly } from '@/alarm/upcoming';
-import { baseAlarmId, reminderTimes, ringId } from '@/alarm/reminders';
+import { baseAlarmId } from '@/alarm/reminders';
+import { armRingChain } from '@/alarm/ringChain';
 import i18n from '@/i18n/i18n';
 import { forgetHeldAlarm, rememberHeldAlarm } from '@/push/heldAlarm';
 import { computeLocalPlans } from '@/alarm/localPlan';
@@ -598,35 +599,28 @@ async function arm(occurrence: OccurrenceResponse): Promise<ArmOutcome> {
         return { armed: false, failure: 'PAST' };
     }
 
-    const soundUri = await resolveAlarmSoundUri();
-
     /*
-     * The wake time last, and any reminders before it.
-     *
-     * `reminderTimes` always ends on the wake time, so the loop below always
-     * arms the real alarm on its original id, whatever the reminder setting
-     * says. That id is load bearing: `heldByOs`, `cancelOrphans` and the ring
-     * screen all key off `occurrence-<id>`.
+     * The wake time last, and any reminders before it. The chain is written by
+     * the same helper the overnight push uses, so the two cannot drift: the id
+     * of the real alarm is load bearing (`heldByOs`, `cancelOrphans` and the
+     * ring screen all key off `occurrence-<id>`) and the helper keeps it plain.
      */
-    const times = reminderTimes(occurrence.currentWakeAt, occurrence.reminders);
-    for (const [index, at] of times.entries()) {
-        const ringsBeforeWake = times.length - 1 - index;
-        await scheduler.schedule({
-            id: ringId(id, ringsBeforeWake),
-            at,
-            // Carried with the alarm rather than read when it rings. After a
-            // reboot the boot receiver re-arms from native storage with no
-            // JavaScript running, so a sound that lived only in app storage
-            // would quietly revert to the default on the mornings that matter
-            // most.
-            soundUri,
-            // The i18n instance rather than the hook: this is not React code,
-            // and i18n is initialised synchronously exactly so it is safe here.
-            title: i18n.t('alarm.ringing_title'),
-            body: i18n.t('home.alarm_body', { name: occurrence.scheduleName }),
-            occurrenceId: occurrence.id,
-        });
-    }
+    await armRingChain(scheduler, {
+        baseId: id,
+        wakeAt: occurrence.currentWakeAt,
+        reminders: occurrence.reminders,
+        // Carried with the alarm rather than read when it rings. After a
+        // reboot the boot receiver re-arms from native storage with no
+        // JavaScript running, so a sound that lived only in app storage
+        // would quietly revert to the default on the mornings that matter
+        // most.
+        soundUri: await resolveAlarmSoundUri(),
+        // The i18n instance rather than the hook: this is not React code,
+        // and i18n is initialised synchronously exactly so it is safe here.
+        title: i18n.t('alarm.ringing_title'),
+        body: i18n.t('home.alarm_body', { name: occurrence.scheduleName }),
+        occurrenceId: occurrence.id,
+    });
 
     // Only the real alarm is checked. A reminder that failed to arm costs a
     // nudge; this one is the morning, and it is the claim the screen makes.
@@ -636,7 +630,12 @@ async function arm(occurrence: OccurrenceResponse): Promise<ArmOutcome> {
 
     // Written only once the OS confirms, because this is what a later push is
     // judged against. Recording an intention would let the monotonic rule
-    // compare against a time nothing is holding.
-    await rememberHeldAlarm({ occurrenceId: occurrence.id, wakeAt: occurrence.currentWakeAt });
+    // compare against a time nothing is holding. The reminders travel with it
+    // so that push can move the whole chain.
+    await rememberHeldAlarm({
+        occurrenceId: occurrence.id,
+        wakeAt: occurrence.currentWakeAt,
+        reminders: occurrence.reminders,
+    });
     return { armed: true };
 }
