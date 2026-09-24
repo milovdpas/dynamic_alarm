@@ -273,7 +273,10 @@ export class OccurrenceService {
         const time = schedule.arrivalTime.slice(0, 5);
 
         const dates: string[] = [];
-        let cursor = start;
+        // Annotated rather than inferred: @types/luxon 3.7.5 narrowed setZone to
+        // DateTime<true> | DateTime<false>, which the DateTime<boolean> coming back
+        // from nextOccurrenceDate().plus().startOf() is not assignable to.
+        let cursor: DateTime = start;
         for (let guard = 0; guard <= APP_CONSTANTS.MONITOR.PLAN_AHEAD_DAYS; guard += 1) {
             const next = nextOccurrenceDate(schedule.daysOfWeek, time, zone, cursor);
             if (next === null || next > horizon) {
