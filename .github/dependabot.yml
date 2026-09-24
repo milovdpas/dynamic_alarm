@@ -1,0 +1,39 @@
+# Managed alongside the weekly audit in milovdpas/vps_hosting (doc 07).
+# Dependabot opens the fix PRs; the audit only reports what is still open.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for routine minor/patch noise; majors stay separate so a
+      # breaking bump is never hidden inside a batch.
+      routine:
+        update-types: ["minor", "patch"]
+    ignore:
+      # Must track the Node major in the Dockerfile, not the newest published
+      # types — otherwise the types describe APIs absent at run time.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: docker
+    directory: "/apps/api"
+    schedule:
+      interval: weekly
+      day: monday
+    ignore:
+      # Dependabot reads the tag number and nothing else, so it will offer a
+      # major that is already EOL. Move base images by hand after checking the
+      # release schedule.
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
+
+  # Keeps actions/checkout, setup-node etc. patched.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
