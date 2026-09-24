@@ -60,7 +60,10 @@
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:apk": "node scripts/build-apk.mjs"
+    "build:apk": "node scripts/build-apk.mjs",
+    "build:preview": "eas build --profile preview --platform android",
+    "build:development": "eas build --profile development --platform android",
+    "update:preview": "eas update --branch preview --environment preview"
   },
   "private": true
 }

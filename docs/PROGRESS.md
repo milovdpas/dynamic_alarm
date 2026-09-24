@@ -1489,6 +1489,43 @@ what resolved is the whole answer in a single call.
 
 ## Agreed, not yet scheduled
 
+### Bus legs, found by a second household member on 2026-09-09
+
+Oss to Europark 30 in Oosterhout. NS's own planner says Intercity to Breda, then
+Bravo bus 371. This app planned the train to Breda and a walk, because journeys
+are composed from NS station-to-station trips plus a TomTom access leg to the
+nearest served station, and Oosterhout has none. Verified against the live
+providers: nearest station Breda, access leg 100 minutes on foot or 31 by bike,
+and the alarm set for it without a word about the bus.
+
+The premise in PLAN.md that "NS already fronts 9292 data for bus, no 9292
+contract needed" was true only for door-to-door planning by coordinates, which
+this subscription refuses: `API_KEY_NOT_ALLOWED_TO_PLAN_DOOR_TO_DOOR`, re-tried
+the same day. Door-to-door is a permission on the Reisinformatie API, not a
+product in the portal.
+
+- [ ] **Plan A.** Asked NS API support on 2026-09-09 to enable deur-tot-deur
+      reisadvies on the Ns-App subscription. If granted: plan by coordinates,
+      keep everything else. `LegType.BUS`, the refresh by `ctxRecon` and the
+      monitor already handle it.
+- [ ] **Plan B, if NS says no.** 9292 Reisadvies API. 2026 price list: EUR 501.50
+      a year including 6,000 requests, EUR 0.035 per extra request, EUR 511.50
+      once per token, a hard cap of 10,000 requests an hour, realtime as a free
+      opt-in, one month on a test token before production. Use it for the
+      itinerary only, one call per morning planned plus re-plans, and keep the
+      34 near checks per morning on NS `ctxRecon`, which is free. Routing every
+      check through 9292 would cost about EUR 1,300 a year for three users; the
+      itinerary alone stays inside the 6,000. Any paid provider gets a code-side
+      daily budget that refuses and alerts, beside the `ProviderUsage` counter,
+      rather than a cap somebody hopes a dashboard offers.
+- [ ] **Either way, first: refuse honestly.** Cap the composed access leg (about
+      30 minutes walking, 45 cycling) and fail the plan with a sentence that says
+      the destination is too far from a served station and that the bus cannot
+      be planned yet, offering the fixed travel time as the way out. Today the
+      100 minute walk is scheduled as readily as a 7 minute one.
+
+### Offline reads and the M1 mirror
+
 Both decided 2026-08-16, both written up in PLAN.md.
 
 - [x] Cache every API read so the app stays readable when the backend does not
@@ -1631,6 +1668,7 @@ Reversals and corrections worth remembering. Rationale lives in PLAN.md.
 
 | Date | Decision |
 |---|---|
+| 2026-09-09 | **A fallback that keeps the shape and drops a mode is a silent lie.** Composing door-to-door from rail plus a walk kept every journey planning, and lost every bus without saying so; a 100 minute walk from Breda was scheduled like a 7 minute one. A composed answer needs a bound on what it composes, and a refusal past it. |
 | 2026-09-08 | **A read-modify-write on key-value storage is not atomic, and parallel callers will find that out.** Three mornings armed at once each rewrote the held record and two of them vanished. Anything that edits a stored record goes through a queue; a test that writes concurrently is the only thing that keeps it there. |
 | 2026-09-08 | **Two writers of the same OS state will drift.** The app armed a chain of rings and the overnight push armed one ring, and the difference only showed on a phone, as reminders ringing after the wake time. Anything the OS holds for a morning is written by exactly one function, whoever calls it. |
 | 2026-09-08 | **A push that changes what the phone holds must carry, or find, everything the phone needs to hold it.** The reminder setting lives on the server and in the app's list, and a headless task at 22:00 with no network has neither. It is kept on the held baseline at arming time. |

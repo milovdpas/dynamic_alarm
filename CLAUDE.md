@@ -72,9 +72,10 @@ npm test -w @alarm/core                  # engine tests
 npx tsc --noEmit                         # in apps/mobile
 npx expo lint                            # in apps/mobile
 
-npx eas build --profile development --platform android   # day-to-day iteration
-npx eas build --profile preview --platform android       # verification
-npx eas update --branch preview --environment preview  # JS only, no build needed
+npm run build:apk -w @alarm/mobile           # local release APK, installed on the connected phone
+npm run build:development -w @alarm/mobile   # EAS, day-to-day iteration
+npm run build:preview -w @alarm/mobile       # EAS, verification
+npm run update:preview -w @alarm/mobile      # JS only, no build needed
 ```
 
 **Iterate on `development`, verify on `preview`.** A development build loads its
