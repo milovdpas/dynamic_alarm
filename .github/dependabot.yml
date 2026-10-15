@@ -15,6 +15,12 @@ updates:
       # breaking bump is never hidden inside a batch.
       routine:
         update-types: ["minor", "patch"]
+      # An ESLint major only works as a set: the new eslint, its @eslint/js and
+      # the plugins ship together, so split across separate PRs each one fails
+      # on its own. Borrowed from bijzijnismeemaken, which had it first.
+      eslint:
+        patterns: ["eslint", "@eslint/*", "typescript-eslint", "eslint-*"]
+        update-types: ["major"]
     ignore:
       # Must track the Node major in the Dockerfile, not the newest published
       # types — otherwise the types describe APIs absent at run time.
